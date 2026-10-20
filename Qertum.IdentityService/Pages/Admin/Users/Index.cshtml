@@ -1,0 +1,54 @@
+@page
+@model Qertum.IdentityService.Pages.Admin.Users.IndexModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "Users";
+}
+
+<div class="card full">
+    <div class="card-head">
+        <div>
+            <h1><em>Users</em></h1>
+            <p class="card-sub">Local accounts on this identity provider.</p>
+        </div>
+        <a class="button compact" href="/Admin/Users/New">
+            <span class="bi bi-person-plus"></span> New user
+        </a>
+    </div>
+
+    <form method="get" class="search">
+        <input name="q" value="@Model.Q" placeholder="Search username, name or email" />
+        <button type="submit" class="button secondary compact">Search</button>
+    </form>
+
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr><th>Username</th><th>Name</th><th>Email</th><th>Roles</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var u in Model.Rows)
+                {
+                    <tr>
+                        <td><a href="/Admin/Users/@u.Id">@u.Username</a></td>
+                        <td>@u.DisplayName</td>
+                        <td>@u.Email</td>
+                        <td>
+                            <div class="chips">
+                                @foreach (var role in u.Roles)
+                                {
+                                    <span class="chip">@role</span>
+                                }
+                            </div>
+                        </td>
+                        <td>@IndexModel.StatusOf(u)</td>
+                    </tr>
+                }
+                @if (Model.Rows.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">No users match.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

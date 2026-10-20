@@ -1,0 +1,93 @@
+@page
+@model Qertum.IdentityService.Pages.Admin.RolesModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "Roles";
+}
+
+<div class="card full">
+    <h1><em>Roles</em></h1>
+    <p class="card-sub">
+        Role names and what they mean. What each role may do inside the CA is set on the CA's own
+        permissions page. Roles cannot be renamed: delete and add again.
+    </p>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="error">
+            <span class="bi bi-exclamation-triangle-fill"></span>
+            <span>@Model.ErrorMessage</span>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="success">
+            <span class="bi bi-check-circle-fill"></span>
+            <span>@Model.StatusMessage</span>
+        </div>
+    }
+
+    <p class="hint">Renaming a role here does not move the CA's permission grants — rename it on the CA's Roles &amp; permissions page as well.</p>
+
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr><th>Name</th><th>Description</th><th>Users</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Model.Rows)
+                {
+                    var blockedReason = row.Role.BuiltIn
+                        ? "Built in"
+                        : row.HolderCount > 0 ? "Still assigned" : null;
+                    <tr>
+                        <td class="mono">@row.Role.Name</td>
+                        <td>
+                            <form method="post" asp-page-handler="Update" class="inline-form">
+                                <input type="hidden" name="Name" value="@row.Role.Name" />
+                                <input name="Description" value="@row.Role.Description" maxlength="500" placeholder="No description" />
+                                <button type="submit" class="button secondary compact">Save</button>
+                            </form>
+                        </td>
+                        <td>@row.HolderCount</td>
+                        <td>
+                            @if (!row.Role.BuiltIn)
+                            {
+                                <form method="post" asp-page-handler="Rename" class="inline-form">
+                                    <input type="hidden" name="Name" value="@row.Role.Name" />
+                                    <input name="NewName" value="@row.Role.Name" maxlength="64" pattern="[A-Za-z0-9._\-]{1,64}"
+                                           aria-label="New name for @row.Role.Name" required />
+                                    <button type="submit" class="button secondary compact">Rename</button>
+                                </form>
+                            }
+                            <form method="post" asp-page-handler="Delete">
+                                <input type="hidden" name="Name" value="@row.Role.Name" />
+                                <button type="submit" class="button danger compact" disabled="@(blockedReason is not null)"
+                                        title="@(blockedReason ?? "Delete role")">
+                                    <span class="bi bi-trash"></span> Delete
+                                </button>
+                            </form>
+                            @if (blockedReason is not null)
+                            {
+                                <span class="hint-inline">@blockedReason</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <form method="post" asp-page-handler="Create" class="admin-section">
+        <label>Add role</label>
+        <div class="field">
+            <label asp-for="Name">Name</label>
+            <input asp-for="Name" maxlength="64" pattern="[A-Za-z0-9._\-]{1,64}" required />
+        </div>
+        <div class="field">
+            <label asp-for="Description">Description</label>
+            <input asp-for="Description" maxlength="500" />
+        </div>
+        <button type="submit"><span class="bi bi-plus-lg"></span> Add role</button>
+    </form>
+</div>

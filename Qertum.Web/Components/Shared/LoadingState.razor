@@ -1,0 +1,10 @@
+@namespace Qertum.Web.Components.Shared
+
+<div class="dashboard-loading">
+    <div class="spinner-ring"></div>
+    <div class="loading-text">@Text</div>
+</div>
+
+@code {
+    [Parameter] public string Text { get; set; } = "Loading…";
+}

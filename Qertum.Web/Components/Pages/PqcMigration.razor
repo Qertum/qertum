@@ -1,0 +1,194 @@
+@page "/pqc-migration"
+@attribute [Authorize(Policy = AppPermissions.CertificatesView)]
+@using Qertum.Services
+@inject CertificateRequestsApiClient Api
+@inject NavigationManager Nav
+
+<PageTitle>PQC migration — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>PQC <em>migration</em></Heading>
+    <Subtitle>What a PQC enforcement stage would do to the certificates and requests you have today. Nothing on this page changes anything.</Subtitle>
+</PageHeader>
+
+<div class="form-row cols-2 mb-3">
+    <div class="form-field">
+        <label class="form-label" for="proposed-stage">Judge under stage</label>
+        <select id="proposed-stage" class="form-select" value="@SelectedStage" @onchange="StageChanged">
+            @foreach (var stage in Enum.GetValues<PqcStage>())
+            {
+                <option value="@stage" selected="@(stage == SelectedStage)">@stage</option>
+            }
+        </select>
+        <div class="form-help mt-2">@PqcStageGuidance.Sentence(SelectedStage)</div>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Template))
+    {
+        <div class="form-field">
+            <span class="form-label">Template</span>
+            <div><code>@Template</code> <a href="@Nav.GetUriWithQueryParameters(new Dictionary<string, object?> { ["template"] = null, ["page"] = null })" data-test="clear-template">All templates</a></div>
+        </div>
+    }
+</div>
+
+@if (loadError is not null)
+{
+    <div class="alert alert-danger" role="alert" data-test="load-error">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>Could not load the report: @loadError
+    </div>
+}
+else if (report is null)
+{
+    <LoadingState Text="Building the report…" />
+}
+else
+{
+    <div class="mb-4 scroll-x">
+        <table class="table-dashboard" data-test="summary">
+            <thead>
+                <tr>
+                    <th>Template</th><th>Stage</th><th>Live</th><th>Compliant</th><th>Allowed</th><th>Warned</th>
+                    <th>Refused</th><th>Exception</th><th>Assumed key</th><th>In flight</th><th>Not affected</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in report.Templates)
+                {
+                    <tr data-template="@t.TypeKey">
+                        <td><a href="@TemplateHref(t.TypeKey)">@t.Name</a></td>
+                        <td>@t.CurrentStage@(t.CurrentStage == t.ProposedStage ? "" : " → " + t.ProposedStage)</td>
+                        <td>@t.LiveTotal</td><td>@t.Compliant</td><td>@t.ClassicalAllowed</td><td>@t.ClassicalWarned</td>
+                        <td>@t.ClassicalRefused</td><td>@t.ClassicalCoveredByException</td><td>@t.AlgorithmAssumed</td>
+                        <td>@t.InFlight</td><td>@t.NotAffected</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (report.Items.TotalCount == 0)
+    {
+        <p class="text-muted" data-test="no-items">No classical certificates or requests in scope.</p>
+    }
+    else
+    {
+        <div class="scroll-x">
+            <table class="table-dashboard" data-test="items">
+                <thead>
+                    <tr>
+                        <th>Common name</th><th>Template</th><th>Verdict</th><th>Expires</th>
+                        <th>Subject key</th><th>Issuer signature</th><th>Path</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in report.Items.Items)
+                    {
+                        <tr data-item="@item.RequestId">
+                            <td><a href="@(item.InFlight ? $"certificate-requests/{item.RequestId}" : $"certificates/{item.RequestId}")">@item.CommonName</a></td>
+                            <td>@item.TemplateTypeKey</td>
+                            <td title="@item.Reason">@item.Verdict@(item.IsRenewal ? " (renewal)" : "")</td>
+                            <td>@(item.ValidToUtc?.ToString("yyyy-MM-dd") ?? (item.InFlight ? item.Status.ToString() : "-"))</td>
+                            <td>@FactList(item, c => c.SubjectKeyAlgorithm, item.KeyAlgorithm)</td>
+                            <td>@FactList(item, c => c.IssuerSignatureAlgorithm, "Unknown")</td>
+                            <td>@FactList(item, c => c.ChainStatus, "Unknown")</td>
+                            <td>
+                                @if (item.AlgorithmAssumed)
+                                {
+                                    <span class="badge badge-warning" title="No key algorithm is stored; a renewal would treat it as RSA.">assumed</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <Pager Page="report.Items.Page" PageSize="report.Items.PageSize" TotalCount="report.Items.TotalCount" OnPageChange="GoToPage" />
+    }
+
+    @if (report.Observed is { } observed)
+    {
+        <div class="form-card mt-4" data-test="observed">
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-activity form-section-icon blue"></span>
+                    Observed traffic
+                </div>
+                <div class="form-section-body">
+                    <div class="form-help">
+                        Counted over @observed.EffectiveDays of the @observed.RequestedDays days asked — events are kept @observed.RetentionDays days.
+                        @observed.TotalEvents events from @observed.DistinctIdentities identities.
+                    </div>
+                    <div class="scroll-x">
+                        <table class="table-dashboard">
+                            <thead><tr><th>Template</th><th>Source</th><th>Kind</th><th>Events</th><th>Identities</th></tr></thead>
+                            <tbody>
+                                @foreach (var c in observed.Counts)
+                                {
+                                    <tr><td>@c.TemplateTypeKey</td><td>@c.Source</td><td>@c.Kind</td><td>@c.Count</td><td>@c.DistinctIdentities</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+    else if (report.Withheld.Contains("observed"))
+    {
+        <p class="text-muted mt-4" data-test="observed-withheld">Observed traffic is withheld: it needs the settings.edit permission.</p>
+    }
+
+    <p class="text-muted mt-4" data-test="report-notes">@PqcMigrationReportNotes.Scope</p>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "template")] public string? Template { get; set; }
+    [SupplyParameterFromQuery(Name = "proposedStage")] public string? ProposedStageText { get; set; }
+    [SupplyParameterFromQuery(Name = "page")] public int? PageNumber { get; set; }
+
+    private PqcMigrationReportResponse? report;
+    private string? loadError;
+
+    private PqcStage? Proposed =>
+        !string.IsNullOrWhiteSpace(ProposedStageText) && !char.IsDigit(ProposedStageText.Trim()[0])
+        && Enum.TryParse<PqcStage>(ProposedStageText.Trim(), ignoreCase: true, out var stage) && Enum.IsDefined(stage)
+            ? stage
+            : null;
+
+    // Defaults to the stage in force, so the first view is today's rules; a proposal replaces it.
+    private PqcStage SelectedStage => Proposed ?? report?.Templates.FirstOrDefault()?.CurrentStage ?? report?.CaDefaultStage ?? PqcStage.Enforce;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            report = await Api.GetPqcMigrationReportAsync(new PqcReportQuery
+            {
+                TemplateTypeKey = string.IsNullOrWhiteSpace(Template) ? null : Template,
+                ProposedStage = Proposed,
+                Page = Math.Max(1, PageNumber ?? 1)
+            });
+            loadError = null;
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+        }
+    }
+
+    private void StageChanged(ChangeEventArgs args) =>
+        Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["proposedStage"] = args.Value?.ToString(), ["page"] = null
+        }));
+
+    private void GoToPage(int page) =>
+        Nav.NavigateTo(Nav.GetUriWithQueryParameters(new Dictionary<string, object?> { ["page"] = page <= 1 ? null : page }));
+
+    private string TemplateHref(string typeKey) =>
+        Nav.GetUriWithQueryParameters(new Dictionary<string, object?> { ["template"] = typeKey, ["page"] = null });
+
+    // Subject key, issuer signature and path are separate facts per certificate leg; a request without a certificate shows the fallback.
+    private static string FactList(PqcReportItem item, Func<CertificateInventoryItem, string?> pick, string fallback) =>
+        item.Certificates.Count == 0 ? fallback : string.Join(" / ", item.Certificates.Select(c => pick(c) ?? "Unknown"));
+}

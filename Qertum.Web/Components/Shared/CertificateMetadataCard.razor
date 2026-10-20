@@ -1,0 +1,137 @@
+@using System.Net
+@* Facts recorded about a certificate. Everyone who can see the page reads them; the edit button is shown to all
+   and the API decides (the requester or certificates.manage), exactly as the other action buttons on the page. *@
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<div class="detail-card animate-in" id="detail-metadata" data-test="metadata-card">
+    <div class="detail-card-title d-flex justify-content-between align-items-center">
+        <div class="d-flex align-items-center gap-2">
+            <span class="bi bi-tags-fill detail-card-icon cyan"></span>
+            Recorded facts
+        </div>
+        @if (!editing)
+        {
+            <button type="button" class="btn btn-sm btn-secondary" data-test="metadata-edit" @onclick="StartEdit">Edit</button>
+        }
+    </div>
+
+    @if (!editing)
+    {
+        <div class="detail-field"><div class="detail-label">Owner Team</div><div class="detail-value" data-test="metadata-owner-team">@Show(stored.OwnerTeam)</div></div>
+        <div class="detail-field"><div class="detail-label">Contact Email</div><div class="detail-value" data-test="metadata-contact-email">@Show(stored.ContactEmail)</div></div>
+        <div class="detail-field"><div class="detail-label">Purpose</div><div class="detail-value" data-test="metadata-purpose">@Show(stored.Purpose)</div></div>
+        <div class="detail-field"><div class="detail-label">Target System</div><div class="detail-value" data-test="metadata-target-system">@Show(stored.TargetSystem)</div></div>
+        <div class="detail-field"><div class="detail-label">Ticket Reference</div><div class="detail-value" data-test="metadata-ticket-reference">@Show(stored.TicketReference)</div></div>
+        <div class="detail-field"><div class="detail-label">Compatibility Note</div><div class="detail-value" data-test="metadata-compatibility-note">@Show(stored.CompatibilityNote)</div></div>
+    }
+    else
+    {
+        <div class="detail-field">
+            <label class="detail-label" for="metadata-owner-team-input">Owner Team</label>
+            <input id="metadata-owner-team-input" type="text" class="form-control" data-test="metadata-input-owner-team"
+                   maxlength="@CertificateMetadata.OwnerTeamMax" @bind="ownerTeam" />
+        </div>
+        <div class="detail-field">
+            <label class="detail-label" for="metadata-contact-email-input">Contact Email</label>
+            <input id="metadata-contact-email-input" type="text" class="form-control" data-test="metadata-input-contact-email"
+                   maxlength="@CertificateMetadata.ContactEmailMax" @bind="contactEmail" />
+        </div>
+        <div class="detail-field">
+            <label class="detail-label" for="metadata-purpose-input">Purpose</label>
+            <input id="metadata-purpose-input" type="text" class="form-control" data-test="metadata-input-purpose"
+                   maxlength="@CertificateMetadata.PurposeMax" @bind="purpose" />
+        </div>
+        <div class="detail-field">
+            <label class="detail-label" for="metadata-target-system-input">Target System</label>
+            <input id="metadata-target-system-input" type="text" class="form-control" data-test="metadata-input-target-system"
+                   maxlength="@CertificateMetadata.TargetSystemMax" @bind="targetSystem" />
+        </div>
+        <div class="detail-field">
+            <label class="detail-label" for="metadata-ticket-reference-input">Ticket Reference</label>
+            <input id="metadata-ticket-reference-input" type="text" class="form-control" data-test="metadata-input-ticket-reference"
+                   maxlength="@CertificateMetadata.TicketReferenceMax" @bind="ticketReference" />
+        </div>
+        <div class="detail-field">
+            <label class="detail-label" for="metadata-compatibility-note-input">Compatibility Note</label>
+            <input id="metadata-compatibility-note-input" type="text" class="form-control" data-test="metadata-input-compatibility-note"
+                   maxlength="@CertificateMetadata.CompatibilityNoteMax" @bind="compatibilityNote" />
+        </div>
+        <p class="client-setup-hint">Facts only. Never enter keys or secrets. Leave a field empty for Unknown.</p>
+
+        @if (!string.IsNullOrWhiteSpace(error))
+        {
+            <div class="alert alert-danger" role="alert" data-test="metadata-error">@error</div>
+        }
+
+        <div class="cell-actions">
+            <button type="button" class="btn btn-primary" data-test="metadata-save" disabled="@saving" @onclick="SaveAsync">Save</button>
+            <button type="button" class="btn btn-secondary" data-test="metadata-cancel" disabled="@saving" @onclick="CancelEdit">Cancel</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public Qertum.Services.CertificateRequest Certificate { get; set; } = default!;
+
+    private CertificateMetadata stored = new();
+    private bool editing;
+    private bool saving;
+    private string? error;
+    private string? ownerTeam, contactEmail, purpose, targetSystem, ticketReference, compatibilityNote;
+
+    protected override void OnParametersSet() => stored = Certificate.Metadata;
+
+    private static string Show(string? value) => string.IsNullOrWhiteSpace(value) ? "Unknown" : value;
+
+    private void StartEdit()
+    {
+        ownerTeam = stored.OwnerTeam;
+        contactEmail = stored.ContactEmail;
+        purpose = stored.Purpose;
+        targetSystem = stored.TargetSystem;
+        ticketReference = stored.TicketReference;
+        compatibilityNote = stored.CompatibilityNote;
+        error = null;
+        editing = true;
+    }
+
+    private void CancelEdit()
+    {
+        error = null;
+        editing = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        saving = true;
+        error = null;
+        try
+        {
+            var result = await CertificateRequestsApiClient.UpdateCertificateMetadataAsync(Certificate.Id, new CertificateMetadata
+            {
+                OwnerTeam = ownerTeam, ContactEmail = contactEmail, Purpose = purpose,
+                TargetSystem = targetSystem, TicketReference = ticketReference, CompatibilityNote = compatibilityNote
+            });
+            if (result is null)
+            {
+                error = "This certificate request no longer exists.";
+                return;
+            }
+            stored = result;
+            editing = false;
+        }
+        catch (ApiProblemException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            error = ex.WithCorrelationId("Only the requester of this certificate or someone with certificates.manage can change its metadata.");
+        }
+        catch (Exception ex)
+        {
+            error = ex.WithCorrelationId($"Failed to save metadata: {ex.Message}");
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+}

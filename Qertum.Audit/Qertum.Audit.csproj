@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The audit event format both audit logs write and read: the CA's (Qertum.Services) and the
+       IdentityService's. Its own library so the independently deployable IdentityService can share the
+       format without referencing anything of the CA. Depends on Serilog only. -->
+  <ItemGroup>
+    <PackageReference Include="Serilog" />
+  </ItemGroup>
+</Project>

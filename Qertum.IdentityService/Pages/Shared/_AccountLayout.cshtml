@@ -1,0 +1,99 @@
+@{
+    Layout = null;
+    var username = User.Identity?.Name;
+    // Set by the forced change-password page: a user who must change their password gets no
+    // navigation at all (a link to the admin pages would hand them a way around the block),
+    // only a way to sign out.
+    var hideAccountNav = ViewData["HideAccountNav"] as bool? ?? false;
+    var path = Context.Request.Path.Value ?? string.Empty;
+    string NavClass(string match) => path.StartsWith(match, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+    string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split(new[] { ' ', '.', '@', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..1].ToUpperInvariant();
+        return string.Concat(parts[0][..1], parts[1][..1]).ToUpperInvariant();
+    }
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · Qertum IDM</title>
+    <link rel="stylesheet" href="~/identity.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="shell-header">
+        @if (hideAccountNav)
+        {
+            <span class="brand">
+                <span class="brand-mark" aria-hidden="true"></span>
+                <span class="brand-text">
+                    <span class="brand-name">Qer<em>tum</em></span>
+                    <span class="brand-sub">Identity</span>
+                </span>
+            </span>
+        }
+        else
+        {
+            <a class="brand" href="/Account">
+                <span class="brand-mark" aria-hidden="true"></span>
+                <span class="brand-text">
+                    <span class="brand-name">Qer<em>tum</em></span>
+                    <span class="brand-sub">Identity</span>
+                </span>
+            </a>
+        }
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <span class="who">
+                <span class="who-avatar" aria-hidden="true">@Initials(username)</span>
+                <span>@username</span>
+            </span>
+        }
+        else
+        {
+            <span class="who anon">Not signed in</span>
+        }
+    </header>
+    @if (User.Identity?.IsAuthenticated == true && hideAccountNav)
+    {
+        <nav class="shell-nav">
+            <a class="@NavClass("/Account/Logout")" href="/Account/Logout">
+                <span class="bi bi-box-arrow-right"></span> Sign out
+            </a>
+        </nav>
+    }
+    else if (User.Identity?.IsAuthenticated == true)
+    {
+        <nav class="shell-nav">
+            <a class="@NavClass("/Account/Index")@(path.Equals("/Account", StringComparison.OrdinalIgnoreCase) ? " active" : "")" href="/Account">
+                <span class="bi bi-person"></span> Profile
+            </a>
+            @if (User.IsInRole("admin"))
+            {
+                <a class="@NavClass("/Admin/Users")" href="/Admin/Users">
+                    <span class="bi bi-people"></span> Users
+                </a>
+                <a class="@NavClass("/Admin/Roles")" href="/Admin/Roles">
+                    <span class="bi bi-tags"></span> Roles
+                </a>
+                <a class="@NavClass("/Admin/Audit")" href="/Admin/Audit">
+                    <span class="bi bi-journal-text"></span> Audit log
+                </a>
+            }
+            <a class="@NavClass("/Account/ChangePassword")" href="/Account/ChangePassword">
+                <span class="bi bi-key"></span> Change password
+            </a>
+            <a class="@NavClass("/Account/Logout")" href="/Account/Logout">
+                <span class="bi bi-box-arrow-right"></span> Sign out
+            </a>
+        </nav>
+    }
+    <main class="shell-main">
+        @RenderBody()
+    </main>
+</body>
+</html>

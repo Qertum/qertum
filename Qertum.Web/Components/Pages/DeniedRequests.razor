@@ -1,0 +1,92 @@
+@page "/denied"
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+<PageTitle>Denied Requests — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Denied <em>Requests</em></Heading>
+    <Subtitle>Certificate requests that were rejected</Subtitle>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (requests is null)
+{
+    <LoadingState Text="Loading denied requests…" />
+}
+else if (totalCount == 0)
+{
+    <div class="recent-table-section">
+        <EmptyState Glyph="✅" Title="No denied requests" Message="All certificate requests have been processed without denial." />
+    </div>
+}
+else
+{
+    <div class="recent-table-section animate-in">
+        <table class="table-dashboard" id="denied-requests-table">
+            <thead>
+                <tr>
+                    <th>Common Name</th>
+                    <th>Requested By</th>
+                    <th>Status</th>
+                    <th>Requested</th>
+                    <th>Denied</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in requests)
+                {
+                    <tr class="clickable-row" @onclick="() => GoTo(r.Id)">
+                        <td class="td-common-name">@r.CommonName</td>
+                        <td>@r.RequestedBy</td>
+                        <td>
+                            <span class="status-badge rejected">
+                                <span class="status-badge-dot"></span>
+                                Denied
+                            </span>
+                        </td>
+                        <td>@r.CreatedAtUtc.ToLocalTime().ToString("g")</td>
+                        <td>@r.UpdatedAtUtc.ToLocalTime().ToString("g")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <Pager Page="@CurrentPage" PageSize="PageSize" TotalCount="@totalCount" OnPageChange="GoToPage" />
+}
+
+@code {
+    /// <summary>Rows per request; the server pages, so this caps the fetch, not the reach.</summary>
+    public const int PageSize = 50;
+
+    private IReadOnlyList<CertificateRequest>? requests;
+    private int totalCount;
+
+    // The page lives in the URL so the one being read survives a refresh or a shared link.
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private int CurrentPage => PageNumber is > 0 ? PageNumber.Value : 1;
+    private string? loadError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var result = await CertificateRequestsApiClient.GetRejectedAsync(CurrentPage, PageSize);
+            requests = result.Items;
+            totalCount = result.TotalCount;
+        }
+        catch (Exception ex) { loadError = $"Failed to load: {ex.Message}"; }
+    }
+
+    private void GoTo(Guid id) => NavigationManager.NavigateTo($"certificate-requests/{id}");
+
+    private void GoToPage(int page) =>
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameter(
+            "page", page > 1 ? (int?)page : null));
+}

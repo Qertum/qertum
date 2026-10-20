@@ -1,0 +1,45 @@
+# Single-container Qertum deployment for Unraid (direct port exposure).
+#
+#   docker compose -f deploy/single-container/docker-compose.yml pull
+#   docker compose -f deploy/single-container/docker-compose.yml up -d
+#
+# Redeploy after a new CI push: re-run the two commands above.
+#
+# Required environment (shell or a .env file beside this compose file):
+#   QERTUM_REGISTRY  registry address the CI job pushes to, no scheme (e.g. registry.example.lan:5000)
+#   QERTUM_HOST      host IP/name that browsers and ACME clients use to reach this stack
+#
+# NOTE: with direct port exposure the published host port MUST equal the
+# container port, because the OIDC authority and ACME base URL are advertised
+# to browsers/clients using these port numbers. If you remap a host port,
+# change the matching *_PORT env var to the same value.
+#
+# Rollback: CI pushes both ':latest' and ':<git-sha>'. To pin/roll back, set
+# QERTUM_IMAGE_TAG to a specific sha before pulling, e.g.:
+#   QERTUM_IMAGE_TAG=abcdef0 docker compose -f deploy/single-container/docker-compose.yml pull
+#   QERTUM_IMAGE_TAG=abcdef0 docker compose -f deploy/single-container/docker-compose.yml up -d
+
+services:
+  qertum:
+    image: ${QERTUM_REGISTRY:?set QERTUM_REGISTRY to the registry address, e.g. registry.example.lan:5000}/qertum:${QERTUM_IMAGE_TAG:-latest}
+    container_name: qertum
+    restart: unless-stopped
+    labels:
+      # Unraid Docker tab "WebUI" link. [IP] / [PORT:8090] are resolved by Unraid.
+      net.unraid.docker.webui: "http://[IP]:[PORT:8090]/"
+    environment:
+      # The Unraid host IP/hostname browsers and ACME clients use to reach this stack.
+      QERTUM_HOST: "${QERTUM_HOST:?set QERTUM_HOST to the host IP or name clients use}"
+      # Advertised web port for OIDC redirect registration. The web app still LISTENS
+      # on 8080 inside the container, so this MUST equal the host port mapped to 8080.
+      WEB_PORT: "8090"
+      # ASPNETCORE_ENVIRONMENT defaults to Production inside the image.
+    ports:
+      - "8090:8080"   # Web UI   (host 8090 -> container 8080)
+      - "8081:8081"   # Identity (OIDC)
+      - "8082:8082"   # REST API
+      - "8083:8083"   # ACME
+    volumes:
+      # Persistent state: DB, CA keypair, Data Protection keyring, audit logs,
+      # identity store. BACK THIS UP — losing it loses the CA private key.
+      - /mnt/user/appdata/qertum:/data

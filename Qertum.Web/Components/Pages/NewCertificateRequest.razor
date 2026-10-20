@@ -1,0 +1,443 @@
+@page "/new-certificate-request"
+@implements IDisposable
+@inject TimeProvider TimeProvider
+@using Qertum.Services.Policies
+@using Qertum.Web.Components.Pages.Enrollment
+@inject CertificateRequestsApiClient Api
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+
+<PageTitle>New Request — Qertum</PageTitle>
+
+<div class="dashboard-header">
+    <a href="/certificate-requests" class="back-link">
+        <span class="bi bi-arrow-left"></span> Back to requests
+    </a>
+    <div class="dashboard-header-row">
+        <div>
+            <h1>New <em>Certificate</em> Request</h1>
+            <p class="dashboard-subtitle">Tell us what the certificate is for and we'll recommend a template, key and enrollment route.</p>
+        </div>
+    </div>
+</div>
+
+@{
+    var stepLabels = StepLabels.ToList();
+    var currentIndex = stepLabels.FindIndex(entry => entry.Step == DisplayedStep);
+}
+@if (caStatus is { IsInitialized: false })
+{
+    <div class="form-card form-card-full animate-in" data-state="ca-not-ready">
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-exclamation-triangle-fill form-section-icon amber" aria-hidden="true"></span>
+                Certificate authority not ready
+            </div>
+            <div class="form-section-body">
+                <p>
+                    @if (caStatus.PendingRootCaRequestId.HasValue)
+                    {
+                        <span>
+                            The Root CA request is still waiting for approval. Approving it is what creates the CA
+                            key and certificate; until then no certificate can be requested or issued.
+                        </span>
+                    }
+                    else
+                    {
+                        <span>
+                            No CA certificate is configured, so nothing can be signed yet. An administrator has to
+                            generate or import a root CA first.
+                        </span>
+                    }
+                </p>
+                <div class="d-flex gap-2">
+                    @if (caStatus.PendingRootCaRequestId.HasValue)
+                    {
+                        <a class="btn btn-primary" href="/certificate-requests/@caStatus.PendingRootCaRequestId">Review Root CA request</a>
+                    }
+                    else
+                    {
+                        <a class="btn btn-primary" href="/onboarding">Set up the CA</a>
+                    }
+                    <a class="btn btn-outline-secondary" href="/certificate-requests">Back to requests</a>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+<div class="form-card form-card-full wizard-steps-card animate-in">
+    <ol class="wizard-steps" aria-label="Progress">
+        @for (var i = 0; i < stepLabels.Count; i++)
+        {
+            var index = i;
+            var entry = stepLabels[i];
+            var isDone = i < currentIndex;
+            var state = isDone ? "done" : i == currentIndex ? "current" : null;
+            <li class="@state" aria-current="@(i == currentIndex ? "step" : null)">
+                @if (isDone)
+                {
+                    @* Finished steps only. Moving forward runs the step's own action — selecting a
+                       template, choosing a protocol — so the indicator must never skip ahead. This
+                       goes through the same GoToAsync the review step's "Change" links use. *@
+                    <button type="button" class="wizard-step-link" data-goto-step="@entry.Step"
+                            @onclick="() => GoToAsync(entry.Step)">
+                        <span class="wizard-step-number">
+                            <span class="bi bi-check-lg" aria-hidden="true"></span>
+                        </span>
+                        <span class="wizard-step-label">@entry.Label</span>
+                    </button>
+                }
+                else
+                {
+                    <span class="wizard-step-number">@(index + 1)</span>
+                    <span class="wizard-step-label">@entry.Label</span>
+                }
+            </li>
+        }
+    </ol>
+</div>
+
+<div class="form-card form-card-full wizard-card animate-in">
+
+    @if (optionsError is not null)
+    {
+        <div class="alert alert-warning" role="alert" data-state="options-unavailable">
+            <span class="bi bi-exclamation-triangle-fill me-2"></span>
+            Enrollment options are unavailable: @optionsError
+            <button id="retry-options" type="button" class="btn btn-sm btn-outline-secondary ms-2" @onclick="LoadOptionsAsync">Retry</button>
+        </div>
+    }
+    else if (options is null)
+    {
+        <div class="form-control d-flex align-items-center gap-2 text-muted">
+            <span class="spinner-border spinner-border-sm"></span> Loading enrollment options…
+        </div>
+    }
+    else if (submitWarnings is not null)
+    {
+        <div class="alert alert-warning" role="status" data-test="submit-warnings">
+            <strong><span class="bi bi-check-circle-fill me-2"></span>The request was queued.</strong>
+            <ul class="mb-0 mt-2">
+                @foreach (var warning in submitWarnings)
+                {
+                    <li>@warning</li>
+                }
+            </ul>
+        </div>
+        <div class="wizard-actions">
+            <button type="button" class="btn btn-primary" data-test="continue-after-warnings"
+                    @onclick="ContinueAfterWarnings">Continue to requests</button>
+        </div>
+    }
+    else
+    {
+        @switch (step)
+        {
+            case WizardStep.Purpose:
+                <PurposeStep Options="options" ExpandedPurpose="expandedPurpose" ShowAllTemplates="showAllTemplates"
+                             OnPurposeChosen="ChoosePurposeAsync" OnDirectChosen="ChooseDirect"
+                             OnTemplateChosen="ChooseListedTemplateAsync" />
+                break;
+            case WizardStep.Route:
+                <RouteStep Acme="ApplicableAcme" Est="ApplicableEst"
+                           OnWeb="() => GoToAsync(WizardStep.Names)" OnProtocol="ChooseProtocolAsync"
+                           OnBack="() => GoToAsync(WizardStep.Purpose)" />
+                break;
+            case WizardStep.Protocol:
+                <ProtocolInfo Protocol="@protocol" Acme="ApplicableAcme" Est="ApplicableEst"
+                              TemplateName="@draft.Template?.Name" OnBack="() => GoToAsync(WizardStep.Route)"
+                              OnDownloadRoot="DownloadRootCertificateAsync"
+                              DownloadError="@rootDownloadError" />
+                break;
+            case WizardStep.Names:
+                <NamesStep Draft="draft" OnChanged="DraftChangedAsync"
+                           OnNext="() => GoToAsync(WizardStep.Key)" OnBack="BackFromNamesAsync">
+                    <PreviewVerdict IsPreviewing="isPreviewing" PreviewError="@previewError" Preview="preview" />
+                </NamesStep>
+                break;
+            case WizardStep.Key:
+                <KeyStep Draft="draft" ClassicalRefused="PqcStageGuidance.RefusesNewClassical(EffectiveStage)" Stage="EffectiveStage" CaAlgorithm="@caStatus?.Algorithm" OnChanged="DraftChangedAsync"
+                         OnNext="() => GoToAsync(WizardStep.Review)" OnBack="() => GoToAsync(WizardStep.Names)">
+                    <PreviewVerdict IsPreviewing="isPreviewing" PreviewError="@previewError" Preview="preview" />
+                </KeyStep>
+                break;
+            case WizardStep.Review:
+                <ReviewStep Draft="draft" RequestedBy="@requestedBy" IsSubmitting="isSubmitting"
+                            SubmitError="@submitError" Violations="violations"
+                            OnSubmit="SubmitAsync" OnBack="() => GoToAsync(WizardStep.Key)" OnEditStep="GoToAsync">
+                    <PreviewVerdict IsPreviewing="isPreviewing" PreviewError="@previewError" Preview="preview" />
+                </ReviewStep>
+                break;
+        }
+    }
+</div>
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Create]" />
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private static readonly (WizardStep Step, string Label)[] AllStepLabels =
+    [
+        (WizardStep.Purpose, "Purpose"),
+        (WizardStep.Route, "Route"),
+        (WizardStep.Names, "Names"),
+        (WizardStep.Key, "Key"),
+        (WizardStep.Review, "Review")
+    ];
+
+    // The route step is listed only when it will be shown for the chosen template.
+    private IEnumerable<(WizardStep Step, string Label)> StepLabels =>
+        AllStepLabels.Where(entry => entry.Step != WizardStep.Route || UsesRouteStep);
+
+    // The protocol explainer is part of the route step as far as progress is concerned.
+    private WizardStep DisplayedStep => step == WizardStep.Protocol ? WizardStep.Route : step;
+
+    private readonly EnrollmentDraft draft = new();
+
+    // The stage that governs the chosen template: its override, else the CA default (the options carry both).
+    private PqcStage EffectiveStage => draft.Template?.PqcStage ?? options?.PqcStage ?? PqcStage.Enforce;
+
+    // Warnings the create call returned. When there are any they are shown before leaving the wizard.
+    private IReadOnlyList<string>? submitWarnings;
+
+    // Null until known: an unreachable API must not look like a missing CA, so the wizard renders
+    // as usual and the create call reports whatever the API says.
+    private CaStatusResponse? caStatus;
+    private EnrollmentOptionsResponse? options;
+    private string? optionsError;
+    private WizardStep step = WizardStep.Purpose;
+    private EnrollmentPurpose? expandedPurpose;
+    private bool showAllTemplates;
+    private string requestedBy = string.Empty;
+    private bool isSubmitting;
+    private string? submitError;
+
+    // The rules an issuance policy refused the request on, listed so the requester can see what to change.
+    private IReadOnlyList<IssuancePolicyViolation> violations = [];
+
+    public static readonly TimeSpan PreviewDebounce = TimeSpan.FromMilliseconds(400);
+
+    // Advisory: shown before submit so the requester sees the rules without filing anything. It never
+    // disables submit — a stale or failed preview must not block a valid request.
+    private CertificateRequestPreviewResponse? preview;
+    private bool isPreviewing;
+    private string? previewError;
+
+    // The call whose result may be shown. Replaced per call; a result from any other source is discarded.
+    private CancellationTokenSource? previewCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationStateTask).User;
+        // Display only — the API records the requester from the caller's token and ignores anything
+        // sent in the body. The claim order mirrors IdentityClaimsMapper.GetName.
+        requestedBy =
+            user.FindFirst("preferred_username")?.Value
+            ?? user.FindFirst("name")?.Value
+            ?? user.FindFirst("sub")?.Value
+            ?? user.Identity?.Name
+            ?? string.Empty;
+
+        await LoadCaStatusAsync();
+        await LoadOptionsAsync();
+    }
+
+    private async Task LoadCaStatusAsync()
+    {
+        // The API refuses a request filed before the root CA exists; this only stops the wizard
+        // walking someone through a form whose submit can never succeed.
+        try { caStatus = await Api.GetCaStatusAsync(); }
+        catch { caStatus = null; }
+    }
+
+    private async Task LoadOptionsAsync()
+    {
+        optionsError = null;
+        options = null;
+        try
+        {
+            options = await Api.GetEnrollmentOptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            // Never fall back to an empty list: "nothing configured" and "could not load" must look different.
+            optionsError = ex.Message;
+        }
+    }
+
+    private Task ChoosePurposeAsync(EnrollmentPurpose purpose)
+    {
+        showAllTemplates = false;
+        var keys = options!.Purposes.Single(p => p.Purpose == purpose).TemplateTypeKeys;
+        if (keys.Count == 1)
+            return ChooseTemplateAsync(options.Templates.Single(t => t.TypeKey == keys[0]), purpose);
+
+        expandedPurpose = expandedPurpose == purpose ? null : purpose;
+        return Task.CompletedTask;
+    }
+
+    private void ChooseDirect()
+    {
+        expandedPurpose = null;
+        showAllTemplates = !showAllTemplates;
+    }
+
+    private Task ChooseListedTemplateAsync(EnrollmentTemplateSummary template) =>
+        ChooseTemplateAsync(template, showAllTemplates ? null : expandedPurpose);
+
+    private string protocol = string.Empty;
+
+    // A protocol applies only when its configured template is the one chosen; the options endpoint
+    // already returns null for a protocol with no usable URL.
+    private AcmeEnrollmentRoute? ApplicableAcme =>
+        options?.Acme is { } acme && acme.TemplateTypeKey == draft.Template?.TypeKey ? acme : null;
+
+    private EstEnrollmentRoute? ApplicableEst =>
+        options?.Est is { } est && est.TemplateTypeKey == draft.Template?.TypeKey ? est : null;
+
+    private bool UsesRouteStep =>
+        !draft.ChoseTemplateDirectly && (ApplicableAcme is not null || ApplicableEst is not null);
+
+    private Task ChooseProtocolAsync(string chosen)
+    {
+        protocol = chosen;
+        return GoToAsync(WizardStep.Protocol);
+    }
+
+    private Task ChooseTemplateAsync(EnrollmentTemplateSummary template, EnrollmentPurpose? purpose)
+    {
+        draft.SelectTemplate(template, purpose, PqcStageGuidance.RefusesNewClassical(template.PqcStage));
+        return GoToAsync(UsesRouteStep ? WizardStep.Route : WizardStep.Names);
+    }
+
+    private Task BackFromNamesAsync() => GoToAsync(UsesRouteStep ? WizardStep.Route : WizardStep.Purpose);
+
+    private Task DraftChangedAsync() => SchedulePreviewAsync();
+
+    private async Task GoToAsync(WizardStep next)
+    {
+        CancelPreview();
+        step = next;
+        if (next is WizardStep.Names or WizardStep.Key or WizardStep.Review)
+            await SchedulePreviewAsync();
+    }
+
+    private async Task SchedulePreviewAsync()
+    {
+        CancelPreview();
+
+        if (string.IsNullOrWhiteSpace(draft.CommonName) || draft.Template is null)
+        {
+            preview = null;
+            previewError = null;
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        previewCts = cts;
+        isPreviewing = true;
+        previewError = null;
+
+        try
+        {
+            await Task.Delay(PreviewDebounce, TimeProvider, token);
+            var result = await Api.PreviewCertificateRequestAsync(draft.ToCreateRequest(), token);
+            if (!ReferenceEquals(previewCts, cts))
+                return;
+
+            preview = result;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            // Superseded by newer input, a step change, or disposal.
+        }
+        catch (Exception ex)
+        {
+            if (!ReferenceEquals(previewCts, cts))
+                return;
+
+            preview = null;
+            previewError = $"Could not check policy: {ex.Message}";
+        }
+        finally
+        {
+            if (ReferenceEquals(previewCts, cts))
+                isPreviewing = false;
+        }
+    }
+
+    private void CancelPreview()
+    {
+        if (previewCts is null)
+            return;
+
+        previewCts.Cancel();
+        previewCts.Dispose();
+        previewCts = null;
+        isPreviewing = false;
+    }
+
+    public void Dispose() => CancelPreview();
+
+    private void ContinueAfterWarnings() => NavigationManager.NavigateTo("/certificate-requests");
+
+    private async Task SubmitAsync()
+    {
+        submitError = null;
+        violations = [];
+        isSubmitting = true;
+
+        try
+        {
+            var created = await Api.QueueCertificateRequestAsync(draft.ToCreateRequest());
+            if (created.Warnings is { Count: > 0 } warnings)
+            {
+                submitWarnings = warnings;
+                return;
+            }
+            NavigationManager.NavigateTo("/certificate-requests");
+        }
+        catch (ApiProblemException ex)
+        {
+            submitError = ex.WithCorrelationId(ex.Violations.Count > 0
+                ? $"Issuance policy '{ex.PolicyName}' v{ex.VersionNumber} refused this request:"
+                : $"Failed to queue certificate request: {ex.Message}");
+            violations = ex.Violations;
+        }
+        catch (Exception ex)
+        {
+            submitError = $"Failed to queue certificate request: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    /// <summary>
+    /// Hands the root certificate to the browser so the operator can install it where their
+    /// enrollment client runs. The bytes come through the API client server-side; the file name
+    /// matches the one every setup example refers to.
+    /// </summary>
+    private async Task DownloadRootCertificateAsync()
+    {
+        rootDownloadError = null;
+        try
+        {
+            var bytes = await Api.DownloadCaCertificateAsync();
+            await JS.InvokeVoidAsync("downloadFile", ClientSetupSnippets.RootCertificateFileName,
+                "application/x-pem-file", Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            rootDownloadError = $"Could not download the root certificate: {ex.Message}";
+        }
+    }
+
+    private string? rootDownloadError;
+}

@@ -1,0 +1,99 @@
+<div data-step="Names">
+    <h2 class="form-section-title">Names on the certificate</h2>
+
+    <div class="form-row">
+        <div class="form-field">
+            <label class="form-label" for="common-name">Common name (CN)</label>
+            <input id="common-name" class="form-control" @bind="Draft.CommonName" @bind:after="Changed"
+                   placeholder="@CommonNamePlaceholder" />
+            <div class="form-help">@CommonNameHelp</div>
+        </div>
+    </div>
+
+    @if (Has("dns"))
+    {
+        <div class="form-row">
+            <div class="form-field">
+                <label class="form-label" for="dns-names">DNS names (SAN)</label>
+                <input id="dns-names" class="form-control" @bind="Draft.DnsNames" @bind:after="Changed"
+                       placeholder="www.contoso.com, api.contoso.com" />
+                <div class="form-help">Comma-separated hostnames. Optional — the common name is always included.</div>
+            </div>
+        </div>
+    }
+
+    @if (Has("ip"))
+    {
+        <div class="form-row">
+            <div class="form-field">
+                <label class="form-label" for="ip-addrs">IP addresses (SAN)</label>
+                <input id="ip-addrs" class="form-control" @bind="Draft.IpAddresses" @bind:after="Changed"
+                       placeholder="10.0.0.1, 192.168.1.100" />
+                <div class="form-help">Comma-separated IPv4 or IPv6 addresses. Optional.</div>
+            </div>
+        </div>
+    }
+
+    @if (Has("email"))
+    {
+        <div class="form-row">
+            <div class="form-field">
+                <label class="form-label" for="emails">Email addresses (SAN)</label>
+                <input id="emails" class="form-control" @bind="Draft.EmailAddresses" @bind:after="Changed"
+                       placeholder="user@contoso.com" />
+                <div class="form-help">Comma-separated email addresses. Optional.</div>
+            </div>
+        </div>
+    }
+
+    @if (Has("upn"))
+    {
+        <div class="form-row">
+            <div class="form-field">
+                <label class="form-label" for="upns">User principal names (SAN)</label>
+                <input id="upns" class="form-control" @bind="Draft.UserPrincipalNames" @bind:after="Changed"
+                       placeholder="user@contoso.com" />
+                <div class="form-help">Comma-separated UPNs for smart card or client authentication. Optional.</div>
+            </div>
+        </div>
+    }
+
+    @ChildContent
+
+    <div class="wizard-actions">
+        <button type="button" class="btn-outline-detail" data-action="back" @onclick="OnBack">Back</button>
+        <button type="button" class="btn btn-primary" data-action="next"
+                disabled="@string.IsNullOrWhiteSpace(Draft.CommonName)" @onclick="OnNext">Next</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EnrollmentDraft Draft { get; set; } = default!;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnNext { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool Has(string sanType) => Draft.Template?.SanTypes.Contains(sanType) == true;
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private string CommonNamePlaceholder => Draft.Purpose switch
+    {
+        EnrollmentPurpose.Email => "Jane Doe",
+        EnrollmentPurpose.ClientAuthentication => "device-042.contoso.com",
+        EnrollmentPurpose.SubordinateCa => "Contoso Issuing CA 1",
+        EnrollmentPurpose.CodeSigning => "Contoso Build Signing",
+        _ => "api.contoso.com"
+    };
+
+    private string CommonNameHelp => Draft.Purpose switch
+    {
+        EnrollmentPurpose.WebServer => "The hostname clients connect to. Add every other hostname as a DNS name.",
+        EnrollmentPurpose.ClientAuthentication => "A name that identifies the client or device to the servers it connects to.",
+        EnrollmentPurpose.Email => "The person or mailbox name; the address goes in the email SAN.",
+        EnrollmentPurpose.CodeSigning => "The publisher name relying parties will see on signed code.",
+        EnrollmentPurpose.SubordinateCa => "The name this intermediate CA will appear under as an issuer.",
+        _ => "The subject name for the certificate."
+    };
+}

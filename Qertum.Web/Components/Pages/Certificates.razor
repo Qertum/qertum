@@ -1,0 +1,274 @@
+@page "/certificates"
+@implements IDisposable
+@inject TimeProvider TimeProvider
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject TimeProvider Clock
+@inject IAuthorizationService Authorization
+@inject AuthenticationStateProvider AuthenticationState
+
+<PageTitle>Issued Certificates — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>All <em>Certificates</em></Heading>
+    <Subtitle>All certificates and their validity status, including revoked.</Subtitle>
+    <Actions>
+        @if (canBulk)
+        {
+            <a class="btn btn-outline-secondary" href="bulk-operations" data-test="bulk-actions">
+                <span class="bi bi-stack me-1"></span>Bulk actions
+            </a>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (certificates is null)
+{
+    <LoadingState Text="Loading certificates…" />
+}
+else if (counts.Total == 0 && string.IsNullOrWhiteSpace(searchQuery) && validityFilter == AllFilter)
+{
+    <div class="recent-table-section">
+        <EmptyState Icon="bi-shield-lock" Title="No certificates issued yet" Message="Certificates appear here after requests have been processed." />
+    </div>
+}
+else
+{
+    <div class="list-toolbar">
+        <div class="list-search">
+            <span class="bi bi-search" aria-hidden="true"></span>
+            <input type="search" placeholder="Search common name or requester…"
+                   value="@searchQuery" @oninput="OnSearchInput" data-test="search" />
+        </div>
+        <div class="filter-chips">
+            @foreach (var f in Filters)
+            {
+                <button type="button"
+                        class="filter-chip @(validityFilter == f.Key ? "active" : "")"
+                        data-test="chip-@f.Key"
+                        @onclick="() => SelectFilter(f.Key)">
+                    @f.Key
+                    <span class="filter-chip-count">@CountFor(f)</span>
+                </button>
+            }
+        </div>
+        <div class="list-toolbar-spacer"></div>
+        <div class="list-count">@totalCount matching</div>
+    </div>
+
+    if (certificates.Count == 0)
+    {
+        <div class="recent-table-section">
+            <EmptyState Icon="bi-search" Title="No matches" Message="Try adjusting your search or filters." />
+        </div>
+    }
+    else
+    {
+        <div class="recent-table-section animate-in">
+            <table class="table-dashboard" id="certificates-table">
+                <thead>
+                    <tr>
+                        <th>Common Name</th>
+                        <th>Requested By</th>
+                        <th>Status</th>
+                        <th>Valid From</th>
+                        <th>Valid To</th>
+                        <th>Remaining</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var cert in certificates)
+                    {
+                        <tr class="clickable-row" @onclick="() => GoTo(cert.Id)">
+                            <td class="td-common-name">
+                                <span class="bi bi-shield-lock-fill cert-row-icon"></span>
+                                @cert.CommonName
+                            </td>
+                            <td>@cert.RequestedBy</td>
+                            <td>
+                                <span class="status-badge @GetStatusClass(cert)">
+                                    <span class="status-badge-dot"></span>
+                                    @GetStatusLabel(cert)
+                                </span>
+                            </td>
+                            <td>@(cert.ValidFrom?.ToLocalTime().ToString("d") ?? "—")</td>
+                            <td>@(cert.ValidTo?.ToLocalTime().ToString("d") ?? "—")</td>
+                            <td>@GetRemaining(cert)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <Pager Page="@CurrentPage" PageSize="PageSize" TotalCount="@totalCount" OnPageChange="GoToPage" />
+    }
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Inventory]" />
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>Rows per request; the server pages, so this caps the fetch, not the reach.</summary>
+    public const int PageSize = 50;
+
+    private IReadOnlyList<CertificateRequest>? certificates;
+    private int totalCount;
+
+    // The page lives in the URL so the one being read survives a refresh or a shared link.
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private int CurrentPage => PageNumber is > 0 ? PageNumber.Value : 1;
+    private string? loadError;
+    private IssuedCertificateCounts counts = new();
+    private string searchQuery = string.Empty;
+    private CancellationTokenSource? searchCts;
+
+    /// <summary>Search settles before a round trip, so typing does not fire one request per keystroke.</summary>
+    public static readonly TimeSpan SearchDebounce = TimeSpan.FromMilliseconds(300);
+
+    private const string AllFilter = "All";
+
+    // The chip lives in the URL alongside the page, so a filtered view can be linked and refreshed.
+    [SupplyParameterFromQuery(Name = "filter")]
+    public string? FilterName { get; set; }
+
+    private string validityFilter = AllFilter;
+
+    private sealed record ValidityChip(string Key, IssuedCertificateFilter? Filter);
+
+    private static readonly ValidityChip[] Filters =
+    [
+        new(AllFilter, null),
+        new("Valid", IssuedCertificateFilter.Valid),
+        new("Expiring", IssuedCertificateFilter.Expiring),
+        new("Expired", IssuedCertificateFilter.Expired),
+        new("Revoking", IssuedCertificateFilter.Revoking),
+        new("Revoked", IssuedCertificateFilter.Revoked),
+    ];
+
+    // Bulk revoke needs certificates.manage and bulk renew certificates.create; either is enough to open the page.
+    private bool canBulk;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+        canBulk = (await Authorization.AuthorizeAsync(user, AppPermissions.CertificatesManage)).Succeeded
+            || (await Authorization.AuthorizeAsync(user, AppPermissions.CertificatesCreate)).Succeeded;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // An unknown value falls back to All rather than showing an empty list for a typo.
+        validityFilter = Filters.FirstOrDefault(f => string.Equals(f.Key, FilterName, StringComparison.OrdinalIgnoreCase))?.Key ?? AllFilter;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var filter = Filters.First(f => f.Key == validityFilter).Filter;
+        var search = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim();
+
+        try
+        {
+            loadError = null;
+            var result = await CertificateRequestsApiClient.GetIssuedCertificatesAsync(CurrentPage, PageSize, filter, search);
+            certificates = result.Items;
+            totalCount = result.TotalCount;
+            counts = await CertificateRequestsApiClient.GetIssuedValidityCountsAsync(search);
+        }
+        catch (Exception ex) { loadError = $"Failed to load certificates: {ex.Message}"; }
+    }
+
+    private void SelectFilter(string key) => NavigateWith(key == AllFilter ? null : key, page: null);
+
+    private void NavigateWith(string? filter, int? page)
+    {
+        var uri = NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["filter"] = filter,
+            ["page"] = page is > 1 ? page : null
+        });
+        NavigationManager.NavigateTo(uri);
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? string.Empty;
+
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        searchCts = cts;
+
+        try
+        {
+            await Task.Delay(SearchDebounce, TimeProvider, cts.Token);
+            if (!ReferenceEquals(searchCts, cts))
+                return;
+
+            // A new search re-pages from the start: page 4 of the previous result means nothing here.
+            if (CurrentPage > 1)
+            {
+                NavigateWith(validityFilter == AllFilter ? null : validityFilter, page: null);
+                return;
+            }
+
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // Superseded by newer input or by disposal.
+        }
+    }
+
+    private int CountFor(ValidityChip chip) =>
+        chip.Filter is { } f ? counts.CountFor(f) : counts.Total;
+
+    public void Dispose()
+    {
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+        searchCts = null;
+    }
+
+    private string GetStatusClass(CertificateRequest c)
+    {
+        if (c.Status is CertificateRequestStatus.Revoked or CertificateRequestStatus.PendingRevocation) return "revoked";
+        if (c.ValidTo.HasValue && c.ValidTo.Value <= Now) return "rejected"; // reuse red for expired
+        return "issued";
+    }
+
+    private string GetStatusLabel(CertificateRequest c)
+    {
+        if (c.Status == CertificateRequestStatus.Revoked) return "Revoked";
+        if (c.Status == CertificateRequestStatus.PendingRevocation) return "Revoking";
+        if (c.ValidTo.HasValue && c.ValidTo.Value <= Now) return "Expired";
+        if (c.ValidTo.HasValue && c.ValidTo.Value <= Now.AddDays(30)) return "Expiring";
+        return "Valid";
+    }
+
+    private string GetRemaining(CertificateRequest c)
+    {
+        if (c.Status == CertificateRequestStatus.Revoked)
+            return c.RevokedAtUtc.HasValue ? $"Revoked {c.RevokedAtUtc.Value.ToLocalTime():d}" : "Revoked";
+        if (!c.ValidTo.HasValue) return "—";
+        var r = c.ValidTo.Value - Now;
+        if (r.TotalDays < 0) return "Expired";
+        if (r.TotalDays >= 365) return $"{(int)(r.TotalDays / 365)}y {(int)(r.TotalDays % 365)}d";
+        if (r.TotalDays >= 30) return $"{(int)(r.TotalDays / 30)}mo {(int)(r.TotalDays % 30)}d";
+        return $"{(int)r.TotalDays}d {r.Hours}h";
+    }
+
+    private void GoTo(Guid id) => NavigationManager.NavigateTo($"certificates/{id}");
+
+    private void GoToPage(int page) =>
+        NavigateWith(validityFilter == AllFilter ? null : validityFilter, page);
+}

@@ -1,0 +1,130 @@
+# Multi-container Qertum on one host: one container per service, sharing one /data volume.
+# Same data layout as deploy/single-container, so a single-container volume can be mounted here
+# unchanged. NOT scale-out: api, acme, est and queueconsumer share one SQLite file and
+# in-process channels, so run exactly one of each.
+#
+#   cp .env.example .env   # fill in
+#   docker compose -f deploy/multi-container/docker-compose.yml --env-file deploy/multi-container/.env up -d
+#
+# See README.md for TLS (EST terminates it itself, ACME behind a proxy) and backup.
+
+x-qertum-service: &qertum-service
+  image: ${QERTUM_IMAGE:?set QERTUM_IMAGE, e.g. registry.example.lan:5000/qertum-services:latest}
+  restart: unless-stopped
+  volumes:
+    - ${QERTUM_DATA:-qertum-data}:/data
+  environment: &qertum-env
+    QERTUM_HOST: ${QERTUM_HOST:?set QERTUM_HOST to the host name or IP clients use}
+    QERTUM_SCHEME: ${QERTUM_SCHEME:-http}
+    WEB_PORT: ${WEB_PORT:-8080}
+    IDENTITY_PORT: ${IDENTITY_PORT:-8081}
+    API_PORT: ${API_PORT:-8082}
+    ACME_PORT: ${ACME_PORT:-8083}
+    EST_PORT: ${EST_PORT:-8084}
+    ACME_SCHEME: ${ACME_SCHEME:-http}
+  # LocalTpm key custody: add -f docker-compose.tpm.yml to pass the TPM device and its group to
+  # every container (see README); nothing is passed by default.
+  networks: [qertum]
+
+services:
+  cache:
+    image: redis:8.6@sha256:192fab3335680aa420049026a18dc6baa30a69406cd29af35145bca0523d781a
+    container_name: qertum-cache
+    restart: unless-stopped
+    # Regenerable cache (CRL, ACME nonces): no persistence, internal network only, never published.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--protected-mode", "no"]
+    networks: [qertum]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  identityservice:
+    <<: *qertum-service
+    container_name: qertum-identityservice
+    environment:
+      <<: *qertum-env
+      SERVICE: identityservice
+      IdentityService__SeedAdminPassword: ${SEED_ADMIN_PASSWORD:-}
+    ports:
+      - "${IDENTITY_PORT:-8081}:8081"
+    depends_on:
+      cache:
+        condition: service_healthy
+
+  apiservice:
+    <<: *qertum-service
+    container_name: qertum-apiservice
+    environment:
+      <<: *qertum-env
+      SERVICE: apiservice
+    ports:
+      - "${API_PORT:-8082}:8082"
+    depends_on:
+      cache:
+        condition: service_healthy
+      identityservice:
+        condition: service_healthy
+
+  webfrontend:
+    <<: *qertum-service
+    container_name: qertum-webfrontend
+    environment:
+      <<: *qertum-env
+      SERVICE: webfrontend
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    depends_on:
+      apiservice:
+        condition: service_healthy
+
+  acmeservice:
+    <<: *qertum-service
+    container_name: qertum-acmeservice
+    environment:
+      <<: *qertum-env
+      SERVICE: acmeservice
+    ports:
+      - "${ACME_PORT:-8083}:8083"
+    depends_on:
+      cache:
+        condition: service_healthy
+      apiservice:
+        condition: service_healthy
+
+  estservice:
+    <<: *qertum-service
+    container_name: qertum-estservice
+    environment:
+      <<: *qertum-env
+      SERVICE: estservice
+    volumes:
+      - ${QERTUM_DATA:-qertum-data}:/data
+      - ${QERTUM_EST_TLS_CERT:?set QERTUM_EST_TLS_CERT to a PEM certificate chain}:/run/est/tls.crt:ro
+      - ${QERTUM_EST_TLS_KEY:?set QERTUM_EST_TLS_KEY to its PEM private key}:/run/est/tls.key:ro
+    ports:
+      - "${EST_PORT:-8084}:8084"
+    depends_on:
+      cache:
+        condition: service_healthy
+      apiservice:
+        condition: service_healthy
+
+  queueconsumer:
+    <<: *qertum-service
+    container_name: qertum-queueconsumer
+    environment:
+      <<: *qertum-env
+      SERVICE: queueconsumer
+    depends_on:
+      cache:
+        condition: service_healthy
+      apiservice:
+        condition: service_healthy
+
+networks:
+  qertum:
+
+volumes:
+  qertum-data:

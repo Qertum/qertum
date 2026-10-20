@@ -1,0 +1,1505 @@
+@page "/settings"
+@using Qertum.Services
+@using Qertum.Web.Components.Dashboard
+@attribute [Authorize(Policy = AppPermissions.SettingsEdit)]
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject TimeProvider Clock
+
+<PageTitle>Settings — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>CA <em>Settings</em></Heading>
+    <Subtitle>How this CA identifies itself, issues, renews and revokes certificates, and which enrollment protocols it accepts.</Subtitle>
+    <Actions>        <button class="btn btn-primary" type="button" @onclick="SaveSettingsAsync" disabled="@(isSaving || settings is null)">
+            @if (isSaving)
+            {
+                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                <span>Saving…</span>
+            }
+            else
+            {
+                <span class="bi bi-check2-circle me-1"></span>
+                <span>Save settings</span>
+            }
+        </button>
+    </Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(notificationMessage))
+{
+    <div class="alert alert-@notificationType alert-dismissible fade show" role="alert">
+        <span class="bi @(notificationType == "success" ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-2"></span>
+        @notificationMessage
+        <button type="button" class="btn-close" aria-label="Close" @onclick="() => notificationMessage = null"></button>
+    </div>
+}
+
+@if (settings is null)
+{
+    <LoadingState Text="Loading settings…" />
+}
+else
+{
+    <div class="settings-tabs" role="tablist" aria-label="Settings groups">
+        @foreach (var tab in VisibleTabs)
+        {
+            <button type="button" role="tab" id="settings-tab-@tab.Key"
+                    class="settings-tab @(activeTab == tab.Key ? "active" : "")"
+                    aria-selected="@(activeTab == tab.Key ? "true" : "false")"
+                    aria-controls="settings-panel"
+                    @onclick="() => SelectTab(tab.Key)">
+                <span class="bi @tab.Icon" aria-hidden="true"></span>
+                <span>@tab.Label</span>
+            </button>
+        }
+    </div>
+    <div class="form-help settings-tabs-hint">Changes on every tab are kept until you save; <em>Save settings</em> applies them all at once.</div>
+
+    <div id="settings-panel" role="tabpanel" aria-labelledby="settings-tab-@activeTab">
+        @if (activeTab == "authority")
+        {
+            @if (caStatus is not null && caStatus.IsInitialized)
+            {
+                <div class="form-card animate-in">
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <span class="bi bi-shield-lock-fill form-section-icon purple" aria-hidden="true"></span>
+                            CA Certificate
+                            <span class="settings-readonly-badge">Read-only</span>
+                        </div>
+                        <div class="form-section-body">
+                            <div class="settings-ca-info">
+                                <div class="settings-ca-row">
+                                    <span class="settings-ca-label">Subject</span>
+                                    <span class="settings-ca-value settings-ca-mono">@caStatus.SubjectDn</span>
+                                </div>
+                                <div class="settings-ca-row">
+                                    <span class="settings-ca-label">Algorithm</span>
+                                    <span class="settings-ca-value">@caStatus.Algorithm</span>
+                                </div>
+                                @if (caStatus.ExplicitCurveParameters)
+                                {
+                                    <div class="alert alert-warning" role="alert" data-test="explicit-curve-parameters">@CaStatusResponse.ExplicitCurveParametersWarning</div>
+                                }
+                                <div class="settings-ca-row">
+                                    <span class="settings-ca-label">Valid from</span>
+                                    <span class="settings-ca-value">@caStatus.ValidFrom?.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                                </div>
+                                <div class="settings-ca-row">
+                                    <span class="settings-ca-label">Valid to</span>
+                                    <span class="settings-ca-value @(caStatus.ValidTo < Now.AddDays(90) ? "settings-ca-expiring" : "")">
+                                        @caStatus.ValidTo?.ToString("yyyy-MM-dd HH:mm") UTC
+                                        @if (caStatus.ValidTo < Now)
+                                        {
+                                            <span class="badge badge-danger ms-2">Expired</span>
+                                        }
+                                        else if (caStatus.ValidTo < Now.AddDays(90))
+                                        {
+                                            <span class="badge badge-warning ms-2">Expiring soon</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="settings-ca-row">
+                                    <span class="settings-ca-label">Download</span>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Download CA certificate">
+                                        <button class="btn btn-outline-secondary" type="button" @onclick="@(() => DownloadCaCertAsync("pem"))">
+                                            <span class="bi bi-download me-1" aria-hidden="true"></span>PEM
+                                        </button>
+                                        <button class="btn btn-outline-secondary" type="button" @onclick="@(() => DownloadCaCertAsync("der"))">
+                                            <span class="bi bi-download me-1" aria-hidden="true"></span>DER
+                                        </button>
+                                        <button class="btn btn-outline-secondary" type="button" @onclick="@(() => DownloadCaCertAsync("p7b"))">
+                                            <span class="bi bi-download me-1" aria-hidden="true"></span>PKCS#7
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-buildings-fill form-section-icon purple"></span>
+                        Organization
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-2">
+                            <div class="form-field">
+                                <label class="form-label" for="org-name">Organization (O)</label>
+                                <input type="text" class="form-control" id="org-name" @bind="settings.OrganizationName" placeholder="e.g. Qertum" />
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="org-unit">Organizational Unit (OU)</label>
+                                <input type="text" class="form-control" id="org-unit" @bind="settings.OrganizationalUnit" placeholder="e.g. IT Security" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-geo-alt-fill form-section-icon cyan"></span>
+                        Locality
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-3">
+                            <div class="form-field">
+                                <label class="form-label" for="country">Country (C)</label>
+                                <input type="text" class="form-control" id="country" @bind="settings.Country" placeholder="e.g. US" maxlength="2" />
+                                <div class="form-help">Two-letter ISO code.</div>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="state">State / Province (ST)</label>
+                                <input type="text" class="form-control" id="state" @bind="settings.State" placeholder="e.g. California" />
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="locality">Locality / City (L)</label>
+                                <input type="text" class="form-control" id="locality" @bind="settings.Locality" placeholder="e.g. San Francisco" />
+                            </div>
+                        </div>
+                        <div class="form-help mt-1">These fields are embedded in the subject DN of every issued certificate.</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "issuance")
+        {
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-file-earmark-lock2-fill form-section-icon green"></span>
+                        Certificate Issuance
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-2">
+                            <div class="form-field">
+                                <label class="form-label" for="validity-days">Validity period (days)</label>
+                                <input type="number" class="form-control" id="validity-days" min="1" max="3650"
+                                       value="@settings.CertificateValidityDays"
+                                       @onchange="e => settings.CertificateValidityDays = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : settings.CertificateValidityDays" />
+                                <div class="form-help">
+                                    Default lifetime applied to newly issued leaf certificates. A certificate type (template)
+                                    can override this with its own validity; when a template leaves validity unset, it inherits
+                                    this value. Defaults to 365 days.
+                                </div>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="expiring-soon-days">Expiring soon threshold (days)</label>
+                                <input type="number" class="form-control" id="expiring-soon-days" min="1" max="3650"
+                                       value="@settings.ExpiringSoonDays"
+                                       @onchange="e => settings.ExpiringSoonDays = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : settings.ExpiringSoonDays" />
+                                <div class="form-help">
+                                    Certificates within this many days of expiry are flagged as <em>expiring soon</em> on the
+                                    dashboard and used as the default auto-renewal trigger.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-shield-lock-fill form-section-icon orange"></span>
+                        Algorithm Policy
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="pqc-stage">PQC enforcement stage (CA default)</label>
+                                <select class="form-select" id="pqc-stage" value="@settings.PqcStage" disabled="@(!isAdmin)"
+                                        @key="pqcStageSelectKey"
+                                        @onchange="OnPqcStageChangedAsync">
+                                    @foreach (var stage in Enum.GetValues<PqcStage>())
+                                    {
+                                        <option value="@stage" selected="@(stage == settings.PqcStage)">@stage</option>
+                                    }
+                                </select>
+                                @if (!isAdmin)
+                                {
+                                    <div class="form-help mt-2">Only an administrator can change this.</div>
+                                }
+                                <div class="form-help mt-2" data-test="pqc-stage-help">@PqcStageGuidance.Sentence(settings.PqcStage)</div>
+                                <div class="form-help mt-2">
+                                    <a data-test="preview-impact-link" href="pqc-migration">Preview what a stage would do</a> to your live certificates before changing it.
+                                </div>
+                                <div class="form-help mt-2" data-test="pqc-stage-allowed">
+                                    Always allowed at every stage: @AlgorithmPolicyGuidance.PqcOnlyAllowedAlgorithms.
+                                    A template can override this default, and an administrator can grant time-limited exceptions.
+                                </div>
+                                <div class="form-help mt-2" data-test="pqc-only-scope">
+                                    @AlgorithmPolicyGuidance.PqcOnlyScope
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="ca-approval">Approval of CA certificate requests</label>
+                                <select class="form-select" id="ca-approval" disabled="@(!isAdmin)"
+                                        @key="caApprovalSelectKey" @onchange="OnCaApprovalChangedAsync">
+                                    <option value="independent" selected="@settings.RequireIndependentCaApproval">independent</option>
+                                    <option value="waived" selected="@(!settings.RequireIndependentCaApproval)">waived</option>
+                                </select>
+                                @if (!isAdmin)
+                                {
+                                    <div class="form-help mt-2">Only an administrator can change this.</div>
+                                }
+                                <div class="form-help mt-2" data-test="ca-approval-help">
+                                    @(settings.RequireIndependentCaApproval
+                                        ? "A request for a certificate that can sign other certificates must be approved by someone other than whoever filed it, administrators included."
+                                        : "Waived: whoever files a CA certificate request may also approve it. Each such approval is recorded as waived in the audit log.")
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="two-person-approval">Two-person approval of sensitive operations</label>
+                                <select class="form-select" id="two-person-approval" disabled="@(!isAdmin)"
+                                        @key="twoPersonSelectKey" @onchange="OnTwoPersonApprovalChangedAsync">
+                                    <option value="off" selected="@(!settings.RequireTwoPersonApproval)">off</option>
+                                    <option value="on" selected="@settings.RequireTwoPersonApproval">on</option>
+                                </select>
+                                @if (!isAdmin)
+                                {
+                                    <div class="form-help mt-2">Only an administrator can change this.</div>
+                                }
+                                <div class="form-help mt-2" data-test="two-person-approval-help">
+                                    @(settings.RequireTwoPersonApproval
+                                        ? "On: downloading someone else's private key, changing issuers, executing a bulk revoke and publishing an issuance policy each need a second administrator's approval first. Ask on the Approvals page."
+                                        : "Off: those operations need only the permission they always did. When on, each needs a second administrator's approval first.")
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "renewal")
+        {
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-arrow-repeat form-section-icon cyan"></span>
+                        Renewal Policy
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="auto-revoke-renewal"
+                                           @bind="settings.AutoRevokeOnRenewal" />
+                                    <label class="form-check-label" for="auto-revoke-renewal">
+                                        Automatically revoke the source certificate when a renewal request is approved
+                                    </label>
+                                </div>
+                                <div class="form-help mt-2">
+                                    When enabled, approving a renewal request automatically revokes the original certificate with reason <em>superseded</em>,
+                                    preventing both from being valid simultaneously. When disabled (default), the original certificate remains valid
+                                    until it expires or is revoked manually, allowing an overlap period during deployment rollout.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-clock-history form-section-icon green"></span>
+                        Automatic Renewal
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="auto-renewal-enabled"
+                                           @bind="settings.AutoRenewalEnabled" />
+                                    <label class="form-check-label" for="auto-renewal-enabled">
+                                        Enable automatic renewal scheduling
+                                    </label>
+                                </div>
+                                <div class="form-help mt-2">
+                                    When enabled, the queue consumer periodically scans for issued certificates approaching expiry
+                                    and automatically creates renewal requests for them. ACME-managed certificates are excluded
+                                    (ACME clients renew themselves). Certificates that already have an active renewal are skipped.
+                                </div>
+                            </div>
+                        </div>
+                        @if (settings.AutoRenewalEnabled)
+                        {
+                            <div class="form-row cols-2">
+                                <div class="form-field">
+                                    <label class="form-label" for="auto-renewal-days">Days before expiry to trigger</label>
+                                    <input type="number" class="form-control" id="auto-renewal-days" min="1" max="3650"
+                                           placeholder="Uses &quot;Expiring soon&quot; threshold"
+                                           value="@settings.AutoRenewalDaysBeforeExpiry"
+                                           @onchange="e => settings.AutoRenewalDaysBeforeExpiry = string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : int.TryParse(e.Value?.ToString(), out var v) ? v : settings.AutoRenewalDaysBeforeExpiry" />
+                                    <div class="form-help">
+                                        Leave blank to use the <em>Expiring soon</em> threshold (@settings.ExpiringSoonDays days).
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-row cols-1">
+                                <div class="form-field">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="auto-renewal-approve"
+                                               @bind="settings.AutoRenewalAutoApprove" />
+                                        <label class="form-check-label" for="auto-renewal-approve">
+                                            Automatically approve renewal requests
+                                        </label>
+                                    </div>
+                                    <div class="form-help mt-2">
+                                        When enabled, renewal requests created by the scheduler are immediately approved and queued
+                                        for issuance without manual review. If <em>Auto-revoke on renewal</em> is also enabled,
+                                        the original certificate is revoked at the same time.
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "revocation")
+        {
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-shield-lock-fill form-section-icon orange"></span>
+                        Certificate Revocation
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="crl-url">CRL Distribution Point URL</label>
+                                <input type="url" class="form-control" id="crl-url" @bind="settings.CrlDistributionPoint" placeholder="e.g. https://ca.example.com/crl" />
+                                <div class="form-help">Public URL where clients can download the Certificate Revocation List. When set, this URL is embedded in every newly issued certificate as a CDP extension. Leave blank to omit the extension. The CRL itself is always available at <code>/crl</code> on this CA's API.</div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="ocsp-url">OCSP responder URL</label>
+                                <input type="url" class="form-control" id="ocsp-url" @bind="settings.OcspResponderUrl" placeholder="e.g. https://ca.example.com/ocsp" />
+                                <div class="form-help">Public URL of this CA's OCSP responder. When set, it is embedded in every newly issued certificate as an Authority Information Access extension, so clients can check a single certificate's status instead of downloading the whole CRL. Leave blank to omit the extension. The responder itself is always available at <code>/ocsp</code> on this CA's API.</div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="public-base-url">Public base URL</label>
+                                <input type="url" class="form-control" id="public-base-url" @bind="settings.PublicBaseUrl" placeholder="e.g. https://ca.example.com" />
+                                <div class="form-help">Base URL of this API as clients reach it. When set, certificates from intermediates carry a caIssuers link to <code>&lt;base&gt;/v1/issuers/{id}/certificate</code> so clients can fetch the missing intermediate. Leave blank to omit the link.</div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-2">
+                            <div class="form-field">
+                                <label class="form-label" for="crl-validity-hours">CRL validity period (hours)</label>
+                                <input type="number" class="form-control" id="crl-validity-hours" min="1" max="8760"
+                                       value="@settings.CrlValidityHours"
+                                       @onchange="e => settings.CrlValidityHours = int.TryParse(e.Value?.ToString(), out var v) && v > 0 ? v : settings.CrlValidityHours" />
+                                <div class="form-help">
+                                    How long a generated CRL stays valid before it is regenerated. Shorter windows shrink the
+                                    revocation propagation delay but mean clients refetch the CRL more often. Defaults to 24 hours.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-shield-lock-fill form-section-icon orange"></span>
+                        Delta CRL
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="delta-crl-enabled"
+                                           @bind="settings.DeltaCrlEnabled" />
+                                    <label class="form-check-label" for="delta-crl-enabled">
+                                        Publish a delta CRL
+                                    </label>
+                                </div>
+                                <div class="form-help mt-2">
+                                    When enabled, the full CRL at <code>/crl</code> advertises a Freshest CRL location and
+                                    <code>/crl/delta</code> serves only the certificates revoked since the last full CRL —
+                                    far smaller than re-downloading the whole list on every refresh. Recommended once this
+                                    CA signs with a post-quantum algorithm (ML-DSA), where every full CRL republish costs a
+                                    much larger signature than ECDSA or RSA.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="crl-delta-url">Delta CRL distribution point URL</label>
+                                <input type="url" class="form-control" id="crl-delta-url" @bind="settings.CrlDeltaDistributionPoint"
+                                       placeholder="e.g. https://ca.example.com/crl/delta" disabled="@(!settings.DeltaCrlEnabled)" />
+                                <div class="form-help">Public URL where clients can download the delta CRL. Embedded in the full CRL as a Freshest CRL extension when delta publishing is enabled. The delta CRL itself is always available at <code>/crl/delta</code> on this CA's API.</div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label">Delta CRL base</label>
+                                <div class="form-help">
+                                    The base normally advances only as a side effect of something fetching the full
+                                    <code>/crl</code>. Use this to force a fresh full CRL and reset the delta base now —
+                                    for example, after clients have only ever fetched <code>/crl/delta</code> and the base
+                                    has gone stale.
+                                </div>
+                                <button class="btn btn-outline-primary mt-2" type="button" @onclick="ResetCrlBaseAsync" disabled="@resettingCrlBase">
+                                    @(resettingCrlBase ? "Resetting..." : "Reset delta CRL base now")
+                                </button>
+                                @if (lastCrlBaseReset is not null)
+                                {
+                                    <p class="form-help mt-2">Last reset: CRL number @lastCrlBaseReset.CrlNumber at @(lastCrlBaseReset.ThisUpdateUtc.ToString("u")).</p>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "acme")
+        {
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-robot form-section-icon orange"></span>
+                        ACME Protocol
+                    </div>
+                    <div class="form-section-body">
+                        <p class="form-help"><a href="/acme/orders">See ACME orders and why any are stuck →</a></p>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="acme-auto-approve"
+                                           @bind="settings.AcmeAutoApprove" />
+                                    <label class="form-check-label" for="acme-auto-approve">
+                                        Automatically approve ACME orders after successful domain validation
+                                    </label>
+                                </div>
+                                <div class="form-help mt-2">
+                                    When enabled, ACME clients (certbot, acme.sh, cert-manager) that prove control of every
+                                    name in an order — by an http-01 or dns-01 challenge — have their orders approved and issued
+                                    automatically, with no human review. When disabled (default), ACME orders land in the
+                                    Pending queue and must be approved manually.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row cols-1 mt-4">
+                            <div class="form-field">
+                                <label class="form-label" for="acme-template">Issuance template</label>
+                                <select class="form-select" id="acme-template" @bind="settings.AcmeTemplateTypeKey">
+                                    @foreach (var template in templates)
+                                    {
+                                        <option value="@template.TypeKey">@template.Name (@template.TypeKey)</option>
+                                    }
+                                </select>
+                                <div class="form-help mt-2">
+                                    Every ACME order is filed under this template, so the issuance policy linked to it is
+                                    what governs ACME issuance. Changing it changes what is enforced and requires the
+                                    <code>policies.publish</code> permission.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row cols-1 mt-4">
+                            <div class="form-field">
+                                <label class="form-label" for="acme-network-entry">Allowed http-01 challenge networks</label>
+
+                                @if (allowedNetworks.Count == 0)
+                                {
+                                    <div class="alert alert-warning py-2 px-3 text-sm" role="alert">
+                                        <span class="bi bi-exclamation-triangle me-1"></span>
+                                        No networks are allowed, so <strong>every http-01 challenge will fail</strong>.
+                                        Add the range your http-01 challenge targets live in to enable http-01 validation.
+                                        dns-01 challenges are not affected.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <ul class="list-unstyled mb-2">
+                                        @foreach (var network in allowedNetworks)
+                                        {
+                                            <li class="d-flex align-items-center gap-2 mb-1">
+                                                <code class="mono">@network</code>
+                                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2"
+                                                        @onclick="() => RemoveNetwork(network)" title="Remove">
+                                                    <span class="bi bi-x"></span>
+                                                </button>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+
+                                <div class="d-flex gap-2">
+                                    <input id="acme-network-entry" class="form-control" type="text"
+                                           placeholder="10.1.0.0/16" @bind="newNetworkEntry"
+                                           @bind:event="oninput" @onkeydown="OnNetworkKeyDown" />
+                                    <button type="button" class="btn btn-outline-secondary" @onclick="AddNetwork">Add</button>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(networkError))
+                                {
+                                    <div class="text-danger mt-1 text-sm">@networkError</div>
+                                }
+
+                                <div class="form-help mt-2">
+                                    An http-01 challenge may only connect to an address inside one of these ranges. The list is
+                                    exclusive: public addresses are <strong>not</strong> reachable unless listed. Entries accept
+                                    CIDR notation or a single IP address.
+                                    <br />
+                                    Adding a private range (for example <code>10.0.0.0/8</code>) lets the CA reach internal
+                                    hosts on your network, which is the point for an internal deployment — but it also means an
+                                    ACME client can name any host in that range and have the CA fetch from it. Keep the ranges
+                                    as narrow as your deployment allows. Link-local addresses, including cloud instance
+                                    metadata at <code>169.254.169.254</code>, are always blocked and cannot be allowed here.
+                                    <br />
+                                    This list does not apply to dns-01. A dns-01 challenge only queries the DNS resolvers
+                                    configured on the ACME service (<code>Acme:Dns01:Resolvers</code>, or the host's resolvers
+                                    when empty) and never connects to an address the requester chooses. Wildcard names can
+                                    only be validated by dns-01.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row cols-1 mt-4">
+                            <div class="form-field">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="acme-require-eab"
+                                           @bind="settings.AcmeRequireExternalAccountBinding" />
+                                    <label class="form-check-label" for="acme-require-eab">
+                                        Require external account binding (EAB) for new ACME accounts
+                                    </label>
+                                </div>
+                                <div class="form-help mt-2">
+                                    When enabled, <code>POST /acme/new-account</code> is refused unless the client presents a
+                                    credential issued below (RFC 8555 §7.3.4), and the directory advertises
+                                    <code>externalAccountRequired</code>. Without it, anyone who can reach the ACME endpoint can
+                                    register an account. Existing accounts keep working either way — the check only guards
+                                    registration.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row cols-1 mt-4">
+                            <div class="form-field">
+                                <label class="form-label">External account credentials</label>
+
+                                @if (issuedKey is not null)
+                                {
+                                    <div class="eab-issued-card mb-2">
+                                        <div class="eab-issued-header">
+                                            <span class="bi bi-key-fill"></span>
+                                            Credential issued. The MAC key is shown <strong>once</strong> — it is stored
+                                            encrypted and no endpoint reads it back. Copy it now.
+                                        </div>
+                                        <div class="eab-issued-row">Key ID: <code class="mono">@issuedKey.Credential.Kid</code></div>
+                                        <div class="eab-issued-row">MAC key: <code class="mono">@issuedKey.MacKey</code></div>
+                                        <div class="eab-issued-row eab-issued-cmd">
+                                            certbot: <code class="mono">--eab-kid @issuedKey.Credential.Kid --eab-hmac-key=@issuedKey.MacKey</code>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2"
+                                                @onclick="() => issuedKey = null">Dismiss</button>
+                                    </div>
+                                }
+
+                                @if (eabKeys.Count == 0)
+                                {
+                                    <div class="form-help mb-2">No credentials issued yet.</div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive mb-2">
+                                        <table class="table table-sm align-middle">
+                                            <thead>
+                                                <tr>
+                                                    <th>Key ID</th>
+                                                    <th>Description</th>
+                                                    <th>Status</th>
+                                                    <th>Bound account</th>
+                                                    <th class="text-end">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var key in eabKeys)
+                                                {
+                                                    <tr>
+                                                        <td><code class="mono">@key.Kid</code></td>
+                                                        <td>@(string.IsNullOrWhiteSpace(key.Description) ? "—" : key.Description)</td>
+                                                        <td>
+                                                            @if (key.IsEnabled)
+                                                            {
+                                                                <span class="badge badge-success">Enabled</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge badge-neutral">Disabled</span>
+                                                            }
+                                                        </td>
+                                                        <td>
+                                                            @if (key.BoundAccountId is null)
+                                                            {
+                                                                <span class="text-muted">Unused</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <code class="mono">@key.BoundAccountId</code>
+                                                            }
+                                                        </td>
+                                                        <td class="text-end">
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary me-1"
+                                                                    disabled="@eabBusy"
+                                                                    @onclick="() => ToggleEabKeyAsync(key)">
+                                                                @(key.IsEnabled ? "Disable" : "Enable")
+                                                            </button>
+                                                            @if (pendingDeleteId == key.Id)
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-danger"
+                                                                        disabled="@eabBusy"
+                                                                        @onclick="() => DeleteEabKeyAsync(key)">Confirm delete</button>
+                                                            }
+                                                            else
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                        disabled="@eabBusy"
+                                                                        @onclick="() => pendingDeleteId = key.Id">Delete</button>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+
+                                <div class="d-flex gap-2">
+                                    <input class="form-control" type="text" placeholder="Description (e.g. platform team)"
+                                           @bind="newEabDescription" @bind:event="oninput" />
+                                    <button type="button" class="btn btn-outline-secondary" disabled="@eabBusy"
+                                            @onclick="CreateEabKeyAsync">Issue credential</button>
+                                </div>
+
+                                <div class="form-help mt-2">
+                                    Each credential registers exactly one ACME account: once used it is bound to that account and
+                                    cannot register another. Disabling a credential blocks further registrations with it; the
+                                    account it already created is unaffected — deactivate the account itself to stop that client.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "est")
+        {
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-file-earmark-lock2-fill form-section-icon orange"></span>
+                        EST Protocol
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="est-auto-approve"
+                                           @bind="settings.EstAutoApprove" />
+                                    <label class="form-check-label" for="est-auto-approve">
+                                        Automatically approve EST enrollment requests
+                                    </label>
+                                </div>
+                                <div class="form-help mt-2">
+                                    When enabled, EST clients that authenticate with a valid enrollment credential have their
+                                    simpleenroll/simplereenroll requests approved and issued automatically — no human review
+                                    needed. When disabled (default), EST requests land in the Pending queue and must be
+                                    approved manually. Independently toggleable — a deployment can auto-approve ACME but not
+                                    EST, or vice versa.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row cols-1 mt-4">
+                            <div class="form-field">
+                                <label class="form-label" for="est-template">Issuance template</label>
+                                <select class="form-select" id="est-template" @bind="settings.EstTemplateTypeKey">
+                                    @foreach (var template in templates)
+                                    {
+                                        <option value="@template.TypeKey">@template.Name (@template.TypeKey)</option>
+                                    }
+                                </select>
+                                <div class="form-help mt-2">
+                                    Every EST enrollment is filed under this template, so the issuance policy linked to it is
+                                    what governs EST issuance. Changing it changes what is enforced and requires the
+                                    <code>policies.publish</code> permission.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row cols-1 mt-4">
+                            <div class="form-field">
+                                <label class="form-label">Enrollment credentials</label>
+
+                                @if (issuedEstCredential is not null)
+                                {
+                                    <div class="eab-issued-card mb-2">
+                                        <div class="eab-issued-header">
+                                            <span class="bi bi-key-fill"></span>
+                                            Credential issued. The password is shown <strong>once</strong> — it is stored
+                                            hashed and no endpoint reads it back. Copy it now.
+                                        </div>
+                                        <div class="eab-issued-row">Username: <code class="mono">@issuedEstCredential.Credential.Username</code></div>
+                                        <div class="eab-issued-row">Password: <code class="mono">@issuedEstCredential.Password</code></div>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2"
+                                                @onclick="() => issuedEstCredential = null">Dismiss</button>
+                                    </div>
+                                }
+
+                                @if (estCredentials.Count == 0)
+                                {
+                                    <div class="form-help mb-2">No credentials issued yet.</div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive mb-2">
+                                        <table class="table table-sm align-middle">
+                                            <thead>
+                                                <tr>
+                                                    <th>Username</th>
+                                                    <th>Description</th>
+                                                    <th>Status</th>
+                                                    <th class="text-end">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var credential in estCredentials)
+                                                {
+                                                    <tr>
+                                                        <td><code class="mono">@credential.Username</code></td>
+                                                        <td>@(string.IsNullOrWhiteSpace(credential.Description) ? "—" : credential.Description)</td>
+                                                        <td>
+                                                            @if (credential.IsEnabled)
+                                                            {
+                                                                <span class="badge badge-success">Enabled</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="badge badge-neutral">Disabled</span>
+                                                            }
+                                                        </td>
+                                                        <td class="text-end">
+                                                            <a class="btn btn-sm btn-outline-secondary me-1"
+                                                               href="/settings/est/@credential.Id/activity">Activity</a>
+                                                            <button type="button" class="btn btn-sm btn-outline-secondary me-1"
+                                                                    disabled="@estCredentialBusy"
+                                                                    @onclick="() => ToggleEstCredentialAsync(credential)">
+                                                                @(credential.IsEnabled ? "Disable" : "Enable")
+                                                            </button>
+                                                            @if (pendingDeleteEstCredentialId == credential.Id)
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-danger"
+                                                                        disabled="@estCredentialBusy"
+                                                                        @onclick="() => DeleteEstCredentialAsync(credential)">Confirm delete</button>
+                                                            }
+                                                            else
+                                                            {
+                                                                <button type="button" class="btn btn-sm btn-outline-danger"
+                                                                        disabled="@estCredentialBusy"
+                                                                        @onclick="() => pendingDeleteEstCredentialId = credential.Id">Delete</button>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <input class="form-control" type="text" placeholder="Username" style="max-width: 200px;"
+                                           @bind="newEstUsername" @bind:event="oninput" />
+                                    <input class="form-control" type="password" placeholder="Password" style="max-width: 200px;"
+                                           @bind="newEstPassword" @bind:event="oninput" />
+                                    <input class="form-control" type="text" placeholder="Description (e.g. platform team)"
+                                           @bind="newEstDescription" @bind:event="oninput" />
+                                    <button type="button" class="btn btn-outline-secondary" disabled="@estCredentialBusy"
+                                            @onclick="CreateEstCredentialAsync">Issue credential</button>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(estCredentialError))
+                                {
+                                    <div class="text-danger mt-1 text-sm">@estCredentialError</div>
+                                }
+
+                                <div class="form-help mt-2">
+                                    EST clients (RFC 7030) authenticate with HTTP Basic auth using one of these
+                                    username/password pairs. Disabling a credential blocks further enrollments with it;
+                                    certificates already issued through it are unaffected.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (activeTab == "webhooks")
+        {
+            <AuthorizeView Roles="admin">
+                <WebhookDestinationPolicyPanel />
+            </AuthorizeView>
+        }
+
+        @if (activeTab == "system")
+        {
+            <div class="form-card animate-in">
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-shield-lock form-section-icon orange"></span>
+                        Secret Storage
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <p>Current provider: <strong>@(secretStorageStatus?.CurrentProvider ?? "loading...")</strong></p>
+                                <p class="form-help">Protects the Data Protection key ring shared by the API, ACME, EST and queue-consumer services. That ring encrypts the CA private key, stored certificate private keys, ACME external account MAC keys and webhook secrets. The identity provider has its own setting, <code>IdentityService:SecretStorageProvider</code>; this page does not change it.</p>
+                                <p class="form-help" data-test="tpm-portability">A TPM-sealed key never leaves the TPM that sealed it. A backup restored onto other hardware cannot decrypt the CA key or anything else in the ring. Migrate back to the local file key before moving to a new host.</p>
+                                @if (secretStorageStatus?.TpmAvailable == true)
+                                {
+                                    <p class="form-help">A TPM 2.0 device was detected — you can migrate to TPM-backed storage below.</p>
+                                }
+                                else
+                                {
+                                    <p class="form-help">No TPM device detected. Pass one through with <code>--device /dev/tpmrm0</code> to enable this option.</p>
+                                }
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="target-provider">Migrate to</label>
+                                <select class="form-control" id="target-provider" @bind="targetProvider">
+                                    <option value="LocalFileKey">Local file key</option>
+                                    <option value="LocalTpm" disabled="@(secretStorageStatus?.TpmAvailable != true)">Local TPM</option>
+                                    <option value="CloudStub" disabled>Cloud (coming soon)</option>
+                                </select>
+                                <button class="btn btn-outline-primary mt-2" type="button" @onclick="MigrateSecretStorageAsync" disabled="@migratingSecretStorage">
+                                    @(migratingSecretStorage ? "Migrating..." : "Migrate")
+                                </button>
+                                @if (secretStorageMigrationSucceeded)
+                                {
+                                    <div class="alert alert-warning mt-2">Migration complete. Restart ApiService, QueueConsumer, AcmeService and EstService now: until each one restarts, it keeps using the old provider.</div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-exclamation-triangle form-section-icon orange"></span>
+                        Dashboard Attention
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-2">
+                            <div class="form-field">
+                                <label class="form-label" for="attention-approval-age">Flag pending approvals older than (hours)</label>
+                                <input type="number" class="form-control" id="attention-approval-age" min="1"
+                                       @bind="settings.AttentionPendingApprovalAgeHours" />
+                                <div class="form-help">Pending requests older than this appear under <em>Attention required</em> on the dashboard.</div>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="attention-lookback">Show failures from the last (days)</label>
+                                <input type="number" class="form-control" id="attention-lookback" min="1"
+                                       @bind="settings.AttentionFailureLookbackDays" />
+                                <div class="form-help">Failed issuance and failed webhook deliveries older than this leave the view.</div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-2">
+                            <div class="form-field">
+                                <label class="form-label" for="attention-backup-age">Flag a backup older than (hours)</label>
+                                <input type="number" class="form-control" id="attention-backup-age" min="1"
+                                       @bind="settings.AttentionBackupMaxAgeHours" />
+                                <div class="form-help">The last backup reported by the backup script. Older than this appears under <em>Attention required</em>.</div>
+                            </div>
+                            <div class="form-field">
+                                <label class="form-label" for="attention-restore-age">Flag a restore verification older than (days)</label>
+                                <input type="number" class="form-control" id="attention-restore-age" min="1"
+                                       @bind="settings.AttentionRestoreVerifiedMaxAgeDays" />
+                                <div class="form-help">Only a restore that was verified is compared with this; a restore that was merely performed is shown but not judged.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <RecoveryStatusPanel Status="recoveryStatus" Unavailable="recoveryStatusUnavailable" />
+            </div>
+        }
+    </div>
+
+    @if (pendingPqcStage is { } looserStage)
+    {
+        <ConfirmDialog TestId="pqc-stage" Tone="ConfirmDialogTone.Danger" Title="Loosen PQC enforcement?"
+                       ConfirmLabel="Loosen" OnConfirm="ConfirmPqcStageChangeAsync" OnCancel="CancelPqcStageChange">
+            <p>
+                This moves the CA default from <strong>@settings!.PqcStage</strong> to <strong>@looserStage</strong>.
+                @PqcStageGuidance.Sentence(looserStage) Templates with their own stage are not affected. Continue?
+            </p>
+            <p class="form-help">
+                <a data-test="preview-impact" href="pqc-migration?proposedStage=@looserStage">Preview the impact of @looserStage</a> before you loosen.
+            </p>
+            <p class="form-help" data-test="pqc-only-confirm-scope">
+                @AlgorithmPolicyGuidance.PqcOnlyScope
+            </p>
+        </ConfirmDialog>
+    }
+
+    @if (pendingTwoPersonApproval)
+    {
+        <ConfirmDialog TestId="two-person-approval" Tone="ConfirmDialogTone.Danger" Title="Turn on two-person approval?"
+                       ConfirmLabel="Turn on" OnConfirm="ConfirmTwoPersonApprovalAsync" OnCancel="CancelTwoPersonApproval">
+            <p>Downloading someone else's private key, changing issuers, executing a bulk revoke and publishing an issuance policy will each need a second administrator's approval.</p>
+            <p>With only one administrator none of them can be done until you switch this off again. Switching it off needs no approval.</p>
+        </ConfirmDialog>
+    }
+
+    @if (pendingCaApprovalWaive)
+    {
+        <ConfirmDialog TestId="ca-approval" Tone="ConfirmDialogTone.Danger" Title="Waive independent approval?"
+                       ConfirmLabel="Waive" OnConfirm="ConfirmCaApprovalWaiveAsync" OnCancel="CancelCaApprovalWaive">
+            <p>One person will be able to request and approve a CA certificate. Every such approval is audited as waived.</p>
+        </ConfirmDialog>
+    }
+}
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    private CaSettings? settings;
+    // The stage a loosening is waiting on; the select re-keys on cancel so it snaps back to the stored stage.
+    private PqcStage? pendingPqcStage;
+    private bool pendingCaApprovalWaive;
+    private bool pendingTwoPersonApproval;
+    private int twoPersonSelectKey;
+    private int caApprovalSelectKey;
+    private int pqcStageSelectKey;
+
+    // AdminOnly tabs edit admin-role APIs; a settings.edit holder without admin never sees them.
+    private sealed record SettingsTab(string Key, string Label, string Icon, bool AdminOnly = false);
+
+    private static readonly SettingsTab[] Tabs =
+    [
+        new("authority", "Authority", "bi-shield-lock"),
+        new("issuance", "Issuance", "bi-file-earmark-lock2"),
+        new("renewal", "Renewal", "bi-arrow-repeat"),
+        new("revocation", "Revocation", "bi-slash-circle"),
+        new("acme", "ACME", "bi-robot"),
+        new("est", "EST", "bi-hdd-network"),
+        new("webhooks", "Webhook destinations", "bi-broadcast", AdminOnly: true),
+        new("system", "System", "bi-gear"),
+    ];
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private bool isAdmin;
+
+    private IEnumerable<SettingsTab> VisibleTabs => Tabs.Where(t => isAdmin || !t.AdminOnly);
+
+    // Deep link to a group, e.g. /settings?section=acme. Unknown values fall back to the first tab.
+    [SupplyParameterFromQuery(Name = "section")]
+    public string? Section { get; set; }
+
+    private string activeTab = "authority";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isAdmin = AuthenticationStateTask is not null
+            && (await AuthenticationStateTask).User.IsInRole("admin");
+        activeTab = VisibleTabs.Any(t => t.Key == Section) ? Section! : Tabs[0].Key;
+    }
+
+    private void SelectTab(string key)
+    {
+        activeTab = key;
+        // Replace rather than push, so switching tabs does not fill the back button's history.
+        Nav.NavigateTo(Nav.GetUriWithQueryParameter("section", key), replace: true);
+    }
+
+    private async Task OnPqcStageChangedAsync(ChangeEventArgs args)
+    {
+        if (settings is null || !isAdmin) return;
+        if (!Enum.TryParse<PqcStage>(args.Value?.ToString(), out var chosen) || !Enum.IsDefined(chosen)) return;
+        if (chosen == settings.PqcStage) return;
+
+        // Loosening is the dangerous direction, so it asks first; tightening applies at once.
+        if (chosen < settings.PqcStage)
+        {
+            pendingPqcStage = chosen;
+            return;
+        }
+
+        await ApplyPqcStageAsync(chosen);
+    }
+
+    private void CancelPqcStageChange()
+    {
+        pendingPqcStage = null;
+        pqcStageSelectKey++;
+    }
+
+    private async Task ConfirmPqcStageChangeAsync()
+    {
+        if (pendingPqcStage is not { } stage) return;
+        pendingPqcStage = null;
+        await ApplyPqcStageAsync(stage);
+    }
+
+    // The stage has its own admin-only endpoint; the general Save deliberately cannot change it.
+    private async Task ApplyPqcStageAsync(PqcStage stage)
+    {
+        try
+        {
+            var updated = await CertificateRequestsApiClient.SetPqcStageAsync(stage);
+            if (settings is not null) settings.PqcStage = updated.PqcStage;
+            ShowNotification($"PQC enforcement stage is now {updated.PqcStage}.", "success");
+        }
+        catch (Exception ex)
+        {
+            pqcStageSelectKey++;
+            ShowNotification($"Failed to change the PQC stage: {ex.Message}", "danger");
+        }
+    }
+
+    private async Task OnCaApprovalChangedAsync(ChangeEventArgs args)
+    {
+        if (settings is null || !isAdmin) return;
+        if (!CaApprovalRule.TryParse(args.Value?.ToString(), out var require)) return;
+        if (require == settings.RequireIndependentCaApproval) return;
+
+        // Waiving is the dangerous direction, so it asks first; requiring applies at once.
+        if (!require)
+        {
+            pendingCaApprovalWaive = true;
+            return;
+        }
+        await ApplyCaApprovalAsync(true);
+    }
+
+    private async Task OnTwoPersonApprovalChangedAsync(ChangeEventArgs args)
+    {
+        if (settings is null || !isAdmin) return;
+        var enable = string.Equals(args.Value?.ToString(), "on", StringComparison.Ordinal);
+        if (enable == settings.RequireTwoPersonApproval) return;
+
+        // Turning it on can lock a single administrator out of those operations, so it asks first; turning it off applies at once.
+        if (enable)
+        {
+            pendingTwoPersonApproval = true;
+            return;
+        }
+        await ApplyTwoPersonApprovalAsync(false);
+    }
+
+    private void CancelTwoPersonApproval()
+    {
+        pendingTwoPersonApproval = false;
+        twoPersonSelectKey++;
+    }
+
+    private async Task ConfirmTwoPersonApprovalAsync()
+    {
+        pendingTwoPersonApproval = false;
+        await ApplyTwoPersonApprovalAsync(true);
+    }
+
+    // The switch has its own admin-only endpoint; the general Save deliberately cannot change it.
+    private async Task ApplyTwoPersonApprovalAsync(bool enabled)
+    {
+        try
+        {
+            var updated = await CertificateRequestsApiClient.SetTwoPersonApprovalAsync(enabled);
+            if (settings is not null) settings.RequireTwoPersonApproval = updated.RequireTwoPersonApproval;
+            ShowNotification($"Two-person approval is now {(updated.RequireTwoPersonApproval ? "on" : "off")}.", "success");
+        }
+        catch (Exception ex)
+        {
+            twoPersonSelectKey++;
+            ShowNotification($"Failed to change two-person approval: {ex.Message}", "danger");
+        }
+    }
+
+    private void CancelCaApprovalWaive()
+    {
+        pendingCaApprovalWaive = false;
+        caApprovalSelectKey++;
+    }
+
+    private async Task ConfirmCaApprovalWaiveAsync()
+    {
+        pendingCaApprovalWaive = false;
+        await ApplyCaApprovalAsync(false);
+    }
+
+    // The rule has its own admin-only endpoint; the general Save deliberately cannot change it.
+    private async Task ApplyCaApprovalAsync(bool requireIndependent)
+    {
+        try
+        {
+            var updated = await CertificateRequestsApiClient.SetCaApprovalRuleAsync(requireIndependent);
+            if (settings is not null) settings.RequireIndependentCaApproval = updated.RequireIndependentCaApproval;
+            ShowNotification($"CA approval is now {CaApprovalRule.ModeName(updated.RequireIndependentCaApproval)}.", "success");
+        }
+        catch (Exception ex)
+        {
+            caApprovalSelectKey++;
+            ShowNotification($"Failed to change CA approval: {ex.Message}", "danger");
+        }
+    }
+
+    private CaStatusResponse? caStatus;
+
+    // Feeds the ACME and EST issuance-template dropdowns.
+    private List<CertificateTemplate> templates = [];
+    private bool isSaving;
+    private string? notificationMessage;
+    private string notificationType = "success";
+
+    // Edited as a list, persisted as the JSON array CaSettings stores.
+    private List<string> allowedNetworks = [];
+    private string? newNetworkEntry;
+    private string? networkError;
+
+    private List<AcmeExternalAccountKeyResponse> eabKeys = [];
+    private string? newEabDescription;
+    private bool eabBusy;
+    private Guid? pendingDeleteId;
+
+    // Held only until dismissed: the MAC key exists nowhere else after this response.
+    private AcmeExternalAccountKeyCreatedResponse? issuedKey;
+
+    private List<EstEnrollmentCredentialResponse> estCredentials = [];
+    private string? newEstUsername;
+    private string? newEstPassword;
+    private string? newEstDescription;
+    private bool estCredentialBusy;
+    private string? estCredentialError;
+    private Guid? pendingDeleteEstCredentialId;
+
+    // Held only until dismissed: the password exists nowhere else after this response.
+    private EstEnrollmentCredentialCreatedResponse? issuedEstCredential;
+
+    private SecretStorageStatusResponse? secretStorageStatus;
+    private RecoveryStatus? recoveryStatus;
+    private bool recoveryStatusUnavailable;
+    private string targetProvider = "LocalFileKey";
+    private bool migratingSecretStorage;
+    private bool secretStorageMigrationSucceeded;
+
+    private bool resettingCrlBase;
+    private CrlBaseResetResponse? lastCrlBaseReset;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var settingsTask = CertificateRequestsApiClient.GetSettingsAsync();
+            var caStatusTask = CertificateRequestsApiClient.GetCaStatusAsync();
+            var secretStorageStatusTask = CertificateRequestsApiClient.GetSecretStorageStatusAsync();
+            await Task.WhenAll(settingsTask, caStatusTask, secretStorageStatusTask);
+            settings = settingsTask.Result;
+            caStatus = caStatusTask.Result;
+            secretStorageStatus = secretStorageStatusTask.Result;
+            targetProvider = secretStorageStatus.CurrentProvider;
+            allowedNetworks = ParseNetworks(settings.AcmeChallengeAllowedNetworksJson);
+            eabKeys = [.. await CertificateRequestsApiClient.GetAcmeExternalAccountKeysAsync()];
+            estCredentials = [.. await CertificateRequestsApiClient.GetEstEnrollmentCredentialsAsync()];
+            templates = [.. await CertificateRequestsApiClient.GetCertificateTemplatesAsync()];
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to load settings: {ex.Message}", "danger");
+        }
+
+        try
+        {
+            recoveryStatus = await CertificateRequestsApiClient.GetRecoveryStatusAsync();
+        }
+        catch (Exception)
+        {
+            // Unknown must never read as "nothing to report": the panel says unavailable.
+            recoveryStatusUnavailable = true;
+        }
+    }
+
+    private async Task CreateEabKeyAsync()
+    {
+        eabBusy = true;
+        try
+        {
+            issuedKey = await CertificateRequestsApiClient.CreateAcmeExternalAccountKeyAsync(
+                new CreateAcmeExternalAccountKeyRequest(newEabDescription));
+            newEabDescription = null;
+            eabKeys = [.. await CertificateRequestsApiClient.GetAcmeExternalAccountKeysAsync()];
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to issue credential: {ex.Message}", "danger");
+        }
+        finally
+        {
+            eabBusy = false;
+        }
+    }
+
+    private async Task ToggleEabKeyAsync(AcmeExternalAccountKeyResponse key)
+    {
+        eabBusy = true;
+        try
+        {
+            await CertificateRequestsApiClient.SetAcmeExternalAccountKeyEnabledAsync(key.Id, !key.IsEnabled);
+            eabKeys = [.. await CertificateRequestsApiClient.GetAcmeExternalAccountKeysAsync()];
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to update credential: {ex.Message}", "danger");
+        }
+        finally
+        {
+            eabBusy = false;
+        }
+    }
+
+    private async Task DeleteEabKeyAsync(AcmeExternalAccountKeyResponse key)
+    {
+        eabBusy = true;
+        try
+        {
+            await CertificateRequestsApiClient.DeleteAcmeExternalAccountKeyAsync(key.Id);
+            pendingDeleteId = null;
+            eabKeys = [.. await CertificateRequestsApiClient.GetAcmeExternalAccountKeysAsync()];
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to delete credential: {ex.Message}", "danger");
+        }
+        finally
+        {
+            eabBusy = false;
+        }
+    }
+
+    private async Task CreateEstCredentialAsync()
+    {
+        estCredentialError = null;
+        if (string.IsNullOrWhiteSpace(newEstUsername) || string.IsNullOrWhiteSpace(newEstPassword))
+        {
+            estCredentialError = "Username and password are required.";
+            return;
+        }
+
+        estCredentialBusy = true;
+        try
+        {
+            issuedEstCredential = await CertificateRequestsApiClient.CreateEstEnrollmentCredentialAsync(
+                new CreateEstEnrollmentCredentialRequest(newEstUsername, newEstPassword, newEstDescription));
+            newEstUsername = null;
+            newEstPassword = null;
+            newEstDescription = null;
+            estCredentials = [.. await CertificateRequestsApiClient.GetEstEnrollmentCredentialsAsync()];
+        }
+        catch (Exception ex)
+        {
+            estCredentialError = $"Failed to issue credential: {ex.Message}";
+        }
+        finally
+        {
+            estCredentialBusy = false;
+        }
+    }
+
+    private async Task ToggleEstCredentialAsync(EstEnrollmentCredentialResponse credential)
+    {
+        estCredentialBusy = true;
+        try
+        {
+            await CertificateRequestsApiClient.SetEstEnrollmentCredentialEnabledAsync(credential.Id, !credential.IsEnabled);
+            estCredentials = [.. await CertificateRequestsApiClient.GetEstEnrollmentCredentialsAsync()];
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to update credential: {ex.Message}", "danger");
+        }
+        finally
+        {
+            estCredentialBusy = false;
+        }
+    }
+
+    private async Task DeleteEstCredentialAsync(EstEnrollmentCredentialResponse credential)
+    {
+        estCredentialBusy = true;
+        try
+        {
+            await CertificateRequestsApiClient.DeleteEstEnrollmentCredentialAsync(credential.Id);
+            pendingDeleteEstCredentialId = null;
+            estCredentials = [.. await CertificateRequestsApiClient.GetEstEnrollmentCredentialsAsync()];
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to delete credential: {ex.Message}", "danger");
+        }
+        finally
+        {
+            estCredentialBusy = false;
+        }
+    }
+
+    private static List<string> ParseNetworks(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    private void AddNetwork()
+    {
+        networkError = null;
+        var entry = newNetworkEntry?.Trim();
+
+        if (string.IsNullOrWhiteSpace(entry))
+            return;
+
+        // Same parse the server validator applies, so a bad entry is caught before saving.
+        if (!IPNetwork.TryParse(entry, out _) && !IPAddress.TryParse(entry, out _))
+        {
+            networkError = $"'{entry}' is not a valid CIDR range or IP address.";
+            return;
+        }
+
+        if (allowedNetworks.Contains(entry, StringComparer.OrdinalIgnoreCase))
+        {
+            networkError = $"'{entry}' is already in the list.";
+            return;
+        }
+
+        allowedNetworks.Add(entry);
+        newNetworkEntry = null;
+    }
+
+    private void RemoveNetwork(string entry)
+    {
+        allowedNetworks.Remove(entry);
+        networkError = null;
+    }
+
+    private void OnNetworkKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter") AddNetwork();
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        if (settings == null) return;
+
+        isSaving = true;
+        notificationMessage = null;
+
+        try
+        {
+            settings.AcmeChallengeAllowedNetworksJson =
+                allowedNetworks.Count == 0 ? null : JsonSerializer.Serialize(allowedNetworks);
+
+            settings = await CertificateRequestsApiClient.SetupOrUpdateSettingsAsync(settings);
+            allowedNetworks = ParseNetworks(settings.AcmeChallengeAllowedNetworksJson);
+            ShowNotification("Settings saved and applied.", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to save settings: {ex.Message}", "danger");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ResetCrlBaseAsync()
+    {
+        resettingCrlBase = true;
+        notificationMessage = null;
+
+        try
+        {
+            lastCrlBaseReset = await CertificateRequestsApiClient.ResetCrlBaseAsync();
+            ShowNotification($"Delta CRL base reset to CRL number {lastCrlBaseReset.CrlNumber}.", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to reset CRL base: {ex.Message}", "danger");
+        }
+        finally
+        {
+            resettingCrlBase = false;
+        }
+    }
+
+    private async Task MigrateSecretStorageAsync()
+    {
+        migratingSecretStorage = true;
+        secretStorageMigrationSucceeded = false;
+        notificationMessage = null;
+
+        try
+        {
+            await CertificateRequestsApiClient.MigrateSecretStorageAsync(targetProvider);
+            secretStorageStatus = await CertificateRequestsApiClient.GetSecretStorageStatusAsync();
+            secretStorageMigrationSucceeded = true;
+            ShowNotification("Secret storage migrated. Restart the services for the change to take effect.", "success");
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Failed to migrate secret storage: {ex.Message}", "danger");
+        }
+        finally
+        {
+            migratingSecretStorage = false;
+        }
+    }
+
+    private void ShowNotification(string message, string type)
+    {
+        notificationMessage = message;
+        notificationType = type;
+    }
+
+    private async Task DownloadCaCertAsync(string format)
+    {
+        try
+        {
+            var bytes = await CertificateRequestsApiClient.DownloadCaCertificateAsync(format);
+            var (filename, mime) = format switch
+            {
+                "der" => ("ca.cer", "application/x-x509-ca-cert"),
+                "p7b" => ("ca.p7b", "application/x-pkcs7-certificates"),
+                _     => ("ca.pem", "application/x-pem-file")
+            };
+            await JS.InvokeVoidAsync("downloadFile", filename, mime, Convert.ToBase64String(bytes));
+        }
+        catch (Exception ex)
+        {
+            ShowNotification($"Download failed: {ex.Message}", "danger");
+        }
+    }
+}

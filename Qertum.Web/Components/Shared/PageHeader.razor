@@ -1,0 +1,22 @@
+@namespace Qertum.Web.Components.Shared
+
+<div class="dashboard-header">
+    <div class="dashboard-header-row">
+        <div>
+            <h1>@Heading</h1>
+            @if (Subtitle is not null)
+            {
+                <p class="dashboard-subtitle">@Subtitle</p>
+            }
+        </div>
+        @Actions
+    </div>
+</div>
+
+@code {
+    /// <summary>The h1 content; wrap the emphasised word in <c>&lt;em&gt;</c>.</summary>
+    [Parameter, EditorRequired] public RenderFragment Heading { get; set; } = default!;
+    [Parameter] public RenderFragment? Subtitle { get; set; }
+    /// <summary>Buttons or links aligned to the right of the heading.</summary>
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

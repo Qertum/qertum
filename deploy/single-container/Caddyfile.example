@@ -1,0 +1,31 @@
+# Example reverse proxy for exposing the single-container Qertum stack beyond
+# the LAN with real TLS. See the "TLS / exposing beyond the LAN" section of
+# README.md for the full explanation of why each service keeps its own port
+# instead of being merged onto 443 with path/subdomain routing.
+#
+# Replace ca.example.com with your public hostname and `qertum` with the
+# container/service name reachable from wherever Caddy runs (its own compose
+# network, a Docker user network, etc).
+#
+# Run alongside the app, e.g. as a second service in the same compose file:
+#   caddy:
+#     image: caddy:2
+#     ports: ["8080:8080", "8081:8081", "8082:8082"]
+#     volumes:
+#       - ./Caddyfile:/etc/caddy/Caddyfile
+#       - caddy-data:/data
+#     depends_on: [qertum]
+
+ca.example.com:8080 {
+	reverse_proxy qertum:8080
+}
+
+ca.example.com:8081 {
+	reverse_proxy qertum:8081
+}
+
+ca.example.com:8082 {
+	reverse_proxy qertum:8082
+}
+
+# ACME (8083) is deliberately not proxied: it must not sit behind a TLS-terminating proxy (see README.md).

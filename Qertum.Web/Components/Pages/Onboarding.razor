@@ -1,0 +1,867 @@
+@page "/onboarding"
+@using Qertum.Services
+@using Qertum.Web.Components.Pages.Enrollment
+@layout Layout.OnboardingLayout
+@using System.Security.Cryptography.X509Certificates
+@using System.Security.Cryptography.Pkcs
+@attribute [Authorize(Policy = AppPermissions.SettingsEdit)]
+@using Qertum.Web.Components.Issuers
+@inject CertificateRequestsApiClient ApiClient
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>CA Setup — Qertum</PageTitle>
+
+@if (_step == Step.Done && _caStatus != null)
+{
+    <div class="ob-card animate-in">
+        <div class="ob-card-icon ob-icon-success">
+            <span class="bi bi-check-circle-fill" aria-hidden="true"></span>
+        </div>
+        <h1 class="ob-title">Certificate Authority Ready</h1>
+        <p class="ob-subtitle">Your CA has been configured. You can now issue certificates.</p>
+
+        <div class="ob-ca-info">
+            <div class="ob-ca-info-row">
+                <span class="ob-ca-info-label">Subject</span>
+                <span class="ob-ca-info-value ob-mono">@_caStatus.SubjectDn</span>
+            </div>
+            <div class="ob-ca-info-row">
+                <span class="ob-ca-info-label">Algorithm</span>
+                <span class="ob-ca-info-value">@_caStatus.Algorithm</span>
+            </div>
+            <div class="ob-ca-info-row">
+                <span class="ob-ca-info-label">Valid from</span>
+                <span class="ob-ca-info-value">@_caStatus.ValidFrom?.ToString("yyyy-MM-dd")</span>
+            </div>
+            <div class="ob-ca-info-row">
+                <span class="ob-ca-info-label">Valid to</span>
+                <span class="ob-ca-info-value">@_caStatus.ValidTo?.ToString("yyyy-MM-dd")</span>
+            </div>
+        </div>
+
+        <div class="ob-download-section">
+            <p class="ob-download-label">
+                <span class="bi bi-info-circle me-1" aria-hidden="true"></span>
+                Install this CA certificate in your trust store to trust all certificates issued by it.
+            </p>
+            <div class="btn-group" role="group" aria-label="Download CA certificate">
+                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => DownloadCaCertAsync("pem"))">
+                    <span class="bi bi-download me-1" aria-hidden="true"></span>PEM
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => DownloadCaCertAsync("der"))">
+                    <span class="bi bi-download me-1" aria-hidden="true"></span>DER
+                </button>
+                <button class="btn btn-outline-secondary" type="button" @onclick="@(() => DownloadCaCertAsync("p7b"))">
+                    <span class="bi bi-download me-1" aria-hidden="true"></span>PKCS#7
+                </button>
+            </div>
+        </div>
+
+        <button class="btn btn-primary ob-btn-full mt-3" @onclick="@(() => Nav.NavigateTo("/"))">
+            <span class="bi bi-speedometer2 me-2" aria-hidden="true"></span>
+            Go to Dashboard
+        </button>
+    </div>
+}
+else if (_step == Step.PendingApproval)
+{
+    <div class="ob-card animate-in">
+        <div class="ob-card-icon ob-icon-warning">
+            <span class="bi bi-hourglass-split" aria-hidden="true"></span>
+        </div>
+        <h1 class="ob-title">Root CA Awaiting Approval</h1>
+        <p class="ob-subtitle"><strong>The CA has not been created yet.</strong> Generating filed a Root CA request, and approving that request is what creates the CA key and certificate. Until an admin approves it, no certificate can be requested or issued.</p>
+
+        @if (_pendingRootCaRequestId.HasValue)
+        {
+            <a class="btn btn-primary ob-btn-full" href="/certificate-requests/@_pendingRootCaRequestId">
+                <span class="bi bi-check2-square me-2" aria-hidden="true"></span>
+                Review &amp; Approve Request
+            </a>
+        }
+
+        <button class="btn btn-link btn-sm ob-skip-btn mt-3" @onclick="@(() => Nav.NavigateTo("/"))">
+            Go to Dashboard
+        </button>
+    </div>
+}
+else if (_step == Step.Choose)
+{
+    <div class="ob-card animate-in">
+        <div class="ob-card-icon ob-icon-brand">
+            <span class="bi bi-shield-lock" aria-hidden="true"></span>
+        </div>
+        <h1 class="ob-title">Set Up Certificate Authority</h1>
+        <p class="ob-subtitle">Choose how to configure the root CA for this server. This CA will sign all certificates issued here.</p>
+
+        <div class="option-list">
+            @* Creating issuers is admin-only on the API, like permission grants. *@
+            <AuthorizeView Roles="admin">
+                <Authorized>
+                    <button class="option-card" data-test="offline-root-card" @onclick="@(() => { _resumeIssuerId = null; _step = Step.OfflineRoot; })">
+                        <span class="bi bi-diagram-3-fill option-card-icon" aria-hidden="true"></span>
+                        <div class="option-card-body">
+                            <strong>Offline root + online intermediate <small class="issuer-badge issuer-badge-default ms-1">Recommended</small></strong>
+                            <span>The root key never touches this server: sign the intermediate's request with <code>qca root sign</code> or OpenSSL on an offline machine, then upload the result.</span>
+                        </div>
+                        <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+                    </button>
+                </Authorized>
+            </AuthorizeView>
+
+            <button class="option-card" @onclick="@(() => _step = Step.Generate)">
+                <span class="bi bi-cpu-fill option-card-icon" aria-hidden="true"></span>
+                <div class="option-card-body">
+                    <strong>Generate new CA</strong>
+                    <span>Create a fresh root CA key and self-signed certificate.</span>
+                </div>
+                <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+            </button>
+
+            <button class="option-card" @onclick="@(() => _step = Step.Import)">
+                <span class="bi bi-upload option-card-icon" aria-hidden="true"></span>
+                <div class="option-card-body">
+                    <strong>Upload existing CA</strong>
+                    <span>Import a PEM certificate and private key from an existing CA.</span>
+                </div>
+                <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+            </button>
+        </div>
+
+        <div class="ob-skip">
+            <button class="btn btn-link btn-sm ob-skip-btn" @onclick="@(() => Nav.NavigateTo("/"))">
+                Skip for now
+            </button>
+            <span class="ob-skip-note">No certificates can be issued until a CA is configured.</span>
+        </div>
+    </div>
+}
+else if (_step == Step.OfflineRoot)
+{
+    <div class="ob-card ob-card-wide animate-in">
+        <button class="ob-back-btn" @onclick="@(() => { _step = Step.Choose; _errorMessage = null; })">
+            <span class="bi bi-arrow-left me-1" aria-hidden="true"></span>Back
+        </button>
+        <h1 class="ob-title mt-2">Offline root and online intermediate</h1>
+        <p class="ob-subtitle">
+            Create the root on an offline machine with <code>qca root init</code>. Define the intermediate here, sign its
+            request file offline, then install the signed certificate with the chain up to the root.
+        </p>
+        <IssuerCeremony Issuers="[]" ResumeIssuerId="_resumeIssuerId" OnChanged="HandleCeremonyChangedAsync" OnClosed="@(() => { _step = Step.Choose; })" />
+    </div>
+}
+else if (_step == Step.Generate)
+{
+    <div class="ob-card ob-card-wide animate-in">
+        <button class="ob-back-btn" @onclick="@(() => { _step = Step.Choose; _errorMessage = null; })">
+            <span class="bi bi-arrow-left me-1" aria-hidden="true"></span>Back
+        </button>
+        <h1 class="ob-title mt-2">Generate Root CA</h1>
+        <p class="ob-subtitle">Configure the identity and key properties for the new CA certificate.</p>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible" role="alert">
+                <span class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></span>
+                @_errorMessage
+                <button type="button" class="btn-close" aria-label="Close" @onclick="@(() => _errorMessage = null)"></button>
+            </div>
+        }
+
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-person-badge-fill form-section-icon purple" aria-hidden="true"></span>
+                CA Identity
+            </div>
+            <div class="form-section-body">
+                <div class="form-row cols-1">
+                    <div class="form-field">
+                        <label class="form-label" for="gen-cn">Common Name (CN) <span class="ob-required">*</span></label>
+                        <input type="text" class="form-control" id="gen-cn"
+                               @bind="_generateRequest.CommonName"
+                               placeholder="e.g. Acme Root CA" />
+                        <div class="form-help">The display name for this CA in certificate viewers.</div>
+                    </div>
+                </div>
+                <div class="form-row cols-2">
+                    <div class="form-field">
+                        <label class="form-label" for="gen-org">Organization (O)</label>
+                        <input type="text" class="form-control" id="gen-org"
+                               @bind="_generateRequest.OrganizationName"
+                               placeholder="e.g. Acme Corp" />
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="gen-ou">Organizational Unit (OU)</label>
+                        <input type="text" class="form-control" id="gen-ou"
+                               @bind="_generateRequest.OrganizationalUnit"
+                               placeholder="e.g. IT Security" />
+                    </div>
+                </div>
+                <div class="form-row cols-3">
+                    <div class="form-field">
+                        <label class="form-label" for="gen-c">Country (C)</label>
+                        <input type="text" class="form-control" id="gen-c"
+                               @bind="_generateRequest.Country"
+                               placeholder="e.g. US" maxlength="2" />
+                        <div class="form-help">Two-letter ISO code.</div>
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="gen-st">State / Province (ST)</label>
+                        <input type="text" class="form-control" id="gen-st"
+                               @bind="_generateRequest.State"
+                               placeholder="e.g. California" />
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="gen-l">Locality / City (L)</label>
+                        <input type="text" class="form-control" id="gen-l"
+                               @bind="_generateRequest.Locality"
+                               placeholder="e.g. San Francisco" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-key-fill form-section-icon cyan" aria-hidden="true"></span>
+                Key &amp; Validity
+            </div>
+            <div class="form-section-body">
+                <div class="form-row cols-2">
+                    <div class="form-field">
+                        <label class="form-label" for="gen-algo">Key Algorithm</label>
+                        <select class="form-select" id="gen-algo" @bind="_caAlgorithmStr" @bind:after="() => _compositeRootConfirmed = false">
+                            <optgroup label="Classical">
+                                <option value="RSA">RSA 4096</option>
+                                <option value="ECDSA-P256">ECDSA P-256</option>
+                                <option value="ECDSA-P384">ECDSA P-384</option>
+                            </optgroup>
+                            <optgroup label="Full PQC (FIPS 204)">
+                                <option value="ML-DSA-44">ML-DSA-44 (Dilithium2) — 1312-byte key</option>
+                                <option value="ML-DSA-65">ML-DSA-65 (Dilithium3) — 1952-byte key</option>
+                                <option value="ML-DSA-87">ML-DSA-87 (Dilithium5) — 2592-byte key</option>
+                                <option value="SLH-DSA-SHA2-128S">SLH-DSA-SHA2-128S (hash-based) — 32-byte key, ~8 KB signatures</option>
+                                <option value="SLH-DSA-SHA2-128F">SLH-DSA-SHA2-128F (hash-based) — 32-byte key, faster signing, ~17 KB signatures</option>
+                            </optgroup>
+                            @foreach (var group in AlgorithmChoices.Composite.GroupBy(c => c.Featured ? "Composite ML-DSA + classical" : $"Composite ML-DSA + {c.Group}")
+                                          .OrderBy(g => g.Key == "Composite ML-DSA + classical" ? -1 : AlgorithmChoices.CompositeGroupOrder(g.First().Group)))
+                            {
+                                <optgroup label="@group.Key">
+                                    @foreach (var choice in group)
+                                    {
+                                        <option value="@choice.Value">@choice.Label (composite)</option>
+                                    }
+                                </optgroup>
+                            }
+                        </select>
+                        <div class="form-help">This is a post-quantum-first CA, so ML-DSA-65 is proposed. Classical algorithms (RSA/ECDSA) have the broadest client support but are refused by the enforcement stage below unless you lower it. ML-DSA needs clients that support FIPS 204.</div>
+                        @if (ClassicalRootBlocked)
+                        {
+                            <div class="alert alert-warning mt-2" data-test="ob-classical-root-blocked">
+                                The PQC enforcement stage is <strong>@_pqcStage</strong>, which refuses a classical root key.
+                                Choose a post-quantum algorithm@(_isAdmin ? " or lower the stage below" : "; only an administrator can lower the stage").
+                            </div>
+                        }
+                        @if (IsCompositeRoot)
+                        {
+                            <div class="alert alert-warning mt-2" data-test="composite-root-notice">
+                                <p class="mb-2">@CertificateAlgorithmSummary.CompositeRootNotice</p>
+                                <div class="form-check">
+                                    <input id="composite-root-confirm" class="form-check-input" type="checkbox" @bind="_compositeRootConfirmed" />
+                                    <label class="form-check-label" for="composite-root-confirm">
+                                        I understand that every relying party must support composite ML-DSA.
+                                    </label>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="gen-stage">PQC enforcement stage</label>
+                        <select class="form-select" id="gen-stage" value="@_pqcStage" disabled="@(!_isAdmin)"
+                                @onchange="e => _pqcStage = Enum.TryParse<PqcStage>(e.Value?.ToString(), out var s) ? s : _pqcStage">
+                            @foreach (var stage in Enum.GetValues<PqcStage>())
+                            {
+                                <option value="@stage" selected="@(stage == _pqcStage)">@stage</option>
+                            }
+                        </select>
+                        <div class="form-help" data-test="gen-stage-help">@PqcStageGuidance.Sentence(_pqcStage)@(_isAdmin ? "" : " Only an administrator can change the stage.")</div>
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="gen-validity">Validity (days)</label>
+                        <input type="number" class="form-control" id="gen-validity"
+                               @bind="_generateRequest.ValidityDays" min="1" max="36500" />
+                        <div class="form-help">1–36500 days. 3650 days (ten years) is a typical CA lifetime.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ob-actions">
+            <button class="btn btn-primary ob-btn-submit" @onclick="HandleGenerateAsync" disabled="@(_isSubmitting || ClassicalRootBlocked || (IsCompositeRoot && !_compositeRootConfirmed))">
+                @if (_isSubmitting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span>Generating…</span>
+                }
+                else
+                {
+                    <span class="bi bi-cpu me-2" aria-hidden="true"></span>
+                    <span>Generate CA Certificate</span>
+                }
+            </button>
+        </div>
+    </div>
+}
+else if (_step == Step.Import)
+{
+    <div class="ob-card ob-card-wide animate-in">
+        <button class="ob-back-btn" @onclick="ResetImportStep">
+            <span class="bi bi-arrow-left me-1" aria-hidden="true"></span>Back
+        </button>
+        <h1 class="ob-title mt-2">Import Existing CA</h1>
+        <p class="ob-subtitle">Choose how to provide your CA certificate and private key.</p>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible" role="alert">
+                <span class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></span>
+                @_errorMessage
+                <button type="button" class="btn-close" aria-label="Close" @onclick="@(() => _errorMessage = null)"></button>
+            </div>
+        }
+
+        <ul class="nav nav-tabs ob-import-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(_importFormat == ImportFormat.Pem ? "active" : "")"
+                        type="button" role="tab"
+                        @onclick="@(() => SetImportFormat(ImportFormat.Pem))">
+                    <span class="bi bi-file-text me-1" aria-hidden="true"></span>PEM
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(_importFormat == ImportFormat.Pkcs7 ? "active" : "")"
+                        type="button" role="tab"
+                        @onclick="@(() => SetImportFormat(ImportFormat.Pkcs7))">
+                    <span class="bi bi-collection me-1" aria-hidden="true"></span>PKCS#7
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(_importFormat == ImportFormat.Pfx ? "active" : "")"
+                        type="button" role="tab"
+                        @onclick="@(() => SetImportFormat(ImportFormat.Pfx))">
+                    <span class="bi bi-safe2 me-1" aria-hidden="true"></span>PFX / PKCS#12
+                </button>
+            </li>
+        </ul>
+
+        @if (_importFormat == ImportFormat.Pem)
+        {
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-file-earmark-lock2-fill form-section-icon purple" aria-hidden="true"></span>
+                    CA Certificate
+                </div>
+                <div class="form-section-body">
+                    <div class="form-row cols-1">
+                        <div class="form-field">
+                            <div class="ob-upload-row">
+                                <label class="form-label" for="pem-cert">PEM Certificate <span class="ob-required">*</span></label>
+                                <label class="ob-file-label">
+                                    <span class="bi bi-folder2-open me-1" aria-hidden="true"></span>Browse
+                                    <InputFile OnChange="HandlePemCertFileAsync" accept=".pem,.crt,.cer" class="ob-file-input" />
+                                </label>
+                            </div>
+                            <textarea class="form-control ob-pem-area" id="pem-cert"
+                                      @bind="_importRequest.CertificatePem"
+                                      placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                                      rows="7" spellcheck="false"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-key-fill form-section-icon cyan" aria-hidden="true"></span>
+                    Private Key
+                </div>
+                <div class="form-section-body">
+                    <div class="form-row cols-1">
+                        <div class="form-field">
+                            <div class="ob-upload-row">
+                                <label class="form-label" for="pem-key">PEM Private Key <span class="ob-required">*</span></label>
+                                <label class="ob-file-label">
+                                    <span class="bi bi-folder2-open me-1" aria-hidden="true"></span>Browse
+                                    <InputFile OnChange="HandleKeyFileAsync" accept=".pem,.key" class="ob-file-input" />
+                                </label>
+                            </div>
+                            <textarea class="form-control ob-pem-area" id="pem-key"
+                                      @bind="_importRequest.PrivateKeyPem"
+                                      placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----&#10;(or PKCS#8 / EC format)"
+                                      rows="7" spellcheck="false"></textarea>
+                            <div class="form-help">The key is encrypted with AES-256 via ASP.NET Data Protection before being stored on disk.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_importFormat == ImportFormat.Pkcs7)
+        {
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-collection-fill form-section-icon purple" aria-hidden="true"></span>
+                    Certificate Bundle
+                </div>
+                <div class="form-section-body">
+                    <div class="form-row cols-1">
+                        <div class="form-field">
+                            @if (string.IsNullOrEmpty(_importRequest.CertificatePem))
+                            {
+                                <label class="ob-upload-zone">
+                                    <span class="bi bi-cloud-upload-fill ob-upload-zone-icon" aria-hidden="true"></span>
+                                    <p class="mb-1">Drop a <strong>.p7b</strong> file here or <span class="ob-upload-zone-link">browse</span></p>
+                                    <p class="text-muted small mb-0">Also accepts PEM-encoded PKCS#7</p>
+                                    <InputFile OnChange="HandleP7bFileAsync" accept=".p7b,.pem" class="ob-file-input" />
+                                </label>
+                            }
+                            else
+                            {
+                                <div class="ob-cert-summary">
+                                    <span class="bi bi-patch-check-fill ob-cert-summary-icon" aria-hidden="true"></span>
+                                    <div class="ob-cert-summary-body">
+                                        <div class="fw-semibold small">Certificate loaded</div>
+                                        <div class="ob-cert-summary-subject">@_extractedCertSubject</div>
+                                    </div>
+                                    <label class="btn btn-sm btn-outline-secondary ob-cert-summary-change">
+                                        Change
+                                        <InputFile OnChange="HandleP7bFileAsync" accept=".p7b,.pem" class="ob-file-input" />
+                                    </label>
+                                </div>
+                            }
+                            <div class="form-help mt-2">Upload a PKCS#7 certificate bundle (.p7b). If the bundle contains a chain, the CA certificate is selected automatically. The private key must be provided separately below.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-key-fill form-section-icon cyan" aria-hidden="true"></span>
+                    Private Key
+                </div>
+                <div class="form-section-body">
+                    <div class="form-row cols-1">
+                        <div class="form-field">
+                            <div class="ob-upload-row">
+                                <label class="form-label" for="p7b-key">PEM Private Key <span class="ob-required">*</span></label>
+                                <label class="ob-file-label">
+                                    <span class="bi bi-folder2-open me-1" aria-hidden="true"></span>Browse
+                                    <InputFile OnChange="HandleKeyFileAsync" accept=".pem,.key" class="ob-file-input" />
+                                </label>
+                            </div>
+                            <textarea class="form-control ob-pem-area" id="p7b-key"
+                                      @bind="_importRequest.PrivateKeyPem"
+                                      placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----&#10;(or PKCS#8 / EC format)"
+                                      rows="7" spellcheck="false"></textarea>
+                            <div class="form-help">The key is encrypted with AES-256 via ASP.NET Data Protection before being stored on disk.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_importFormat == ImportFormat.Pfx)
+        {
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-safe2-fill form-section-icon purple" aria-hidden="true"></span>
+                    PFX / PKCS#12 File
+                </div>
+                <div class="form-section-body">
+                    <div class="form-row cols-1">
+                        <div class="form-field">
+                            @if (!_pfxKeyExtracted)
+                            {
+                                <label class="ob-upload-zone @(_pfxBytes != null ? "ob-upload-zone-pending" : "")">
+                                    <span class="bi bi-cloud-upload-fill ob-upload-zone-icon" aria-hidden="true"></span>
+                                    <p class="mb-1">Drop a <strong>.pfx</strong> or <strong>.p12</strong> file here or <span class="ob-upload-zone-link">browse</span></p>
+                                    <p class="text-muted small mb-0">Contains both the certificate and private key</p>
+                                    <InputFile OnChange="HandlePfxFileAsync" accept=".pfx,.p12" class="ob-file-input" />
+                                </label>
+                                @if (_pfxBytes != null)
+                                {
+                                    <div class="mt-3">
+                                        <label class="form-label" for="pfx-password">Password</label>
+                                        <div class="input-group">
+                                            <input type="password" class="form-control" id="pfx-password"
+                                                   @bind="_pfxPassword"
+                                                   placeholder="Leave blank if the file has no password" />
+                                            <button class="btn btn-outline-secondary" type="button" @onclick="ExtractFromPfx">
+                                                <span class="bi bi-box-arrow-in-down me-1" aria-hidden="true"></span>Extract
+                                            </button>
+                                        </div>
+                                        <div class="form-help">Enter the PFX password then click Extract, or leave blank and click Extract for unprotected files.</div>
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="ob-cert-summary">
+                                    <span class="bi bi-patch-check-fill ob-cert-summary-icon" aria-hidden="true"></span>
+                                    <div class="ob-cert-summary-body">
+                                        <div class="fw-semibold small">Certificate and private key loaded</div>
+                                        <div class="ob-cert-summary-subject">@_extractedCertSubject</div>
+                                    </div>
+                                    <label class="btn btn-sm btn-outline-secondary ob-cert-summary-change">
+                                        Change
+                                        <InputFile OnChange="HandlePfxFileAsync" accept=".pfx,.p12" class="ob-file-input" />
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="ob-actions">
+            <button class="btn btn-primary ob-btn-submit" @onclick="HandleImportAsync" disabled="@_isSubmitting">
+                @if (_isSubmitting)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <span>Importing…</span>
+                }
+                else
+                {
+                    <span class="bi bi-upload me-2" aria-hidden="true"></span>
+                    <span>Import CA Certificate</span>
+                }
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    // The server's own reason, when it gave one, after the page's explanation.
+    private static string WithDetail(string message, ApiProblemException ex) =>
+        ex.WithCorrelationId(string.IsNullOrWhiteSpace(ex.Detail) ? message : $"{message} ({ex.Detail})");
+
+    private enum Step { Choose, OfflineRoot, Generate, Import, PendingApproval, Done }
+
+    private Step _step = Step.Choose;
+    private IssuerId? _resumeIssuerId;
+    private bool _isSubmitting;
+    private string? _errorMessage;
+    private CaStatusResponse? _caStatus;
+    private Guid? _pendingRootCaRequestId;
+
+    // A post-quantum-first CA proposes a post-quantum root; a classical one is a deliberate choice.
+    private string _caAlgorithmStr = "ML-DSA-65";
+    private bool _compositeRootConfirmed;
+
+    // The CA default stage this root is generated under. Enforce is what a fresh CA starts with; changing
+    // it needs the admin role, so anyone else keeps Enforce and can only choose a post-quantum root.
+    private PqcStage _pqcStage = PqcStage.Enforce;
+    private bool _isAdmin;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private bool ClassicalRootBlocked =>
+        PqcStageGuidance.RefusesNewClassical(_pqcStage)
+        && CertificateKeyAlgorithmExtensions.Parse(_caAlgorithmStr)?.GetFamily() is AlgorithmFamily.Rsa or AlgorithmFamily.Ecdsa;
+
+    private bool IsCompositeRoot =>
+        CertificateKeyAlgorithmExtensions.Parse(_caAlgorithmStr)?.GetFamily() == AlgorithmFamily.Composite;
+
+    private GenerateCaRequest _generateRequest = new()
+    {
+        ValidityDays = 3650
+    };
+
+    private ImportCaRequest _importRequest = new();
+
+    private enum ImportFormat { Pem, Pkcs7, Pfx }
+    private ImportFormat _importFormat = ImportFormat.Pem;
+    private string? _extractedCertSubject;
+    private byte[]? _pfxBytes;
+    private string? _pfxPassword;
+    private bool _pfxKeyExtracted;
+
+    private void SetImportFormat(ImportFormat format)
+    {
+        if (_importFormat == format) return;
+        _importFormat = format;
+        _importRequest = new();
+        _extractedCertSubject = null;
+        _pfxBytes = null;
+        _pfxPassword = null;
+        _pfxKeyExtracted = false;
+        _errorMessage = null;
+    }
+
+    private async Task DownloadCaCertAsync(string format)
+    {
+        try
+        {
+            var bytes = await ApiClient.DownloadCaCertificateAsync(format);
+            var (filename, mime) = format switch
+            {
+                "der" => ("ca.cer", "application/x-x509-ca-cert"),
+                "p7b" => ("ca.p7b", "application/x-pkcs7-certificates"),
+                _     => ("ca.pem", "application/x-pem-file")
+            };
+            await JS.InvokeVoidAsync("downloadFile", filename, mime, Convert.ToBase64String(bytes));
+        }
+        catch { /* download failures are silent — the user can retry */ }
+    }
+
+    private void ResetImportStep()
+    {
+        _step = Step.Choose;
+        _errorMessage = null;
+        _importRequest = new();
+        _importFormat = ImportFormat.Pem;
+        _extractedCertSubject = null;
+        _pfxBytes = null;
+        _pfxPassword = null;
+        _pfxKeyExtracted = false;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAdmin = AuthenticationStateTask is not null && (await AuthenticationStateTask).User.IsInRole("admin");
+        try
+        {
+            var status = await ApiClient.GetCaStatusAsync();
+            if (status.IsInitialized)
+            {
+                _caStatus = status;
+                _step = Step.Done;
+            }
+            else if (status.PendingRootCaRequestId.HasValue)
+            {
+                _pendingRootCaRequestId = status.PendingRootCaRequestId;
+                _step = Step.PendingApproval;
+            }
+            else if (status.PendingIntermediateIssuerId is { } pendingIntermediate)
+            {
+                // A ceremony started earlier: reopen it where the signed certificate is installed.
+                _resumeIssuerId = pendingIntermediate;
+                _step = Step.OfflineRoot;
+            }
+        }
+        catch { /* If check fails, let the user proceed normally */ }
+    }
+
+    private async Task HandleCeremonyChangedAsync()
+    {
+        try
+        {
+            var status = await ApiClient.GetCaStatusAsync();
+            if (status.IsInitialized)
+            {
+                _caStatus = status;
+                _step = Step.Done;
+            }
+        }
+        catch (ApiProblemException ex)
+        {
+            _errorMessage = ex.WithCorrelationId(ex.Detail ?? ex.Title);
+        }
+    }
+
+    private async Task HandleGenerateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_generateRequest.CommonName))
+        {
+            _errorMessage = "Common Name is required.";
+            return;
+        }
+
+        if (IsCompositeRoot && !_compositeRootConfirmed)
+        {
+            _errorMessage = "Confirm that every relying party supports composite ML-DSA before generating a composite root.";
+            return;
+        }
+
+        _isSubmitting = true;
+        _errorMessage = null;
+        _generateRequest.KeyAlgorithm = CertificateKeyAlgorithmExtensions.Parse(_caAlgorithmStr);
+        _generateRequest.PqcStage = _pqcStage == PqcStage.Enforce ? null : _pqcStage;
+
+        try
+        {
+            var certRequest = await ApiClient.GenerateCaAsync(_generateRequest);
+            _pendingRootCaRequestId = (Guid)certRequest.Id;
+            _step = Step.PendingApproval;
+        }
+        catch (ApiProblemException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            _errorMessage = WithDetail("Invalid CA configuration. Check the values and try again.", ex);
+        }
+        catch (ApiProblemException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            _errorMessage = ex.WithCorrelationId("A Root CA request already exists or a CA is already configured on this server.");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Generation failed: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task HandleImportAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_importRequest.CertificatePem))
+        {
+            _errorMessage = "Please provide the CA certificate PEM.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_importRequest.PrivateKeyPem))
+        {
+            _errorMessage = "Please provide the private key PEM.";
+            return;
+        }
+
+        _isSubmitting = true;
+        _errorMessage = null;
+
+        try
+        {
+            _caStatus = await ApiClient.ImportCaAsync(_importRequest);
+            _step = Step.Done;
+        }
+        catch (ApiProblemException ex) when (ex.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            _errorMessage = WithDetail("Could not import the CA: the certificate or key is invalid, or the key does not match the certificate.", ex);
+        }
+        catch (ApiProblemException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Conflict)
+        {
+            _errorMessage = ex.WithCorrelationId("A CA certificate already exists on this server.");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Import failed: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    // PEM tab
+    private async Task HandlePemCertFileAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        try
+        {
+            using var sr = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 65_536));
+            _importRequest.CertificatePem = await sr.ReadToEndAsync();
+        }
+        catch { _errorMessage = "Could not read the certificate file."; }
+    }
+
+    // Shared key handler (PEM and PKCS#7 tabs)
+    private async Task HandleKeyFileAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        try
+        {
+            using var sr = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 65_536));
+            _importRequest.PrivateKeyPem = await sr.ReadToEndAsync();
+        }
+        catch { _errorMessage = "Could not read the private key file."; }
+    }
+
+    // PKCS#7 tab
+    private async Task HandleP7bFileAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _importRequest.CertificatePem = string.Empty;
+        _extractedCertSubject = null;
+        try
+        {
+            var bytes = await ReadAllBytesAsync(e.File, maxBytes: 524_288);
+            var ca = ExtractCaFromPkcs7(bytes);
+            _importRequest.CertificatePem = ca.ExportCertificatePem();
+            _extractedCertSubject = ca.Subject;
+        }
+        catch (Exception ex) { _errorMessage = $"Could not load the PKCS#7 file: {ex.Message}"; }
+    }
+
+    // PFX tab
+    private async Task HandlePfxFileAsync(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        _pfxBytes = null;
+        _pfxKeyExtracted = false;
+        _extractedCertSubject = null;
+        _importRequest = new();
+        try
+        {
+            _pfxBytes = await ReadAllBytesAsync(e.File, maxBytes: 524_288);
+            ExtractFromPfx();
+        }
+        catch (Exception ex) { _errorMessage = $"Could not read the PFX file: {ex.Message}"; }
+    }
+
+    private void ExtractFromPfx()
+    {
+        if (_pfxBytes == null) return;
+        _errorMessage = null;
+        _pfxKeyExtracted = false;
+        _extractedCertSubject = null;
+        try
+        {
+            using var cert = X509CertificateLoader.LoadPkcs12(
+                _pfxBytes, _pfxPassword ?? string.Empty, X509KeyStorageFlags.Exportable);
+
+            _importRequest.CertificatePem = cert.ExportCertificatePem();
+            _extractedCertSubject = cert.Subject;
+
+            using var rsa = cert.GetRSAPrivateKey();
+            if (rsa != null) { _importRequest.PrivateKeyPem = rsa.ExportPkcs8PrivateKeyPem(); _pfxKeyExtracted = true; return; }
+            using var ecdsa = cert.GetECDsaPrivateKey();
+            if (ecdsa != null) { _importRequest.PrivateKeyPem = ecdsa.ExportPkcs8PrivateKeyPem(); _pfxKeyExtracted = true; return; }
+
+            _errorMessage = "The PFX does not contain a private key.";
+        }
+        catch (Exception ex)
+        {
+            _importRequest.CertificatePem = string.Empty;
+            _errorMessage = $"Could not open the PFX: {ex.Message}";
+        }
+    }
+
+    private static X509Certificate2 ExtractCaFromPkcs7(byte[] data)
+    {
+        // Strip PEM armor if present so SignedCms.Decode() receives raw DER.
+        if (data.Length > 10 && data[0] == '-')
+        {
+            var pem = System.Text.Encoding.ASCII.GetString(data);
+            var b64 = string.Concat(
+                pem.Split('\n').Where(l => !l.TrimStart().StartsWith("-----")).Select(l => l.Trim()));
+            data = Convert.FromBase64String(b64);
+        }
+
+        // A P7B is a degenerate PKCS#7 SignedData with no signers, only a certificates field.
+        var cms = new SignedCms();
+        cms.Decode(data);
+
+        // Prefer the cert with BasicConstraints CA:TRUE; fall back to the first cert in the bundle.
+        return cms.Certificates
+            .FirstOrDefault(c => c.Extensions.OfType<X509BasicConstraintsExtension>().Any(e => e.CertificateAuthority))
+            ?? cms.Certificates.FirstOrDefault()
+            ?? throw new InvalidOperationException("No certificate found in the PKCS#7 file.");
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(IBrowserFile file, int maxBytes)
+    {
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(maxAllowedSize: maxBytes).CopyToAsync(ms);
+        return ms.ToArray();
+    }
+}

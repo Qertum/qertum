@@ -1,0 +1,31 @@
+@namespace Qertum.Web.Components.Shared
+
+<div class="empty-state animate-in">
+    <div class="empty-state-icon">
+        @if (!string.IsNullOrEmpty(Glyph))
+        {
+            @Glyph
+        }
+        else
+        {
+            <span class="bi @Icon"></span>
+        }
+    </div>
+    <div class="empty-state-title">@Title</div>
+    @if (!string.IsNullOrEmpty(Message))
+    {
+        <div class="empty-state-message">@Message</div>
+    }
+    @ChildContent
+</div>
+
+@code {
+    /// <summary>Bootstrap icon class, for example <c>bi-inbox</c>. Ignored when <see cref="Glyph"/> is set.</summary>
+    [Parameter] public string Icon { get; set; } = "";
+    /// <summary>A text glyph (an emoji) shown instead of an icon.</summary>
+    [Parameter] public string? Glyph { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Message { get; set; }
+    /// <summary>The call to action, usually a button.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

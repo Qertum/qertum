@@ -1,0 +1,157 @@
+@implements IDisposable
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<div class="section-label">Attention Required</div>
+<div class="attention-panel animate-in">
+    @if (loadError is not null)
+    {
+        <div class="attention-state attention-state-unavailable">
+            <span class="bi bi-question-circle"></span>
+            Attention status unavailable — @loadError
+        </div>
+    }
+    else if (report is null)
+    {
+        <div class="attention-state">Checking…</div>
+    }
+    else
+    {
+        @if (report.Items.Count == 0)
+        {
+            <div class="attention-state attention-state-clear">
+                <span class="bi bi-check-circle"></span>
+                @(report.WithheldKinds.Count == 0 && report.UnavailableKinds.Count == 0
+                    ? "All clear"
+                    : "No issues in the areas you can view")
+            </div>
+        }
+        else
+        {
+            <ul class="attention-list">
+                @foreach (var item in report.Items)
+                {
+                    var isOpen = expanded.Contains(item.Kind);
+                    <li class="attention-item @SeverityClass(item.Severity)">
+                        <div class="attention-row">
+                            <button type="button" class="attention-toggle" aria-expanded="@(isOpen ? "true" : "false")"
+                                    @onclick="() => Toggle(item.Kind)">
+                                <span class="attention-chip">@item.Severity</span>
+                                <span class="attention-title">@item.Title</span>
+                                <span class="bi @(isOpen ? "bi-chevron-up" : "bi-chevron-down")"></span>
+                            </button>
+                            <a class="btn btn-sm btn-primary" href="@item.ActionHref">@item.ActionLabel</a>
+                        </div>
+                        @if (isOpen)
+                        {
+                            <div class="attention-detail">
+                                <p class="attention-explanation">@item.Explanation</p>
+                                @if (item.Evidence.Count > 0)
+                                {
+                                    <ul class="attention-evidence">
+                                        @foreach (var evidence in item.Evidence)
+                                        {
+                                            <li>
+                                                @if (evidence.Href is not null)
+                                                {
+                                                    <a href="@evidence.Href">@evidence.Label</a>
+                                                }
+                                                else
+                                                {
+                                                    <span>@evidence.Label</span>
+                                                }
+                                                @if (evidence.Detail is not null)
+                                                {
+                                                    <span class="attention-evidence-detail">— @evidence.Detail</span>
+                                                }
+                                            </li>
+                                        }
+                                    </ul>
+                                    @if (item.Count > item.Evidence.Count)
+                                    {
+                                        <div class="attention-more">and @(item.Count - item.Evidence.Count) more</div>
+                                    }
+                                }
+                            </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        @if (report.UnavailableKinds.Count > 0)
+        {
+            <div class="attention-state attention-state-unavailable">
+                <span class="bi bi-exclamation-circle"></span>
+                Could not be checked: @string.Join(", ", report.UnavailableKinds.Select(KindLabel))
+            </div>
+        }
+
+        <div class="attention-footer">Checked @report.GeneratedAtUtc.ToLocalTime().ToString("HH:mm:ss")</div>
+    }
+</div>
+
+@code {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
+
+    private AttentionReport? report;
+    private string? loadError;
+    private readonly HashSet<AttentionKind> expanded = [];
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        refreshTimer = new Timer(_ =>
+        {
+            _ = InvokeAsync(async () =>
+            {
+                await LoadAsync();
+                StateHasChanged();
+            });
+        }, null, RefreshInterval, RefreshInterval);
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            report = await CertificateRequestsApiClient.GetAttentionAsync();
+            loadError = null;
+        }
+        catch (Exception ex)
+        {
+            // Keep the last report out of view: a stale "all clear" is exactly what must not show.
+            report = null;
+            loadError = ex.Message;
+        }
+    }
+
+    private void Toggle(AttentionKind kind)
+    {
+        if (!expanded.Remove(kind))
+            expanded.Add(kind);
+    }
+
+    private static string SeverityClass(AttentionSeverity severity) =>
+        severity == AttentionSeverity.Critical ? "attention-critical" : "attention-warning";
+
+    private static string KindLabel(AttentionKind kind) => kind switch
+    {
+        AttentionKind.AgingApprovals => "aging approvals",
+        AttentionKind.FailedIssuance => "failed issuance",
+        AttentionKind.FailedWebhookDeliveries => "webhook deliveries",
+        AttentionKind.DeltaCrlBase => "delta CRL base",
+        AttentionKind.CaExpiry => "CA expiry",
+        AttentionKind.IssuerExpiring => "issuer expiry",
+        AttentionKind.RootCrlExpiring => "root CRL",
+        AttentionKind.IssuerArchivable => "archivable issuers",
+        AttentionKind.IssuerRevoked => "revoked issuer",
+        AttentionKind.PqcExceptionExpiring => "PQC exceptions",
+        AttentionKind.RecoveryStatus => "backup status",
+        AttentionKind.OpenNotices => "open notices",
+        AttentionKind.ApprovalsWaiting => "approvals",
+        _ => kind.ToString()
+    };
+
+    public void Dispose() => refreshTimer?.Dispose();
+}

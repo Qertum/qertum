@@ -1,0 +1,41 @@
+# Opt-in override for LocalTpm key custody: gives every container that builds the key ring the TPM
+# device and its group. Every service is listed so none can be left out (a container without it
+# cannot unseal the key ring the others wrote).
+#
+#   TPM_DEVICE=/dev/tpmrm0 TPM_GROUP=105 docker compose \
+#     -f deploy/multi-container/docker-compose.yml -f deploy/multi-container/docker-compose.tpm.yml \
+#     --env-file deploy/multi-container/.env up -d
+#
+# Run once on one x86_64 TPM 2.0 (2026-10-20); see "Manual verification" in the README for what was and was not covered.
+
+services:
+  identityservice:
+    group_add:
+      - "${TPM_GROUP:?set TPM_GROUP to the numeric group of the TPM device}"
+    devices:
+      - "${TPM_DEVICE:?set TPM_DEVICE, e.g. /dev/tpmrm0}"
+  apiservice:
+    group_add:
+      - "${TPM_GROUP:?set TPM_GROUP to the numeric group of the TPM device}"
+    devices:
+      - "${TPM_DEVICE:?set TPM_DEVICE, e.g. /dev/tpmrm0}"
+  webfrontend:
+    group_add:
+      - "${TPM_GROUP:?set TPM_GROUP to the numeric group of the TPM device}"
+    devices:
+      - "${TPM_DEVICE:?set TPM_DEVICE, e.g. /dev/tpmrm0}"
+  acmeservice:
+    group_add:
+      - "${TPM_GROUP:?set TPM_GROUP to the numeric group of the TPM device}"
+    devices:
+      - "${TPM_DEVICE:?set TPM_DEVICE, e.g. /dev/tpmrm0}"
+  estservice:
+    group_add:
+      - "${TPM_GROUP:?set TPM_GROUP to the numeric group of the TPM device}"
+    devices:
+      - "${TPM_DEVICE:?set TPM_DEVICE, e.g. /dev/tpmrm0}"
+  queueconsumer:
+    group_add:
+      - "${TPM_GROUP:?set TPM_GROUP to the numeric group of the TPM device}"
+    devices:
+      - "${TPM_DEVICE:?set TPM_DEVICE, e.g. /dev/tpmrm0}"

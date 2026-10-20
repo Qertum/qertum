@@ -1,0 +1,90 @@
+@using Qertum.Services.Policies
+
+<div data-step="Review">
+    <h2 class="form-section-title">Review</h2>
+
+    <dl class="row">
+        <dt class="col-sm-4">Template</dt><dd class="col-sm-8">@Draft.Template?.Name</dd>
+        <dt class="col-sm-4">Common name</dt><dd class="col-sm-8">@Draft.CommonName</dd>
+        @if (Sans.Count > 0)
+        {
+            <dt class="col-sm-4">Subject alternative names</dt><dd class="col-sm-8">@string.Join(", ", Sans)</dd>
+        }
+        <dt class="col-sm-4">Algorithm</dt><dd class="col-sm-8">@AlgorithmLabel</dd>
+        <dt class="col-sm-4">Validity</dt>
+        <dd class="col-sm-8">@(Draft.ValidityDays is { } days ? $"{days} days" : $"{Draft.Template?.DefaultValidityDays} days (template default)")</dd>
+        <dt class="col-sm-4">Key custody</dt><dd class="col-sm-8">Qertum generates the key; download it once the certificate is issued.</dd>
+        <dt class="col-sm-4">Requested by</dt><dd class="col-sm-8">@RequestedBy</dd>
+    </dl>
+
+    @ChildContent
+
+    @if (!string.IsNullOrWhiteSpace(SubmitError))
+    {
+        <div class="alert alert-danger" role="alert">
+            <span class="bi bi-exclamation-triangle-fill me-2"></span>@SubmitError
+            @if (Violations.Count > 0)
+            {
+                <ul class="mt-2 mb-0">
+                    @foreach (var violation in Violations)
+                    {
+                        var step = StepFor(violation.Rule);
+                        <li>
+                            @violation.Message
+                            @if (step is { } target)
+                            {
+                                <button type="button" class="btn btn-link btn-sm" data-edit-step="@target"
+                                        @onclick="() => OnEditStep.InvokeAsync(target)">Change</button>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+
+    <div class="wizard-actions">
+        <button type="button" class="btn-outline-detail" data-action="back" @onclick="OnBack">Back</button>
+        <button id="submit-request" type="button" class="btn btn-primary" disabled="@IsSubmitting" @onclick="OnSubmit">
+            @if (IsSubmitting)
+            {
+                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                <span>Queuing…</span>
+            }
+            else
+            {
+                <span class="bi bi-send-fill me-1"></span>
+                <span>Queue request</span>
+            }
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EnrollmentDraft Draft { get; set; } = default!;
+    [Parameter] public string RequestedBy { get; set; } = string.Empty;
+    [Parameter] public bool IsSubmitting { get; set; }
+    [Parameter] public string? SubmitError { get; set; }
+    [Parameter] public IReadOnlyList<IssuancePolicyViolation> Violations { get; set; } = [];
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnSubmit { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+    [Parameter] public EventCallback<WizardStep> OnEditStep { get; set; }
+
+    private List<string> Sans =>
+        new[] { Draft.DnsNames, Draft.IpAddresses, Draft.EmailAddresses, Draft.UserPrincipalNames }
+            .SelectMany(v => v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .ToList();
+
+    private string AlgorithmLabel =>
+        AlgorithmChoices.All.FirstOrDefault(a => a.Value == Draft.KeyAlgorithm)?.Label ?? Draft.KeyAlgorithm;
+
+    // Sends the requester back to the step that owns the refused field.
+    private static WizardStep? StepFor(string rule) => rule switch
+    {
+        PolicyRules.DnsSuffix or PolicyRules.IpRange or PolicyRules.DuplicateCommonName => WizardStep.Names,
+        PolicyRules.KeyAlgorithm or PolicyRules.KeyCapability or PolicyRules.MaxValidity or PolicyRules.PqcOnly => WizardStep.Key,
+        PolicyRules.Template => WizardStep.Purpose,
+        _ => null
+    };
+}

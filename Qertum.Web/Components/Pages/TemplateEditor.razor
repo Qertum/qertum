@@ -1,0 +1,693 @@
+@page "/certificate-templates/new"
+@using Qertum.Services
+@page "/certificate-templates/{Id:guid}/edit"
+@using System.Text.Json
+@attribute [Authorize(Policy = AppPermissions.SettingsEdit)]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(Id.HasValue ? "Edit Template" : "New Template") — Qertum</PageTitle>
+
+<div class="dashboard-header">
+    <a href="/certificate-templates" class="back-link">
+        <span class="bi bi-arrow-left"></span> Back to templates
+    </a>
+    <div class="dashboard-header-row">
+        <div>
+            <h1>@(Id.HasValue ? "Edit" : "New") Certificate <em>Template</em></h1>
+            <p class="dashboard-subtitle">Define the X.509 profile used when issuing certificates of this type.</p>
+        </div>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <LoadingState Text="Loading…" />
+}
+else
+{
+    <!-- Step indicator. Shares .wizard-steps with the enrollment wizard so the two cannot drift. -->
+    <div class="form-card wizard-steps-card animate-in">
+        <ol class="wizard-steps" aria-label="Progress">
+            @for (int s = 1; s <= TotalSteps; s++)
+            {
+                var step = s;
+                var isDone = step < currentStep;
+                var isCurrent = step == currentStep;
+                var state = isDone ? "done" : isCurrent ? "current" : null;
+                <li class="@state" aria-current="@(isCurrent ? "step" : null)">
+                    @if (isDone)
+                    {
+                        <button type="button" class="wizard-step-link" data-goto-step="@step"
+                                @onclick="() => GoToStep(step)">
+                            <span class="wizard-step-number">
+                                <span class="bi bi-check-lg" aria-hidden="true"></span>
+                            </span>
+                            <span class="wizard-step-label">@StepLabel(step)</span>
+                        </button>
+                    }
+                    else if (step == currentStep + 1 && CanAdvance())
+                    {
+                        @* Exactly GoToStep's own guard: the next step is reachable only once this
+                           one validates. Anything further ahead stays inert. *@
+                        <button type="button" class="wizard-step-link" data-goto-step="@step"
+                                @onclick="() => GoToStep(step)">
+                            <span class="wizard-step-number">@step</span>
+                            <span class="wizard-step-label">@StepLabel(step)</span>
+                        </button>
+                    }
+                    else
+                    {
+                        <span class="wizard-step-number">@step</span>
+                        <span class="wizard-step-label">@StepLabel(step)</span>
+                    }
+                </li>
+            }
+        </ol>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <span class="bi bi-exclamation-triangle-fill me-2"></span>@errorMessage
+            <button type="button" class="btn-close" aria-label="Close" @onclick="() => errorMessage = null"></button>
+        </div>
+    }
+
+    <!-- Step 1: Basic Info -->
+    @if (currentStep == 1)
+    {
+        <div class="form-card animate-in">
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-tag-fill form-section-icon blue"></span>
+                    Basic Information
+                </div>
+                <div class="form-section-body">
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label class="form-label" for="name">Template name</label>
+                            <input type="text" id="name" class="form-control" value="@name"
+                                   @oninput="OnNameInput"
+                                   placeholder="e.g. Client Authentication" disabled="@isBuiltIn" />
+                            <div class="form-help">Displayed in the certificate type dropdown.</div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label class="form-label" for="typekey">Type key</label>
+                            <input type="text" id="typekey" class="form-control input-mono text-sm" @bind="typeKey"
+                                   placeholder="e.g. ClientAuth" disabled="@isBuiltIn" />
+                            <div class="form-help">Machine identifier stored on certificate requests. Letters, digits, hyphens, underscores. @(isBuiltIn ? "Immutable for built-in templates." : "Cannot be changed after creation.")</div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label class="form-label" for="description">Description <span class="label-optional">(optional)</span></label>
+                            <input type="text" id="description" class="form-control" @bind="description" placeholder="e.g. For internal services that authenticate to APIs" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-field">
+                            <label class="form-label" for="validity">Validity (days) <span class="label-optional">(optional)</span></label>
+                            <input type="number" id="validity" class="form-control" style="max-width: 180px;"
+                                   @bind="validityDays" placeholder="global setting" min="1" max="36500" />
+                            <div class="form-help">Overrides the global certificate validity period for this type. Leave blank to use the global setting.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Step 2: Key Usages -->
+    @if (currentStep == 2)
+    {
+        <div class="form-card animate-in">
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-key-fill form-section-icon amber"></span>
+                    Key Usage Extension
+                </div>
+                <div class="form-section-body">
+                    <p class="step-intro">
+                        Controls what cryptographic operations the certificate's key may be used for.
+                        For RSA, <em>KeyEncipherment</em> is used for key establishment; for ECDSA, it automatically becomes <em>KeyAgreement</em>.
+                    </p>
+                    <div class="option-grid">
+                        @foreach (var ku in AllKeyUsages)
+                        {
+                            var localKu = ku;
+                            <label class="option-card option-card-accent-blue @(selectedKeyUsages.Contains(localKu.Key) ? "option-card-selected" : null)">
+                                <input type="checkbox" checked="@selectedKeyUsages.Contains(localKu.Key)"
+                                       @onchange="e => ToggleKeyUsage(localKu.Key, (bool)(e.Value ?? false))" />
+                                <div>
+                                    <div class="option-title">@localKu.Key</div>
+                                    <div class="option-desc">@localKu.Value</div>
+                                </div>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Step 3: Extended Key Usages -->
+    @if (currentStep == 3)
+    {
+        <div class="form-card animate-in">
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-shield-lock-fill form-section-icon purple"></span>
+                    Extended Key Usage (EKU)
+                </div>
+                <div class="form-section-body">
+                    <p class="step-intro">
+                        Specifies the purposes for which the certificate's key may be used. Select from the well-known set or add custom OIDs.
+                    </p>
+                    <div class="option-grid option-grid-spaced">
+                        @foreach (var eku in WellKnownEkus)
+                        {
+                            var localEku = eku;
+                            <label class="option-card option-card-accent-purple @(selectedEkus.Contains(localEku.Key) ? "option-card-selected" : null)">
+                                <input type="checkbox" checked="@selectedEkus.Contains(localEku.Key)"
+                                       @onchange="e => ToggleEku(localEku.Key, (bool)(e.Value ?? false))" />
+                                <div>
+                                    <div class="option-title">@localEku.Value.Name</div>
+                                    <div class="option-desc">@localEku.Value.Description</div>
+                                    <div class="option-code">@localEku.Key</div>
+                                </div>
+                            </label>
+                        }
+                    </div>
+                    <div class="form-field pt-3">
+                        <label class="form-label">Custom OID</label>
+                        <div class="d-flex gap-2">
+                            <input type="text" class="form-control input-mono flex-fill" @bind="customEkuInput" placeholder="e.g. 1.3.6.1.4.1.12345.1" />
+                            <button class="btn btn-primary text-nowrap" type="button" @onclick="AddCustomEku">
+                                <span class="bi bi-plus-lg me-1"></span> Add
+                            </button>
+                        </div>
+                        @if (customEkus.Count > 0)
+                        {
+                            <div class="d-flex flex-wrap gap-2 mt-2">
+                                @foreach (var oid in customEkus)
+                                {
+                                    var localOid = oid;
+                                    <span class="oid-chip">
+                                        @localOid
+                                        <button type="button" @onclick="() => RemoveCustomEku(localOid)" class="oid-chip-remove">&times;</button>
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Step 4: SAN Types & Summary -->
+    @if (currentStep == 4)
+    {
+        <div class="form-card animate-in">
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-diagram-3-fill form-section-icon cyan"></span>
+                    Subject Alternative Names (SAN)
+                </div>
+                <div class="form-section-body">
+                    <p class="step-intro">
+                        Select which SAN field types the request form will collect for this certificate type.
+                    </p>
+                    <div class="option-grid">
+                        @foreach (var st in SanTypeOptions)
+                        {
+                            var localSt = st;
+                            <label class="option-card option-card-accent-cyan @(selectedSanTypes.Contains(localSt.Key) ? "option-card-selected" : null)">
+                                <input type="checkbox" checked="@selectedSanTypes.Contains(localSt.Key)"
+                                       @onchange="e => ToggleSanType(localSt.Key, (bool)(e.Value ?? false))" />
+                                <div>
+                                    <div class="option-title">@localSt.Value.Label</div>
+                                    <div class="option-desc">@localSt.Value.Description</div>
+                                </div>
+                            </label>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @if (Id.HasValue)
+            {
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-shield-check form-section-icon purple"></span>
+                        Issuance policy
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="template-policy">Governing policy</label>
+                                <select id="template-policy" class="form-select" @bind="selectedPolicyId">
+                                    <option value="">None — unrestricted</option>
+                                    @foreach (var policy in linkablePolicies)
+                                    {
+                                        <option value="@policy.Id.Value">@policy.Name (v@(policy.PublishedVersionNumber))</option>
+                                    }
+                                </select>
+                                <div class="form-help mt-2">
+                                    Only published, non-archived policies can be linked. Changing the link changes what is
+                                    enforced, so it needs the <code>policies.publish</code> permission and is saved
+                                    separately from the rest of the template.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <div class="form-section-title">
+                        <span class="bi bi-diagram-3 form-section-icon purple"></span>
+                        Issuing CA
+                    </div>
+                    <div class="form-section-body">
+                        <div class="form-row cols-1">
+                            <div class="form-field">
+                                <label class="form-label" for="template-issuer">Signed by</label>
+                                <select id="template-issuer" class="form-select" @bind="selectedIssuerId">
+                                    <option value="">Default issuer</option>
+                                    @foreach (var issuer in pinnableIssuers)
+                                    {
+                                        <option value="@issuer.Id">@issuer.Name</option>
+                                    }
+                                    @if (loadedIssuerId.Length > 0 && pinnableIssuers.All(i => i.Id.ToString() != loadedIssuerId))
+                                    {
+                                        <option value="@loadedIssuerId">Current pin (cannot issue)</option>
+                                    }
+                                </select>
+                                <div class="form-help mt-2">
+                                    Only active issuers whose key is on this server can be pinned. Requests under a template
+                                    pinned to an issuer that is later retired are refused rather than signed by another CA.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @if (isAdmin)
+                {
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <span class="bi bi-shield-lock-fill form-section-icon orange"></span>
+                            PQC enforcement
+                        </div>
+                        <div class="form-section-body">
+                            <div class="form-row cols-1">
+                                <div class="form-field">
+                                    <label class="form-label" for="pqc-stage-override">Stage for this template</label>
+                                    <select id="pqc-stage-override" class="form-select" @bind="selectedPqcStage">
+                                        <option value="">@CaDefaultLabel</option>
+                                        @foreach (var stage in Enum.GetValues<PqcStage>())
+                                        {
+                                            <option value="@stage">@stage</option>
+                                        }
+                                    </select>
+                                    <div class="form-help mt-2">
+                                        Overrides the CA-wide stage for requests under this template. It is saved separately
+                                        from the rest of the template and needs the administrator role.
+                                        @if (Enum.TryParse<PqcStage>(selectedPqcStage, out var shown))
+                                        {
+                                            <span data-test="pqc-stage-override-help">@PqcStageGuidance.Sentence(shown)</span>
+                                        }
+                                    </div>
+                                    <a data-test="template-preview-impact" href="@PreviewHref">Preview the impact</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-file-earmark-text-fill form-section-icon orange"></span>
+                    Summary
+                </div>
+                <div class="form-section-body">
+                    <div class="summary-box">
+                        <div class="summary-grid">
+                            <span class="text-muted">Name</span>
+                            <span class="summary-value">@name</span>
+                            <span class="text-muted">Type Key</span>
+                            <code class="code-cyan">@typeKey</code>
+                            @if (!string.IsNullOrWhiteSpace(description))
+                            {
+                                <span class="text-muted">Description</span>
+                                <span>@description</span>
+                            }
+                            <span class="text-muted">Key Usages</span>
+                            <span>@(selectedKeyUsages.Count == 0 ? "—" : string.Join(", ", selectedKeyUsages))</span>
+                            <span class="text-muted">EKUs</span>
+                            <span>
+                                @{
+                                    var allEkus = selectedEkus.Concat(customEkus).ToList();
+                                    @(allEkus.Count == 0 ? "—" : string.Join(", ", allEkus.Select(o => WellKnownEkus.TryGetValue(o, out var info) ? info.Name : o)))
+                                }
+                            </span>
+                            <span class="text-muted">SAN Types</span>
+                            <span>@(selectedSanTypes.Count == 0 ? "—" : string.Join(", ", selectedSanTypes))</span>
+                            <span class="text-muted">Validity</span>
+                            <span>@(validityDays.HasValue ? $"{validityDays} days" : "Global setting")</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Navigation buttons -->
+    <div class="form-actions mt-0">
+        @if (currentStep > 1)
+        {
+            <button class="btn-outline-detail" type="button" @onclick="PreviousStep" disabled="@isSaving">
+                <span class="bi bi-arrow-left me-1"></span> Previous
+            </button>
+        }
+        else
+        {
+            <a href="/certificate-templates" class="btn-outline-detail">Cancel</a>
+        }
+
+        @if (currentStep < TotalSteps)
+        {
+            <button class="btn btn-primary" type="button" data-test="template-next" @onclick="NextStep" disabled="@(!CanAdvance())">
+                Next <span class="bi bi-arrow-right ms-1"></span>
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-primary" type="button" data-test="template-save" @onclick="SaveAsync" disabled="@(isSaving || !CanAdvance())">
+                @if (isSaving)
+                {
+                    <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    <span>Saving…</span>
+                }
+                else
+                {
+                    <span class="bi bi-check2-circle me-1"></span>
+                    <span>@(Id.HasValue ? "Save changes" : "Create template")</span>
+                }
+            </button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public Guid? Id { get; set; }
+
+    private const int TotalSteps = 4;
+    private int currentStep = 1;
+    private bool isLoading = true;
+    private bool isSaving;
+    private bool isBuiltIn;
+    private string? errorMessage;
+
+    private string name = string.Empty;
+    private string typeKey = string.Empty;
+    private string? description;
+    private int? validityDays;
+
+    // The policy link is set through its own route, so it is tracked separately from the fields the
+    // ordinary template save writes.
+    private List<IssuancePolicySummaryResponse> linkablePolicies = [];
+    private string selectedPolicyId = string.Empty;
+    private string loadedPolicyId = string.Empty;
+
+    // The issuer pin, like the policy link, has its own route and is saved only when it changed.
+    private List<IssuerResponse> pinnableIssuers = [];
+    private string selectedIssuerId = string.Empty;
+    private string loadedIssuerId = string.Empty;
+
+    // The PQC stage override, like the pin, has its own admin-only route and is saved only when it changed.
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+    private bool isAdmin;
+    private string selectedPqcStage = string.Empty;
+    private string loadedPqcStage = string.Empty;
+    private PqcStage? caDefaultStage;
+
+    private string PreviewHref =>
+        $"pqc-migration?template={Uri.EscapeDataString(typeKey)}"
+        + (Enum.TryParse<PqcStage>(selectedPqcStage, out var previewStage) ? $"&proposedStage={previewStage}" : "");
+
+    private string CaDefaultLabel => caDefaultStage is { } stage ? $"CA default ({stage})" : "CA default";
+
+    private HashSet<string> selectedKeyUsages = new();
+    private HashSet<string> selectedEkus = new();
+    private List<string> customEkus = new();
+    private string customEkuInput = string.Empty;
+    private HashSet<string> selectedSanTypes = new();
+
+    private static readonly Dictionary<string, string> AllKeyUsages = new()
+    {
+        ["DigitalSignature"] = "Signature operations (TLS handshake, code signing)",
+        ["NonRepudiation"] = "Content commitment / non-repudiation",
+        ["KeyEncipherment"] = "RSA key encipherment / ECDSA key agreement (auto-selected per algorithm)",
+        ["DataEncipherment"] = "Encrypting data directly with this key",
+        ["KeyCertSign"] = "Signing certificates (CA only)",
+        ["CrlSign"] = "Signing CRLs (CA only)",
+        ["EncipherOnly"] = "Restrict key-agreement key to encipherment",
+        ["DecipherOnly"] = "Restrict key-agreement key to decipherment",
+    };
+
+    private record EkuInfo(string Name, string Description);
+
+    private static readonly Dictionary<string, EkuInfo> WellKnownEkus = new()
+    {
+        ["1.3.6.1.5.5.7.3.1"] = new("Server Authentication", "TLS/SSL web server"),
+        ["1.3.6.1.5.5.7.3.2"] = new("Client Authentication", "TLS client certificate"),
+        ["1.3.6.1.5.5.7.3.3"] = new("Code Signing", "Sign software and scripts"),
+        ["1.3.6.1.5.5.7.3.4"] = new("Email Protection", "S/MIME email signing and encryption"),
+        ["1.3.6.1.5.5.7.3.8"] = new("Time Stamping", "Trusted timestamping authority"),
+        ["1.3.6.1.5.5.7.3.9"] = new("OCSP Signing", "Online Certificate Status Protocol"),
+    };
+
+    private record SanTypeInfo(string Label, string Description);
+
+    private static readonly Dictionary<string, SanTypeInfo> SanTypeOptions = new()
+    {
+        ["dns"] = new("DNS Name", "FQDN or wildcard hostname (e.g. *.example.com)"),
+        ["ip"] = new("IP Address", "IPv4 or IPv6 address"),
+        ["email"] = new("Email Address", "RFC 822 email address for S/MIME"),
+        ["upn"] = new("User Principal Name", "Windows/Kerberos UPN (1.3.6.1.4.1.311.20.2.3)"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Id.HasValue)
+        {
+            try
+            {
+                var template = await CertificateRequestsApiClient.GetCertificateTemplateByIdAsync(Id.Value);
+                if (template is null)
+                {
+                    NavigationManager.NavigateTo("/certificate-templates");
+                    return;
+                }
+                name = template.Name;
+                typeKey = template.TypeKey;
+                description = template.Description;
+                validityDays = template.ValidityDays;
+                isBuiltIn = template.IsBuiltIn;
+                loadedPolicyId = template.IssuancePolicyId?.Value.ToString() ?? string.Empty;
+                selectedPolicyId = loadedPolicyId;
+                linkablePolicies = [.. (await CertificateRequestsApiClient.GetIssuancePoliciesAsync())
+                    .Where(p => !p.IsArchived && p.PublishedVersionNumber is not null)];
+                loadedIssuerId = template.IssuerId?.ToString() ?? string.Empty;
+                selectedIssuerId = loadedIssuerId;
+                isAdmin = AuthenticationStateTask is not null
+                    && (await AuthenticationStateTask).User.IsInRole("admin");
+                loadedPqcStage = template.PqcStageOverride?.ToString() ?? string.Empty;
+                selectedPqcStage = loadedPqcStage;
+                if (isAdmin)
+                {
+                    try
+                    {
+                        caDefaultStage = (await CertificateRequestsApiClient.GetSettingsAsync()).PqcStage;
+                    }
+                    catch (Exception)
+                    {
+                        // Only labels the "CA default" option; the override is editable without it.
+                    }
+                }
+                try
+                {
+                    pinnableIssuers = [.. (await CertificateRequestsApiClient.GetIssuersAsync())
+                        .Where(i => i.Status == IssuerStatus.Active && i.KeyCustody == IssuerKeyCustody.Online)];
+                }
+                catch (ApiProblemException)
+                {
+                    // Reading issuers needs certificates.view; without it only the current pin is offered.
+                }
+
+                selectedKeyUsages = ParseJsonArray(template.KeyUsagesJson);
+                selectedEkus = new HashSet<string>(
+                    ParseJsonArray(template.ExtendedKeyUsagesJson)
+                        .Where(o => WellKnownEkus.ContainsKey(o)));
+                customEkus = ParseJsonArray(template.ExtendedKeyUsagesJson)
+                    .Where(o => !WellKnownEkus.ContainsKey(o))
+                    .ToList();
+                selectedSanTypes = ParseJsonArray(template.SanTypesJson);
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"Failed to load template: {ex.Message}";
+            }
+        }
+        isLoading = false;
+    }
+
+    private void OnNameInput(ChangeEventArgs e)
+    {
+        name = e.Value?.ToString() ?? string.Empty;
+        if (!Id.HasValue && !isBuiltIn)
+            typeKey = ToTypeKey(name);
+    }
+
+    private static string ToTypeKey(string input) =>
+        new string(input
+            .Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == ' ')
+            .Select((c, i) => i == 0 ? char.ToUpperInvariant(c) : c)
+            .ToArray())
+        .Replace(" ", string.Empty)
+        .TrimStart('-', '_');
+
+    private void ToggleKeyUsage(string key, bool value)
+    {
+        if (value) selectedKeyUsages.Add(key);
+        else selectedKeyUsages.Remove(key);
+    }
+
+    private void ToggleEku(string oid, bool value)
+    {
+        if (value) selectedEkus.Add(oid);
+        else selectedEkus.Remove(oid);
+    }
+
+    private void AddCustomEku()
+    {
+        var oid = customEkuInput.Trim();
+        if (!string.IsNullOrWhiteSpace(oid) && !customEkus.Contains(oid) && !selectedEkus.Contains(oid))
+            customEkus.Add(oid);
+        customEkuInput = string.Empty;
+    }
+
+    private void RemoveCustomEku(string oid) => customEkus.Remove(oid);
+
+    private void ToggleSanType(string key, bool value)
+    {
+        if (value) selectedSanTypes.Add(key);
+        else selectedSanTypes.Remove(key);
+    }
+
+    private bool CanAdvance() => currentStep switch
+    {
+        1 => !string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(typeKey),
+        _ => true
+    };
+
+    private void NextStep()
+    {
+        if (currentStep < TotalSteps && CanAdvance())
+            currentStep++;
+    }
+
+    private void PreviousStep()
+    {
+        if (currentStep > 1) currentStep--;
+    }
+
+    private void GoToStep(int step)
+    {
+        if (step < currentStep || (step == currentStep + 1 && CanAdvance()))
+            currentStep = step;
+    }
+
+    private static string StepLabel(int step) => step switch
+    {
+        1 => "Basic Info",
+        2 => "Key Usage",
+        3 => "Extended KU",
+        4 => "SANs & Save",
+        _ => string.Empty
+    };
+
+    private async Task SaveAsync()
+    {
+        errorMessage = null;
+        isSaving = true;
+        try
+        {
+            var allEkus = selectedEkus.Concat(customEkus).ToList();
+            var request = new SaveCertificateTemplateRequest
+            {
+                Name = name.Trim(),
+                TypeKey = typeKey.Trim(),
+                Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
+                KeyUsagesJson = JsonSerializer.Serialize(selectedKeyUsages.ToList()),
+                ExtendedKeyUsagesJson = JsonSerializer.Serialize(allEkus),
+                SanTypesJson = JsonSerializer.Serialize(selectedSanTypes.ToList()),
+                ValidityDays = validityDays
+            };
+
+            if (Id.HasValue)
+            {
+                await CertificateRequestsApiClient.UpdateCertificateTemplateAsync(Id.Value, request);
+                if (!string.Equals(selectedPolicyId, loadedPolicyId, StringComparison.Ordinal))
+                {
+                    await CertificateRequestsApiClient.SetTemplateIssuancePolicyAsync(Id.Value,
+                        string.IsNullOrEmpty(selectedPolicyId)
+                            ? null
+                            : new IssuancePolicyId(Guid.Parse(selectedPolicyId)));
+                }
+                if (!string.Equals(selectedIssuerId, loadedIssuerId, StringComparison.Ordinal))
+                {
+                    await CertificateRequestsApiClient.SetTemplateIssuerAsync(Id.Value,
+                        string.IsNullOrEmpty(selectedIssuerId) ? null : new IssuerId(Guid.Parse(selectedIssuerId)));
+                }
+                if (isAdmin && !string.Equals(selectedPqcStage, loadedPqcStage, StringComparison.Ordinal))
+                {
+                    await CertificateRequestsApiClient.SetTemplatePqcStageAsync(Id.Value,
+                        Enum.TryParse<PqcStage>(selectedPqcStage, out var stage) ? stage : null);
+                }
+            }
+            else
+            {
+                await CertificateRequestsApiClient.CreateCertificateTemplateAsync(request);
+            }
+
+            NavigationManager.NavigateTo("/certificate-templates");
+        }
+        catch (ApiProblemException ex)
+        {
+            errorMessage = ex.WithCorrelationId($"Failed to save template: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to save template: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private static HashSet<string> ParseJsonArray(string json)
+    {
+        try
+        {
+            return new HashSet<string>(JsonSerializer.Deserialize<List<string>>(json) ?? []);
+        }
+        catch { return []; }
+    }
+}

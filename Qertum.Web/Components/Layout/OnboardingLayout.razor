@@ -1,0 +1,31 @@
+@inherits LayoutComponentBase
+@inject Auth.CircuitTokenAccessor TokenCapture
+
+<div class="onboarding-shell">
+    <header class="onboarding-header">
+        <a class="navbar-brand" href="">
+            <span class="brand-lockup">
+                <span class="brand-name">Qer<span class="brand-name-accent">tum</span></span>
+                <span class="brand-sub">Certificate Authority</span>
+            </span>
+        </a>
+    </header>
+    <div class="onboarding-body">
+        @if (_tokensCaptured)
+        {
+            @Body
+        }
+    </div>
+</div>
+
+@code {
+    private bool _tokensCaptured;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Pages under this layout call the API from the circuit, which has no HttpContext tokens of
+        // its own; MainLayout's capture never runs here. Body waits so its first call carries them.
+        await TokenCapture.CaptureAsync();
+        _tokensCaptured = true;
+    }
+}

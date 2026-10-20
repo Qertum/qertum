@@ -1,0 +1,79 @@
+@page "/me/access"
+@attribute [Authorize]
+@inject CertificateRequestsApiClient Api
+
+<PageTitle>My Access — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>My <em>Access</em></Heading>
+    <Subtitle>What your roles let you do in the CA. Roles are assigned in the identity provider.</Subtitle>
+</PageHeader>
+
+@if (loadError)
+{
+    <div class="alert alert-danger" role="alert" data-test="load-error">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>Access information unavailable.
+    </div>
+}
+else if (access is null)
+{
+    <LoadingState Text="Loading your access…" />
+}
+else
+{
+    @if (access.IsAdmin)
+    {
+        <div class="alert alert-info" role="status" data-test="admin-banner">
+            <span class="bi bi-shield-fill-check me-2"></span>Administrator — every permission.
+        </div>
+    }
+
+    <h2 class="h6 mt-3">Your roles</h2>
+    @if (access.Roles.Count == 0)
+    {
+        <p class="text-muted">Your token carries no roles.</p>
+    }
+    else
+    {
+        <ul data-test="roles">
+            @foreach (var role in access.Roles)
+            {
+                <li><code>@role</code></li>
+            }
+        </ul>
+    }
+
+    <h2 class="h6 mt-3">You can</h2>
+    <ul data-test="can">
+        @foreach (var p in access.Permissions.Where(p => p.Granted))
+        {
+            <li><code>@p.Name</code> — @p.Description</li>
+        }
+    </ul>
+
+    <h2 class="h6 mt-3">You can't</h2>
+    <ul data-test="cannot" class="text-muted">
+        @foreach (var p in access.Permissions.Where(p => !p.Granted))
+        {
+            <li><code>@p.Name</code> — @p.Description</li>
+        }
+    </ul>
+}
+
+@code {
+    private MyAccessResponse? access;
+    private bool loadError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            access = await Api.GetMyAccessAsync();
+        }
+        catch (Exception)
+        {
+            // An empty "You can" list for a failed call would read as "you have no access".
+            loadError = true;
+        }
+    }
+}

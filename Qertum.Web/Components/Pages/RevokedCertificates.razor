@@ -1,0 +1,99 @@
+@page "/revoked"
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+<PageTitle>Revoked Certificates — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Revoked <em>Certificates</em></Heading>
+    <Subtitle>Certificates that were manually revoked before expiry</Subtitle>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (certificates is null)
+{
+    <LoadingState Text="Loading revoked certificates…" />
+}
+else if (totalCount == 0)
+{
+    <div class="recent-table-section">
+        <EmptyState Glyph="✅" Title="No revoked certificates" Message="No certificates have been revoked." />
+    </div>
+}
+else
+{
+    <div class="recent-table-section animate-in">
+        <table class="table-dashboard" id="revoked-certificates-table">
+            <thead>
+                <tr>
+                    <th>Common Name</th>
+                    <th>Requested By</th>
+                    <th>Original Validity</th>
+                    <th>Revoked On</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cert in certificates)
+                {
+                    <tr class="clickable-row" @onclick="() => GoTo(cert.Id)">
+                        <td class="td-common-name">
+                            <span class="bi bi-shield-fill-minus cert-row-icon-revoked"></span>
+                            @cert.CommonName
+                        </td>
+                        <td>@cert.RequestedBy</td>
+                        <td>
+                            @if (cert.ValidFrom.HasValue && cert.ValidTo.HasValue)
+                            {
+                                @cert.ValidFrom.Value.ToLocalTime().ToString("d")
+                                <span class="text-muted-inline"> — </span>
+                                @cert.ValidTo.Value.ToLocalTime().ToString("d")
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                        <td>@(cert.RevokedAtUtc?.ToLocalTime().ToString("g") ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <Pager Page="@CurrentPage" PageSize="PageSize" TotalCount="@totalCount" OnPageChange="GoToPage" />
+}
+
+@code {
+    /// <summary>Rows per request; the server pages, so this caps the fetch, not the reach.</summary>
+    public const int PageSize = 50;
+
+    private IReadOnlyList<CertificateRequest>? certificates;
+    private int totalCount;
+
+    // The page lives in the URL so the one being read survives a refresh or a shared link.
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private int CurrentPage => PageNumber is > 0 ? PageNumber.Value : 1;
+    private string? loadError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var result = await CertificateRequestsApiClient.GetRevokedAsync(CurrentPage, PageSize);
+            certificates = result.Items;
+            totalCount = result.TotalCount;
+        }
+        catch (Exception ex) { loadError = $"Failed to load: {ex.Message}"; }
+    }
+
+    private void GoTo(Guid id) => NavigationManager.NavigateTo($"certificates/{id}");
+
+    private void GoToPage(int page) =>
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameter(
+            "page", page > 1 ? (int?)page : null));
+}

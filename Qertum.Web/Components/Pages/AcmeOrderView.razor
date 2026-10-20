@@ -1,0 +1,88 @@
+@page "/acme/orders/{Id:guid}"
+@attribute [Authorize(Policy = AppPermissions.SettingsEdit)]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<PageTitle>ACME order — Qertum</PageTitle>
+
+@if (loadFailed)
+{
+    <div class="alert alert-danger" data-test="acme-order-unavailable">This ACME order is unavailable.</div>
+}
+else if (notFound)
+{
+    <div class="alert alert-warning" data-test="acme-order-not-found">No ACME order with this id.</div>
+}
+else if (detail is null)
+{
+    <p class="text-muted">Loading…</p>
+}
+else
+{
+    <PageHeader>
+    <Heading>ACME order <em>@string.Join(", ", detail.Order.Identifiers)</em></Heading>
+    <Subtitle>
+                    Status @detail.Order.Status · created @detail.Order.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm") UTC ·
+                    expires @detail.Order.ExpiresAtUtc.ToString("yyyy-MM-dd HH:mm") UTC · account <code>@detail.Order.AccountId</code>
+                    @if (detail.Order.CertificateRequestId is { } requestId)
+                    {
+                        <span> · <a href="/certificate-requests/@requestId">certificate request</a></span>
+                    }
+                </Subtitle>
+</PageHeader>
+
+    <div class="form-card form-card-full animate-in">
+        <div class="form-section">
+            <div class="form-section-title">Authorizations</div>
+            @foreach (var authorization in detail.Authorizations)
+            {
+                <div class="mb-3" data-test="acme-authorization">
+                    <strong>@(authorization.Wildcard ? "*." : "")@authorization.Identifier</strong>
+                    <span class="timeline-category">@authorization.Status</span>
+                    <ul class="mb-0">
+                        @foreach (var challenge in authorization.Challenges)
+                        {
+                            <li>
+                                @challenge.Type — @challenge.Status, @challenge.Attempts attempt(s)
+                                @if (challenge.NextAttemptAfterUtc is { } next)
+                                {
+                                    <span class="text-muted">; next attempt at @next.ToString("HH:mm:ss") UTC</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="form-card form-card-full animate-in mt-4">
+        <div class="form-section">
+            <div class="form-section-title">History</div>
+            <DiagnosticEntryList Entries="detail.History" />
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private AcmeOrderDetail? detail;
+    private bool loadFailed;
+    private bool notFound;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        detail = null;
+        loadFailed = false;
+        notFound = false;
+        try
+        {
+            detail = await CertificateRequestsApiClient.GetAcmeOrderAsync(Id);
+            notFound = detail is null;
+        }
+        catch (Exception)
+        {
+            loadFailed = true;
+        }
+    }
+}

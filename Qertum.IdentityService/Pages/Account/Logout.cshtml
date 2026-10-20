@@ -1,0 +1,50 @@
+@page
+@model Qertum.IdentityService.Pages.Account.LogoutModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "Sign out";
+    ViewData["HideAccountNav"] = Model.MustChangePassword;
+}
+
+@if (Model.IsSignedOut)
+{
+    <div class="card">
+        <div class="signout-ok">
+            <div class="signout-icon" aria-hidden="true">
+                <span class="bi bi-check2"></span>
+            </div>
+            <h1>Signed <em>out</em></h1>
+            <p class="card-sub">You can close this tab, or sign in again below.</p>
+        </div>
+        <a class="button" href="/login">
+            <span class="bi bi-box-arrow-in-right"></span>
+            Sign in
+        </a>
+    </div>
+}
+else
+{
+    <form class="card" method="post">
+        <h1>Sign <em>out</em>?</h1>
+        <p class="card-sub">This will end your session on the identity provider and all connected applications.</p>
+
+        <button type="submit" class="button danger" style="margin-top:1.25rem;">
+            <span class="bi bi-box-arrow-right"></span>
+            Sign out
+        </button>
+        @if (Model.MustChangePassword)
+        {
+            <a class="button secondary" href="/Account/ChangePassword?forced=true">
+                <span class="bi bi-arrow-left"></span>
+                Back to password change
+            </a>
+        }
+        else
+        {
+            <a class="button secondary" href="/Account">
+                <span class="bi bi-arrow-left"></span>
+                Cancel
+            </a>
+        }
+    </form>
+}

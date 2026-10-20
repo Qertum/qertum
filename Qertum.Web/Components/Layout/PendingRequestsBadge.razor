@@ -1,0 +1,72 @@
+@implements IDisposable
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+@* Exact count from /status-counts, never a page-capped list. Zero renders nothing; a failed read
+   renders a dash, because an absent badge would read as "nothing pending". *@
+@if (unavailable)
+{
+    <span class="nav-badge nav-badge-muted" data-test="pending-badge-unavailable"
+          title="Pending count unavailable">–</span>
+}
+else if (pending > 0)
+{
+    <span class="nav-badge" data-test="pending-badge"
+          title="@pending @(pending == 1 ? "request" : "requests") awaiting approval">@pending</span>
+}
+
+@code {
+    private int pending;
+    private bool unavailable;
+    private CancellationTokenSource? loadCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        NavigationManager.LocationChanged += OnLocationChanged;
+        await LoadAsync();
+    }
+
+    // Approving, rejecting and filing a request all end in a navigation, so re-reading on navigation
+    // keeps the badge current without polling.
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) =>
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+
+    private async Task LoadAsync()
+    {
+        loadCts?.Cancel();
+        loadCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        loadCts = cts;
+
+        try
+        {
+            var counts = await CertificateRequestsApiClient.GetRequestStatusCountsAsync(cancellationToken: cts.Token);
+            if (!ReferenceEquals(loadCts, cts))
+                return;
+
+            pending = counts.CountFor(CertificateRequestStatus.Pending);
+            unavailable = false;
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // Superseded by a newer navigation, or disposed.
+        }
+        catch
+        {
+            if (ReferenceEquals(loadCts, cts))
+                unavailable = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        NavigationManager.LocationChanged -= OnLocationChanged;
+        loadCts?.Cancel();
+        loadCts?.Dispose();
+        loadCts = null;
+    }
+}

@@ -1,0 +1,286 @@
+@page "/"
+@implements IDisposable
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject TimeProvider Clock
+@using Qertum.Web.Components.Dashboard
+
+<PageTitle>Dashboard — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Certificate <em>Dashboard</em></Heading>
+    <Subtitle>Full lifecycle overview — from request to certificate validity.</Subtitle>
+    <Actions>        @if (summary is not null)
+        {
+            <div class="last-updated">
+                <span class="pulse-dot"></span>
+                Last updated @lastUpdated.ToLocalTime().ToString("HH:mm:ss")
+            </div>
+        }
+    </Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">
+        <strong>Unable to load dashboard.</strong> @loadError
+    </div>
+}
+else if (summary is null)
+{
+    <LoadingState Text="Loading dashboard data…" />
+}
+else
+{
+    <AttentionPanel />
+
+    @* ───── Lifecycle Pipeline ───── *@
+    <div class="section-label">Request Pipeline</div>
+    <div class="lifecycle-pipeline animate-in">
+        <div class="pipeline-step" @onclick="GoToHome">
+            <div class="pipeline-value blue">@summary.TotalCount</div>
+            <div class="pipeline-label">Total</div>
+        </div>
+        <div class="pipeline-arrow"><span class="bi bi-chevron-right"></span></div>
+        <div class="pipeline-step" @onclick="GoToRequests">
+            <div class="pipeline-value amber">@summary.PendingCount</div>
+            <div class="pipeline-label">Pending</div>
+        </div>
+        <div class="pipeline-arrow"><span class="bi bi-chevron-right"></span></div>
+        <div class="pipeline-step">
+            <div class="pipeline-value purple">@summary.ApprovedCount</div>
+            <div class="pipeline-label">Approved</div>
+        </div>
+        <div class="pipeline-arrow"><span class="bi bi-chevron-right"></span></div>
+        <div class="pipeline-step" @onclick="GoToCertificates">
+            <div class="pipeline-value emerald">@summary.IssuedCount</div>
+            <div class="pipeline-label">Issued</div>
+        </div>
+        <div class="pipeline-branch">
+            <div class="pipeline-step" @onclick="GoToDenied">
+                <div class="pipeline-value rose">@summary.RejectedCount</div>
+                <div class="pipeline-label">Denied</div>
+            </div>
+        </div>
+    </div>
+
+    @* ───── Certificate Validity ───── *@
+    <div class="section-label">Certificate Validity</div>
+
+    @if ((summary.ValidCount + summary.ExpiringSoonCount + summary.ExpiredCount + summary.RevokedCount) > 0)
+    {
+        <div class="validity-bar-section animate-in">
+            <div class="validity-bar-title">Validity Distribution</div>
+            <div class="validity-stacked-bar">
+                @if (summary.ValidCount > 0)
+                {
+                    <div class="validity-segment valid" style="width: @Pct(summary.ValidCount, TotalCerts)%"></div>
+                }
+                @if (summary.ExpiringSoonCount > 0)
+                {
+                    <div class="validity-segment expiring" style="width: @Pct(summary.ExpiringSoonCount, TotalCerts)%"></div>
+                }
+                @if (summary.ExpiredCount > 0)
+                {
+                    <div class="validity-segment expired" style="width: @Pct(summary.ExpiredCount, TotalCerts)%"></div>
+                }
+                @if (summary.RevokedCount > 0)
+                {
+                    <div class="validity-segment revoked" style="width: @Pct(summary.RevokedCount, TotalCerts)%"></div>
+                }
+            </div>
+            <div class="validity-legend">
+                <div class="validity-legend-item">
+                    <div class="validity-legend-dot valid"></div>
+                    Valid <span class="validity-legend-count">@summary.ValidCount</span>
+                </div>
+                <div class="validity-legend-item">
+                    <div class="validity-legend-dot expiring"></div>
+                    Expiring <span class="validity-legend-count">@summary.ExpiringSoonCount</span>
+                </div>
+                <div class="validity-legend-item">
+                    <div class="validity-legend-dot expired"></div>
+                    Expired <span class="validity-legend-count">@summary.ExpiredCount</span>
+                </div>
+                <div class="validity-legend-item">
+                    <div class="validity-legend-dot revoked"></div>
+                    Revoked <span class="validity-legend-count">@summary.RevokedCount</span>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="stat-cards-grid">
+        <div class="stat-card emerald animate-in clickable-card" @onclick="GoToCertificates" id="card-valid">
+            <div class="stat-card-header">
+                <span class="stat-card-label">Valid</span>
+                <div class="stat-card-icon"><span class="bi bi-shield-fill-check"></span></div>
+            </div>
+            <div class="stat-card-value">@summary.ValidCount</div>
+            <div class="stat-card-description">Active certificates</div>
+        </div>
+
+        <div class="stat-card amber animate-in clickable-card" @onclick="GoToCertificates" id="card-expiring">
+            <div class="stat-card-header">
+                <span class="stat-card-label">Expiring Soon</span>
+                <div class="stat-card-icon"><span class="bi bi-exclamation-triangle-fill"></span></div>
+            </div>
+            <div class="stat-card-value">@summary.ExpiringSoonCount</div>
+            <div class="stat-card-description">Within 30 days</div>
+        </div>
+
+        <div class="stat-card rose animate-in clickable-card" @onclick="GoToExpired" id="card-expired">
+            <div class="stat-card-header">
+                <span class="stat-card-label">Expired</span>
+                <div class="stat-card-icon"><span class="bi bi-shield-fill-x"></span></div>
+            </div>
+            <div class="stat-card-value">@summary.ExpiredCount</div>
+            <div class="stat-card-description">Past validity date</div>
+        </div>
+
+        <div class="stat-card cyan animate-in clickable-card" @onclick="GoToRevoked" id="card-revoked">
+            <div class="stat-card-header">
+                <span class="stat-card-label">Revoked</span>
+                <div class="stat-card-icon"><span class="bi bi-shield-fill-minus"></span></div>
+            </div>
+            <div class="stat-card-value">@summary.RevokedCount</div>
+            <div class="stat-card-description">Manually revoked</div>
+        </div>
+    </div>
+
+    @* ───── Recent Activity ───── *@
+    <div class="section-label">Recent Activity</div>
+
+    @if (summary.RecentRequests.Count == 0)
+    {
+        <div class="recent-table-section">
+            <EmptyState Icon="bi-inbox" Title="No certificate requests yet" Message="Submit your first certificate request to get started.">                <a class="btn btn-primary" href="/new-certificate-request">
+                    <span class="bi bi-plus-lg me-1"></span> New Request
+                </a>
+            
+</EmptyState>
+        </div>
+    }
+    else
+    {
+        <div class="recent-table-section animate-in">
+            <div class="recent-table-header">
+                <div class="recent-table-title">Latest Activity</div>
+                <div class="recent-table-action">
+                    <a href="/certificate-requests">View all requests →</a>
+                </div>
+            </div>
+            <table class="table-dashboard" id="recent-requests-table">
+                <thead>
+                    <tr>
+                        <th>Common Name</th>
+                        <th>Requested By</th>
+                        <th>Status</th>
+                        <th>Validity</th>
+                        <th>Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var request in summary.RecentRequests)
+                    {
+                        <tr class="clickable-row" @onclick="() => NavigateToDetail(request)">
+                            <td class="td-common-name">@request.CommonName</td>
+                            <td>@request.RequestedBy</td>
+                            <td>
+                                <span class="status-badge @GetStatusClass(request.Status)">
+                                    <span class="status-badge-dot"></span>
+                                    @GetStatusLabel(request)
+                                </span>
+                            </td>
+                            <td>@GetValidityCell(request)</td>
+                            <td>@request.UpdatedAtUtc.ToLocalTime().ToString("g")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    private CertificateDashboardSummary? summary;
+    private string? loadError;
+    private DateTime lastUpdated;
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardAsync();
+        refreshTimer = new Timer(state =>
+        {
+            _ = InvokeAsync(async () =>
+            {
+                await LoadDashboardAsync();
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadDashboardAsync()
+    {
+        try
+        {
+            summary = await CertificateRequestsApiClient.GetDashboardSummaryAsync();
+            lastUpdated = Now;
+            loadError = null;
+        }
+        catch (Exception ex) { loadError = ex.Message; }
+    }
+
+    private void GoToHome() => NavigationManager.NavigateTo("/");
+    private void GoToRequests() => NavigationManager.NavigateTo("certificate-requests");
+    private void GoToCertificates() => NavigationManager.NavigateTo("certificates");
+    private void GoToDenied() => NavigationManager.NavigateTo("denied");
+    private void GoToExpired() => NavigationManager.NavigateTo("expired");
+    private void GoToRevoked() => NavigationManager.NavigateTo("revoked");
+
+    private void NavigateToDetail(CertificateRequest r)
+    {
+        var path = (r.Status == CertificateRequestStatus.Issued || r.Status == CertificateRequestStatus.Revoked)
+            ? $"certificates/{r.Id}" : $"certificate-requests/{r.Id}";
+        NavigationManager.NavigateTo(path);
+    }
+
+    private int TotalCerts => summary?.ValidCount + summary?.ExpiringSoonCount + summary?.ExpiredCount + summary?.RevokedCount ?? 0;
+
+    private static string Pct(int part, int total) =>
+        total == 0 ? "0" : ((double)part / total * 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string GetStatusClass(CertificateRequestStatus s) => s switch
+    {
+        CertificateRequestStatus.Pending => "pending",
+        CertificateRequestStatus.Approved => "approved",
+        CertificateRequestStatus.Rejected => "rejected",
+        CertificateRequestStatus.Issued => "issued",
+        CertificateRequestStatus.Revoked => "revoked",
+        _ => ""
+    };
+
+    private static string GetStatusLabel(CertificateRequest r) => r.Status switch
+    {
+        CertificateRequestStatus.Rejected => "Denied",
+        _ => r.Status.ToString()
+    };
+
+    private string GetValidityCell(CertificateRequest r)
+    {
+        if (r.Status == CertificateRequestStatus.Revoked)
+            return "Revoked";
+        if (r.Status != CertificateRequestStatus.Issued || !r.ValidTo.HasValue)
+            return "—";
+        var now = Now;
+        if (r.ValidTo.Value <= now) return "Expired";
+        if (r.ValidTo.Value <= now.AddDays(30)) return $"{(int)(r.ValidTo.Value - now).TotalDays}d left";
+        return $"Valid ({(int)((r.ValidTo.Value - now).TotalDays / 30)}mo)";
+    }
+
+    public void Dispose() => refreshTimer?.Dispose();
+}

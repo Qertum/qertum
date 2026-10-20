@@ -1,0 +1,38 @@
+# Standalone Qertum identity provider.
+#
+#   docker compose -f deploy/identity/docker-compose.yml up -d
+#
+# IdentityService__Authority MUST be the absolute URL clients reach this container at,
+# and MUST equal the Identity__Authority configured on every consuming application.
+# The provider fails to start if it is unset outside Development.
+
+services:
+  qertum-identity:
+    build:
+      context: ../..
+      dockerfile: deploy/identity/Dockerfile
+    image: qertum-identity:${QERTUM_IDENTITY_IMAGE_TAG:-latest}
+    container_name: qertum-identity
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      # Absolute issuer URL. Change this to your own hostname.
+      IdentityService__Authority: "http://localhost:8081"
+      IdentityService__DataPath: "/data"
+      # TLS is terminated by a reverse proxy (or absent on a trusted LAN). Set to false
+      # once the provider is reached over HTTPS end to end. If a proxy terminates TLS it
+      # must send X-Forwarded-Proto and preserve Host — advertised endpoint URLs are built
+      # from the request, not from Authority. See README "Behind a reverse proxy".
+      IdentityService__DisableTransportSecurity: "true"
+      # Nothing injects Services__webfrontend__* here, so redirect URIs come from
+      # clients.json alone — edit it on the volume and restart.
+      IdentityService__EnableServiceDiscoveryRedirectUris: "false"
+    ports:
+      - "8081:8080"
+    volumes:
+      # users.json, clients.json, identity.db, keys/. BACK THIS UP —
+      # losing keys/ invalidates every issued token and live session.
+      - qertum-identity-data:/data
+
+volumes:
+  qertum-identity-data:

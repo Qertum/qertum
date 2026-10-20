@@ -1,0 +1,345 @@
+@page "/issuers"
+@attribute [Authorize(Roles = "admin")]
+@using Qertum.Web.Components.Issuers
+@inject CertificateRequestsApiClient Api
+@inject IJSRuntime JS
+
+<PageTitle>Issuers — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Issuing <em>CAs</em></Heading>
+    <Subtitle>Roots and intermediates this server knows. New certificates are signed by the default issuer unless a template is pinned to another.</Subtitle>
+    <Actions>        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-test="trust-bundle" @onclick="DownloadTrustBundleAsync">
+                <span class="bi bi-download me-1" aria-hidden="true"></span>Trust bundle
+            </button>
+            <button type="button" class="btn btn-primary" data-test="create-intermediate" @onclick="() => OpenCeremony(null)">
+                <span class="bi bi-plus-lg me-1" aria-hidden="true"></span>Create intermediate
+            </button>
+        </div>
+    </Actions>
+</PageHeader>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger alert-dismissible" role="alert" data-test="issuer-error">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>@error
+        <button type="button" class="btn-close" aria-label="Close" @onclick="() => error = null"></button>
+    </div>
+}
+
+@if (ceremonyOpen)
+{
+    <IssuerCeremony @key="ceremonyKey" Issuers="issuers" ResumeIssuerId="resumeIssuerId" OnChanged="LoadAsync" OnClosed="CloseCeremony" />
+}
+
+@if (pending is not null)
+{
+    <div class="card confirm-panel mb-3" data-test="confirm-panel">
+        <div class="card-body">
+            <p class="mb-2">@ConfirmText(pending.Value.Action, pending.Value.Issuer)</p>
+            @if (pending.Value.Action is "export-key" or "export-pfx")
+            {
+                <div class="alert alert-warning" role="alert" data-test="key-export-warning">
+                    <span class="bi bi-exclamation-triangle-fill me-2"></span><strong>This is not a safe way to manage a CA private key.</strong>
+                    Whoever holds the file can sign certificates that every client trusting this CA will accept, and this CA cannot tell them apart from its own.
+                    A CA key belongs in an HSM or an offline ceremony, not on a laptop or in a download folder. Export it only for a backup you will
+                    store offline or a migration you control, then delete every other copy. The download is audited.
+                </div>
+            }
+            @if (pending.Value.Action == "export-pfx")
+            {
+                <input type="password" class="form-control mb-2" data-test="pfx-password" placeholder="PFX password" autocomplete="new-password" @bind="pfxPassword" @bind:event="oninput" />
+            }
+            @if (pending.Value.Action == "upload-crl")
+            {
+                <InputFile data-test="crl-file" class="form-control mb-2" accept=".crl,.der,.pem" OnChange="ReadCrlAsync" />
+            }
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-danger" disabled="@(busy || (pending.Value.Action == "upload-crl" && crlBytes is null) || (pending.Value.Action == "export-pfx" && string.IsNullOrEmpty(pfxPassword)))" @onclick="ConfirmAsync">
+                    @ConfirmLabel(pending.Value.Action)
+                </button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="CancelPending">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (loadError is not null)
+{
+    <div class="alert alert-danger" role="alert" data-test="load-error">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>Could not load issuers: @loadError
+    </div>
+}
+else if (lines is null)
+{
+    <LoadingState Text="Loading issuers…" />
+}
+else if (lines.Count == 0)
+{
+    <p class="text-muted" data-test="no-issuers">No issuers yet. Set up the CA on the onboarding page, or create an offline root and intermediate.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table-dashboard issuer-tree">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Subject</th>
+                    <th>Algorithm</th>
+                    <th>Valid to</th>
+                    <th>Constraints</th>
+                    <th>CRL</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in lines)
+                {
+                    var issuer = line.Issuer;
+                    <tr data-test="issuer-row" data-issuer="@issuer.Id">
+                        <td class="issuer-depth-@Math.Min(line.Depth, 3)">
+                            <span class="bi @(issuer.Kind == IssuerKind.Root ? "bi-shield-lock" : "bi-diagram-2") me-1" aria-hidden="true"></span>
+                            @issuer.Name
+                            @if (issuer.IsDefault)
+                            {
+                                <span class="issuer-badge issuer-badge-default ms-1" data-test="badge-default">Default</span>
+                            }
+                        </td>
+                        <td>
+                            <span class="issuer-badge issuer-badge-status-@issuer.Status.ToString().ToLowerInvariant()" data-test="badge-status">@issuer.Status</span>
+                            <span class="issuer-badge issuer-badge-custody-@issuer.KeyCustody.ToString().ToLowerInvariant()" data-test="badge-custody">@issuer.KeyCustody</span>
+                        </td>
+                        <td class="small">@(issuer.SubjectDn ?? "—")</td>
+                        <td><code>@(issuer.KeyAlgorithm ?? "Unknown")</code></td>
+                        <td>@(issuer.ValidTo?.ToString("yyyy-MM-dd") ?? "—")</td>
+                        <td class="small">@Constraints(issuer)</td>
+                        <td class="small">
+                            @if (issuer.KeyCustody == IssuerKeyCustody.Offline)
+                            {
+                                @(issuer.UploadedCrlNextUpdateUtc is { } next ? $"next update {next:yyyy-MM-dd}" : "not uploaded")
+                            }
+                            else
+                            {
+                                <span class="text-muted">published here</span>
+                            }
+                        </td>
+                        <td class="text-end text-nowrap">
+                            @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired)
+                            {
+                                <button type="button" class="btn btn-sm btn-link" data-test="action-certificate" @onclick="() => DownloadCertificateAsync(issuer)">Certificate</button>
+                                <button type="button" class="btn btn-sm btn-link" data-test="action-chain" @onclick="() => DownloadChainAsync(issuer)">Chain</button>
+                            }
+                            @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired && issuer.KeyCustody == IssuerKeyCustody.Online)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-export-key" @onclick='() => Ask("export-key", issuer)'>Private key</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-export-pfx" @onclick='() => Ask("export-pfx", issuer)'>PFX</button>
+                            }
+                            @if (issuer.Status == IssuerStatus.Active && issuer.KeyCustody == IssuerKeyCustody.Online && !issuer.IsDefault)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-make-default" @onclick='() => Ask("make-default", issuer)'>Make default</button>
+                                <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
+                            }
+                            @if (issuer.Status == IssuerStatus.Active && issuer.KeyCustody == IssuerKeyCustody.Offline && !issuer.IsDefault)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
+                            }
+                            @if (issuer.Status == IssuerStatus.Retired)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-archive" @onclick='() => Ask("archive", issuer)'>Archive</button>
+                            }
+                            @if (issuer.Status == IssuerStatus.PendingCertificate)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-resume" @onclick="() => OpenCeremony(issuer.Id)">Resume</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-delete" @onclick='() => Ask("delete", issuer)'>Delete</button>
+                            }
+                            @if ((issuer.Status is IssuerStatus.Active or IssuerStatus.Retired) && issuer.KeyCustody == IssuerKeyCustody.Offline)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-test="action-upload-crl" @onclick='() => Ask("upload-crl", issuer)'>Upload CRL</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<IssuerResponse> issuers = [];
+    private IReadOnlyList<IssuerTree.Line>? lines;
+    private string? loadError, error;
+    private bool ceremonyOpen, busy;
+    private int ceremonyKey;
+    private IssuerId? resumeIssuerId;
+    private (string Action, IssuerResponse Issuer)? pending;
+    private byte[]? crlBytes;
+    private string? pfxPassword;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            issuers = await Api.GetIssuersAsync();
+            lines = IssuerTree.Build(issuers);
+            loadError = null;
+        }
+        catch (ApiProblemException ex)
+        {
+            loadError = ex.WithCorrelationId(ex.Detail ?? ex.Title);
+        }
+        catch (HttpRequestException ex)
+        {
+            loadError = ex.Message;
+        }
+    }
+
+    private void OpenCeremony(IssuerId? resume)
+    {
+        pending = null;
+        resumeIssuerId = resume;
+        ceremonyKey++; // a fresh wizard each time it is opened
+        ceremonyOpen = true;
+    }
+
+    private void CloseCeremony()
+    {
+        ceremonyOpen = false;
+        resumeIssuerId = null;
+    }
+
+    private void Ask(string action, IssuerResponse issuer)
+    {
+        error = null;
+        crlBytes = null;
+        pfxPassword = null;
+        pending = (action, issuer);
+    }
+
+    private void CancelPending()
+    {
+        pending = null;
+        crlBytes = null;
+    }
+
+    private async Task ReadCrlAsync(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            crlBytes = buffer.ToArray();
+        }
+        catch (IOException)
+        {
+            error = "Could not read the CRL file.";
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        if (pending is not { } action) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var id = action.Issuer.Id;
+            switch (action.Action)
+            {
+                case "make-default": await Api.MakeIssuerDefaultAsync(id); break;
+                case "retire": await Api.RetireIssuerAsync(id); break;
+                case "archive": await Api.ArchiveIssuerAsync(id); break;
+                case "delete": await Api.DeleteIssuerAsync(id); break;
+                case "upload-crl" when crlBytes is not null: await Api.UploadIssuerCrlAsync(id, crlBytes); break;
+                case "export-key":
+                    await SaveFileAsync(await Api.DownloadIssuerPrivateKeyAsync(id), $"{FileStem(action.Issuer)}.key", "application/x-pem-file");
+                    break;
+                case "export-pfx" when !string.IsNullOrEmpty(pfxPassword):
+                    await SaveFileAsync(await Api.DownloadIssuerPfxAsync(id, pfxPassword), $"{FileStem(action.Issuer)}.pfx", "application/x-pkcs12");
+                    break;
+            }
+            pfxPassword = null;
+            pending = null;
+            crlBytes = null;
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            // Refusals say why (e.g. how many certificates are still unexpired); shown as sent.
+            error = ex.WithCorrelationId(ex.Detail ?? ex.Title);
+            pending = null;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static string ConfirmText(string action, IssuerResponse issuer) => action switch
+    {
+        "make-default" => $"Make \"{issuer.Name}\" the default issuer? New certificates from templates without a pinned issuer will be signed by it; the current default stays active.",
+        "retire" => $"Retire \"{issuer.Name}\"? It signs nothing new but keeps publishing its CRL and answering OCSP. Templates pinned to it will refuse issuance.",
+        "archive" => $"Archive \"{issuer.Name}\"? Its key is deleted; only allowed once nothing it signed is still valid.",
+        "delete" => $"Delete the pending issuer \"{issuer.Name}\" and its key? A request file already sent for signing becomes useless.",
+        "upload-crl" => $"Upload the CRL signed by \"{issuer.Name}\"? Intermediates it lists as revoked are retired.",
+        "export-key" => $"Download the private key of \"{issuer.Name}\" as a PEM file?",
+        "export-pfx" => $"Download \"{issuer.Name}\" with its private key as a password-protected PKCS#12 file?",
+        _ => action
+    };
+
+    private static string ConfirmLabel(string action) => action switch
+    {
+        "make-default" => "Make default",
+        "retire" => "Retire",
+        "archive" => "Archive and delete key",
+        "delete" => "Delete",
+        "upload-crl" => "Upload",
+        "export-key" => "Download private key",
+        "export-pfx" => "Download PFX",
+        _ => "Confirm"
+    };
+
+    private static string Constraints(IssuerResponse issuer)
+    {
+        var names = IssuerCeremony.ConstraintSummary(issuer.PermittedDnsSuffixes, issuer.ExcludedDnsSuffixes,
+            issuer.PermittedIpRanges, issuer.ExcludedIpRanges);
+        return issuer.PathLengthConstraint is { } pathLen
+            ? names == "none" ? $"pathLen {pathLen}" : $"pathLen {pathLen}; {names}"
+            : names;
+    }
+
+    private Task DownloadCertificateAsync(IssuerResponse issuer) =>
+        SaveAsync(() => Api.DownloadIssuerCertificateAsync(issuer.Id), $"{FileStem(issuer)}.pem");
+
+    private Task DownloadChainAsync(IssuerResponse issuer) =>
+        SaveAsync(() => Api.DownloadIssuerChainAsync(issuer.Id), $"{FileStem(issuer)}-chain.pem");
+
+    private Task DownloadTrustBundleAsync() =>
+        SaveAsync(() => Api.DownloadTrustBundleAsync(), "qertum-trust-bundle.pem");
+
+    private async Task SaveAsync(Func<Task<byte[]>> fetch, string filename)
+    {
+        error = null;
+        try
+        {
+            await SaveFileAsync(await fetch(), filename, "application/x-pem-file");
+        }
+        catch (ApiProblemException ex)
+        {
+            error = ex.WithCorrelationId(ex.Detail ?? ex.Title);
+        }
+    }
+
+    private async Task SaveFileAsync(byte[] bytes, string filename, string contentType) =>
+        await JS.InvokeVoidAsync("downloadFile", filename, contentType, Convert.ToBase64String(bytes));
+
+    private static string FileStem(IssuerResponse issuer) =>
+        new string(issuer.Name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-').ToArray()).Trim('-') is { Length: > 0 } stem
+            ? stem
+            : issuer.Id.ToString();
+}

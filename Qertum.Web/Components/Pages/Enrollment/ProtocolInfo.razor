@@ -1,0 +1,71 @@
+<div data-step="Protocol">
+    @if (Protocol == RouteStep.AcmeProtocol && Acme is not null)
+    {
+        <h2 class="form-section-title">Enroll with ACME</h2>
+        <p>
+            Point your ACME client (certbot, cert-manager, or another RFC 8555 client) at this directory. The client
+            generates and keeps the private key; Qertum never receives it.
+        </p>
+        <dl class="row">
+            <dt class="col-sm-4">Directory URL</dt>
+            <dd class="col-sm-8"><code data-protocol-url>@Acme.DirectoryUrl</code></dd>
+            <dt class="col-sm-4">Template</dt>
+            <dd class="col-sm-8">@TemplateName</dd>
+            <dt class="col-sm-4">Account registration</dt>
+            <dd class="col-sm-8">
+                @(Acme.ExternalAccountBindingRequired
+                    ? "An administrator must issue you an external account binding key before your client can register."
+                    : "Clients can register without an external account binding key.")
+            </dd>
+            <dt class="col-sm-4">Approval</dt>
+            <dd class="col-sm-8">
+                @(Acme.AutoApprove
+                    ? "Certificates are issued automatically once the order is finalized."
+                    : "Each certificate waits for an approver after your client finalizes the order.")
+            </dd>
+        </dl>
+    }
+    else if (Protocol == RouteStep.EstProtocol && Est is not null)
+    {
+        <h2 class="form-section-title">Enroll with EST</h2>
+        <p>
+            Configure the device's EST client with this base URL. The device generates and keeps its private key;
+            Qertum never receives it. Initial enrollment uses a username and password issued by an administrator;
+            re-enrollment uses the device's current certificate.
+        </p>
+        <dl class="row">
+            <dt class="col-sm-4">EST base URL</dt>
+            <dd class="col-sm-8"><code data-protocol-url>@Est.BaseUrl</code></dd>
+            <dt class="col-sm-4">Template</dt>
+            <dd class="col-sm-8">@TemplateName</dd>
+            <dt class="col-sm-4">Approval</dt>
+            <dd class="col-sm-8">
+                @(Est.AutoApprove
+                    ? "Certificates are issued automatically after enrollment."
+                    : "Each enrollment waits for an approver before the certificate is issued.")
+            </dd>
+        </dl>
+    }
+
+    <ClientSetup Protocol="@Protocol" Acme="Acme" Est="Est" OnDownloadRoot="OnDownloadRoot"
+                 DownloadError="@DownloadError" />
+
+    <div class="wizard-actions">
+        <button type="button" class="btn-outline-detail" data-action="back" @onclick="OnBack">Back</button>
+        <a class="btn btn-primary" href="/certificate-requests">Done</a>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Protocol { get; set; } = string.Empty;
+    [Parameter] public AcmeEnrollmentRoute? Acme { get; set; }
+    [Parameter] public EstEnrollmentRoute? Est { get; set; }
+    [Parameter] public string? TemplateName { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    /// <summary>Raised when the operator asks for the root certificate; the page performs the download.</summary>
+    [Parameter] public EventCallback OnDownloadRoot { get; set; }
+
+    /// <summary>Why the last root-certificate download failed, if it did.</summary>
+    [Parameter] public string? DownloadError { get; set; }
+}

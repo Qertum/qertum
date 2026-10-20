@@ -1,0 +1,43 @@
+@* Diagnostic entries with their hints, shared by the ACME order and EST activity pages. Reuses the
+   certificate timeline's styles so the three read alike. *@
+
+@if (Entries.Count == 0)
+{
+    <p class="text-muted mb-0">Nothing recorded yet.</p>
+}
+else
+{
+    <ol class="timeline-list">
+        @foreach (var entry in Entries)
+        {
+            <li class="timeline-entry" data-test="diagnostic-entry" data-kind="@entry.Kind">
+                <span class="timeline-time">@entry.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+                <span class="timeline-action">@entry.Action</span>
+                @if (!string.IsNullOrWhiteSpace(entry.Category))
+                {
+                    <span class="timeline-category">@entry.Category</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(entry.PerformedBy))
+                {
+                    <span class="timeline-by">by @entry.PerformedBy</span>
+                }
+                @if (!string.IsNullOrWhiteSpace(entry.Detail))
+                {
+                    <div class="timeline-detail">@entry.Detail</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(entry.Hint))
+                {
+                    <div class="timeline-hint" data-test="diagnostic-hint">@entry.Hint</div>
+                }
+                @if (entry.RelatedRequestId is { } related)
+                {
+                    <div class="timeline-detail"><a href="/certificate-requests/@related">View the certificate request</a></div>
+                }
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<TimelineEntry> Entries { get; set; } = [];
+}

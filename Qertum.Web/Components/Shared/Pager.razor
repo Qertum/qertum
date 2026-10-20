@@ -1,0 +1,46 @@
+@* Paging strip shared by the request/certificate list pages, so they cannot drift apart.
+   Renders nothing when everything already fits on one page. *@
+
+@if (TotalPages > 1)
+{
+    <div class="list-pager" data-test="pager">
+        <span class="list-pager-range" data-test="pager-range">@RangeLabel</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-test="pager-prev"
+                disabled="@(Page <= 1)" @onclick="() => OnPageChange.InvokeAsync(Page - 1)"
+                aria-label="Previous page">
+            <span class="bi bi-chevron-left" aria-hidden="true"></span>
+        </button>
+        <span class="list-pager-label">Page @Page of @TotalPages</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-test="pager-next"
+                disabled="@(Page >= TotalPages)" @onclick="() => OnPageChange.InvokeAsync(Page + 1)"
+                aria-label="Next page">
+            <span class="bi bi-chevron-right" aria-hidden="true"></span>
+        </button>
+    </div>
+}
+
+@code {
+    /// <summary>Current 1-based page.</summary>
+    [Parameter] public int Page { get; set; } = 1;
+
+    /// <summary>Rows per page.</summary>
+    [Parameter] public int PageSize { get; set; } = 50;
+
+    /// <summary>Total matching rows on the server, not the number fetched.</summary>
+    [Parameter] public int TotalCount { get; set; }
+
+    /// <summary>Raised with the page the user asked for.</summary>
+    [Parameter] public EventCallback<int> OnPageChange { get; set; }
+
+    private int TotalPages => PageSize > 0 ? (int)Math.Ceiling((double)TotalCount / PageSize) : 0;
+
+    private string RangeLabel
+    {
+        get
+        {
+            var first = ((Page - 1) * PageSize) + 1;
+            var last = Math.Min(Page * PageSize, TotalCount);
+            return $"{first}–{last} of {TotalCount}";
+        }
+    }
+}

@@ -1,0 +1,487 @@
+@page "/certificate-requests/{Id:guid}"
+@using System.Text.Json
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject TimeProvider Clock
+
+<PageTitle>Certificate Request — Qertum</PageTitle>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="dashboard-header">
+        <a href="/certificate-requests" class="back-link"><span class="bi bi-arrow-left"></span> Back to requests</a>
+        <h1>Certificate <em>Request</em></h1>
+    </div>
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (request is null)
+{
+    <LoadingState Text="Loading certificate request…" />
+}
+else
+{
+    <div class="dashboard-header">
+        <a href="/certificate-requests" class="back-link"><span class="bi bi-arrow-left"></span> Back to requests</a>
+        <div class="dashboard-header-row">
+            <div>
+                <h1>@request.CommonName</h1>
+                <p class="dashboard-subtitle">Certificate request details</p>
+            </div>
+            <span class="status-badge status-badge-lg @GetStatusBadgeClass(request.Status)">
+                <span class="status-badge-dot"></span>
+                @GetStatusLabel(request.Status)
+            </span>
+        </div>
+    </div>
+
+    <div class="detail-grid">
+        @* ── Left: Properties ── *@
+        <div class="detail-card animate-in" id="detail-properties">
+            <div class="detail-card-title">
+                <span class="bi bi-info-circle-fill detail-card-icon blue"></span>
+                Request Properties
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Request ID</div>
+                <div class="detail-value mono text-xs break-all">@request.Id</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Certificate Type</div>
+                <div class="detail-value">@(request.Type ?? "—")</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Common Name</div>
+                <div class="detail-value mono">@request.CommonName</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Key Algorithm</div>
+                <div class="detail-value d-flex align-items-center gap-2 flex-wrap">
+                    @if (request.KeyAlgorithm.HasValue)
+                    {
+                        <span class="mono">@request.KeyAlgorithm.Value.ToCanonicalString()</span>
+                        <span class="badge algorithm-badge @CertificateAlgorithmSummary.FamilyBadgeClass(request.KeyAlgorithm.Value)">
+                            @CertificateAlgorithmSummary.FamilyLabel(request.KeyAlgorithm.Value)
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="mono">RSA</span>
+                        <span class="badge badge-neutral badge-sm">Classical · RSA</span>
+                    }
+                </div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Requested By</div>
+                <div class="detail-value">@request.RequestedBy</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Status</div>
+                <div class="detail-value">
+                    <span class="status-badge @GetStatusBadgeClass(request.Status)">
+                        <span class="status-badge-dot"></span>
+                        @GetStatusLabel(request.Status)
+                    </span>
+                </div>
+            </div>
+
+            @if (request.RenewedFromId.HasValue)
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Renewed From</div>
+                    <div class="detail-value">
+                        <a href="/certificate-requests/@request.RenewedFromId" class="mono text-xs">
+                            @request.RenewedFromId
+                        </a>
+                    </div>
+                </div>
+            }
+
+            @if (request.Status == CertificateRequestStatus.Revoked && !string.IsNullOrWhiteSpace(request.RevocationReason))
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Revocation Reason</div>
+                    <div class="detail-value detail-value-danger">@request.RevocationReason</div>
+                </div>
+            }
+
+            @if (request.Status == CertificateRequestStatus.Rejected && !string.IsNullOrWhiteSpace(request.FailureReason))
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Failure Reason</div>
+                    <div class="detail-value detail-value-danger">@request.FailureReason</div>
+                </div>
+            }
+        </div>
+
+        @* ── Right: Timeline ── *@
+        <div class="detail-card animate-in" id="detail-timeline">
+            <div class="detail-card-title">
+                <span class="bi bi-clock-fill detail-card-icon purple"></span>
+                Timeline
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Created</div>
+                <div class="detail-value">@request.CreatedAtUtc.ToLocalTime().ToString("f")</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Last Updated</div>
+                <div class="detail-value">@request.UpdatedAtUtc.ToLocalTime().ToString("f")</div>
+            </div>
+
+            @if (request.Status == CertificateRequestStatus.Issued || request.Status == CertificateRequestStatus.Revoked)
+            {
+                <div class="detail-separator"></div>
+
+                <div class="detail-card-title mt-2">
+                    <span class="bi bi-shield-fill-check detail-card-icon emerald"></span>
+                    Certificate Validity
+                </div>
+
+                <div class="detail-field">
+                    <div class="detail-label">Valid From</div>
+                    <div class="detail-value">
+                        @(request.ValidFrom.HasValue ? request.ValidFrom.Value.ToLocalTime().ToString("f") : "—")
+                    </div>
+                </div>
+
+                <div class="detail-field">
+                    <div class="detail-label">Valid To</div>
+                    <div class="detail-value">
+                        @(request.ValidTo.HasValue ? request.ValidTo.Value.ToLocalTime().ToString("f") : "—")
+                    </div>
+                </div>
+
+                <div class="detail-field" data-test="issued-by">
+                    <div class="detail-label">Issued By</div>
+                    <div class="detail-value">
+                        @if (request.IssuerName is { } issuerName)
+                        {
+                            <AuthorizeView Roles="admin">
+                                <Authorized><a href="issuers">@issuerName</a></Authorized>
+                                <NotAuthorized>@issuerName</NotAuthorized>
+                            </AuthorizeView>
+                        }
+                        else
+                        {
+                            <span>—</span>
+                        }
+                    </div>
+                </div>
+
+                @if (request.Status == CertificateRequestStatus.Revoked && request.RevokedAtUtc.HasValue)
+                {
+                    <div class="detail-field">
+                        <div class="detail-label">Revoked On</div>
+                        <div class="detail-value detail-value-danger">
+                            @request.RevokedAtUtc.Value.ToLocalTime().ToString("f")
+                        </div>
+                    </div>
+                }
+
+                @if (request.ValidFrom.HasValue && request.ValidTo.HasValue)
+                {
+                    <div class="validity-progress-wrapper">
+                        <div class="validity-progress-bar">
+                            <div class="validity-progress-fill @GetProgressClass()"
+                                 style="width: @GetProgressPct()%">
+                            </div>
+                        </div>
+                        <div class="validity-progress-labels">
+                            <span>@request.ValidFrom.Value.ToLocalTime().ToString("d")</span>
+                            <span>@request.ValidTo.Value.ToLocalTime().ToString("d")</span>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+
+    @* ── SAN / Properties card — only shown when the request carries SANs ── *@
+    @if (props is not null && (props.DnsNames.Count > 0 || props.IpAddresses.Count > 0 || props.EmailAddresses.Count > 0 || props.UserPrincipalNames.Count > 0))
+    {
+        <div class="detail-card animate-in mt-4 span-all">
+            <div class="detail-card-title">
+                <span class="bi bi-diagram-3-fill detail-card-icon cyan"></span>
+                Subject Alternative Names
+            </div>
+
+            <div class="mt-1" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:1rem;">
+                @if (props.DnsNames.Count > 0)
+                {
+                    <div>
+                        <div class="detail-label detail-label-spaced">DNS Names</div>
+                        @foreach (var name in props.DnsNames)
+                        {
+                            <div class="detail-value mono detail-value-tight break-all">@name</div>
+                        }
+                    </div>
+                }
+
+                @if (props.IpAddresses.Count > 0)
+                {
+                    <div>
+                        <div class="detail-label detail-label-spaced">IP Addresses</div>
+                        @foreach (var ip in props.IpAddresses)
+                        {
+                            <div class="detail-value mono detail-value-tight">@ip</div>
+                        }
+                    </div>
+                }
+
+                @if (props.EmailAddresses.Count > 0)
+                {
+                    <div>
+                        <div class="detail-label detail-label-spaced">Email Addresses</div>
+                        @foreach (var email in props.EmailAddresses)
+                        {
+                            <div class="detail-value mono detail-value-tight break-all">@email</div>
+                        }
+                    </div>
+                }
+
+                @if (props.UserPrincipalNames.Count > 0)
+                {
+                    <div>
+                        <div class="detail-label detail-label-spaced">User Principal Names</div>
+                        @foreach (var upn in props.UserPrincipalNames)
+                        {
+                            <div class="detail-value mono detail-value-tight break-all">@upn</div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @if (request.Status == CertificateRequestStatus.Issued || request.Status == CertificateRequestStatus.Revoked)
+    {
+        <div class="d-flex gap-2 align-items-center flex-wrap mt-3">
+            <a href="certificates/@request.Id" class="btn btn-primary">
+                <span class="bi bi-shield-lock-fill me-1"></span> View Certificate
+            </a>
+            <button class="btn btn-outline-primary" @onclick="RenewRequest" disabled="@actionInProgress">
+                <span class="bi bi-arrow-repeat me-1"></span> Renew
+            </button>
+        </div>
+    }
+
+    @if (request.Status == CertificateRequestStatus.Pending)
+    {
+        <AuthorizeView Policy="@AppPermissions.CertificatesManage">
+            <ApprovalPreviewPanel RequestId="Id" RefreshKey="previewRefreshKey" OnLoaded="p => approvalPreview = p" />
+            <div class="d-flex gap-2 align-items-center flex-wrap mt-3">
+                <button class="btn btn-success" @onclick="ApproveRequest" disabled="@actionInProgress">
+                    <span class="bi bi-check-circle me-1"></span> Approve
+                </button>
+                <button class="btn btn-danger" @onclick="RejectRequest" disabled="@actionInProgress">
+                    <span class="bi bi-x-circle me-1"></span> Reject
+                </button>
+            </div>
+        </AuthorizeView>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(actionError))
+    {
+        <div class="alert alert-danger mt-3" role="alert">
+            @actionError
+            @if (policyViolations.Count > 0)
+            {
+                <ul class="mt-2 mb-0">
+                    @foreach (var violation in policyViolations)
+                    {
+                        <li>@violation.Message</li>
+                    }
+                </ul>
+            }
+        </div>
+    }
+    <CertificateTimeline RequestId="Id" RefreshKey="request.UpdatedAtUtc" />
+
+    @if (!string.IsNullOrWhiteSpace(actionSuccess))
+    {
+        <div class="alert alert-success mt-3" role="alert">@actionSuccess</div>
+    }
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Approve]" TargetId="Id" />
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    private CertificateRequest? request;
+    private CertificateProperties? props;
+    private string? loadError;
+    private bool actionInProgress;
+    private string? actionError;
+
+    // Approval re-evaluates policy against the current published version, so a request that was fine
+    // at create time can be refused here; the rules go under the error rather than a bare 422.
+    private IReadOnlyList<IssuancePolicyViolation> policyViolations = [];
+    private string? actionSuccess;
+
+    // What the approval preview panel showed, reported with Approve so the audit records it.
+    private ApprovalPreviewResponse? approvalPreview;
+    private int previewRefreshKey;
+
+    private Guid? loadedId;
+
+    // "Renewed From" and Renew both navigate to this same route, so the router reuses this instance and
+    // only sets a new Id. Loading in OnInitializedAsync would keep the previous request on screen.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (loadedId == Id) return;
+        loadedId = Id;
+
+        request = null;
+        props = null;
+        loadError = null;
+        actionError = null;
+        actionSuccess = null;
+        policyViolations = [];
+        approvalPreview = null;
+
+        try
+        {
+            request = await CertificateRequestsApiClient.GetByIdAsync(Id);
+            if (request is null)
+            {
+                loadError = "Certificate request not found.";
+                return;
+            }
+            props = ParseProperties(request.PropertiesJson);
+        }
+        catch (Exception ex) { loadError = ex.WithCorrelationId($"Failed to load certificate request: {ex.Message}"); }
+    }
+
+    private static CertificateProperties? ParseProperties(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try { return JsonSerializer.Deserialize<CertificateProperties>(json, AppJsonOptions.Default); }
+        catch { return null; }
+    }
+
+    private async Task ApproveRequest()
+    {
+        actionInProgress = true;
+        actionError = null;
+        policyViolations = [];
+        try
+        {
+            var result = approvalPreview is null
+                ? await CertificateRequestsApiClient.ApproveAsync(Id)
+                : await CertificateRequestsApiClient.ApproveAsync(Id, new ApproveCertificateRequestRequest
+                {
+                    PreviewedPolicyVersionId = approvalPreview.PolicyVersionId,
+                    PreviewedAllowed = approvalPreview.Allowed
+                });
+            if (result is null) { actionError = "Request not found or cannot be approved (must be Pending)."; return; }
+            request = result;
+            actionSuccess = "Request approved. It will be processed by the queue worker shortly.";
+        }
+        catch (ApiProblemException ex)
+        {
+            actionError = ex.WithCorrelationId(ex.Violations.Count > 0
+                ? $"Issuance policy '{ex.PolicyName}' v{ex.VersionNumber} refused this request:"
+                : $"Failed to approve: {ex.Message}");
+            policyViolations = ex.Violations;
+            if (policyViolations.Count > 0)
+            {
+                approvalPreview = null;
+                previewRefreshKey++; // show the verdict approval just met
+            }
+        }
+        catch (Exception ex) { actionError = $"Failed to approve: {ex.Message}"; }
+        finally { actionInProgress = false; }
+    }
+
+    private async Task RejectRequest()
+    {
+        actionInProgress = true;
+        actionError = null;
+        policyViolations = [];
+        try
+        {
+            var result = await CertificateRequestsApiClient.RejectAsync(Id);
+            if (result is null) { actionError = "Request not found or cannot be rejected (must be Pending)."; return; }
+            request = result;
+            actionSuccess = "Request rejected.";
+        }
+        catch (ApiProblemException ex)
+        {
+            actionError = ex.WithCorrelationId(ex.Violations.Count > 0
+                ? $"Issuance policy '{ex.PolicyName}' v{ex.VersionNumber} refused this request:"
+                : $"Failed to reject: {ex.Message}");
+            policyViolations = ex.Violations;
+        }
+        catch (Exception ex) { actionError = $"Failed to reject: {ex.Message}"; }
+        finally { actionInProgress = false; }
+    }
+
+    private async Task RenewRequest()
+    {
+        actionInProgress = true;
+        actionError = null;
+        policyViolations = [];
+        try
+        {
+            var renewal = await CertificateRequestsApiClient.RenewAsync(Id);
+            if (renewal is null) { actionError = "Request not found or could not be renewed."; return; }
+            NavigationManager.NavigateTo($"/certificate-requests/{renewal.Id}");
+        }
+        catch (ApiProblemException ex)
+        {
+            actionError = ex.WithCorrelationId(ex.Violations.Count > 0
+                ? $"Issuance policy '{ex.PolicyName}' v{ex.VersionNumber} refused this request:"
+                : $"Failed to renew: {ex.Message}");
+            policyViolations = ex.Violations;
+        }
+        catch (Exception ex) { actionError = $"Failed to renew: {ex.Message}"; }
+        finally { actionInProgress = false; }
+    }
+
+    private static string GetStatusBadgeClass(CertificateRequestStatus status) => status switch
+    {
+        CertificateRequestStatus.Pending => "pending",
+        CertificateRequestStatus.Approved => "approved",
+        CertificateRequestStatus.Rejected => "rejected",
+        CertificateRequestStatus.Issued => "issued",
+        CertificateRequestStatus.Revoked => "revoked",
+        CertificateRequestStatus.PendingRevocation => "pending",
+        _ => ""
+    };
+
+    private static string GetStatusLabel(CertificateRequestStatus status) => status switch
+    {
+        CertificateRequestStatus.Rejected => "Denied",
+        CertificateRequestStatus.PendingRevocation => "Pending Revocation",
+        _ => status.ToString()
+    };
+
+    private string GetProgressClass()
+    {
+        if (request?.Status == CertificateRequestStatus.Revoked) return "revoked";
+        if (request?.ValidTo.HasValue == true && request.ValidTo.Value <= Now) return "expired";
+        if (request?.ValidTo.HasValue == true && request.ValidTo.Value <= Now.AddDays(30)) return "expiring";
+        return "valid";
+    }
+
+    private string GetProgressPct()
+    {
+        if (request?.ValidFrom == null || request.ValidTo == null) return "0";
+        var total = (request.ValidTo.Value - request.ValidFrom.Value).TotalSeconds;
+        var elapsed = (Now - request.ValidFrom.Value).TotalSeconds;
+        return Math.Clamp(elapsed / total * 100, 0, 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+    }
+}

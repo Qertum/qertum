@@ -1,0 +1,344 @@
+/* ---- Onboarding wizard card ---- */
+.ob-card {
+    width: 100%;
+    max-width: 520px;
+    background: var(--bg-card);
+    border: none;
+    border-radius: var(--border-radius-lg);
+    padding: 2.5rem 2rem 2rem;
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ob-card-wide {
+    max-width: 680px;
+}
+
+/* ---- Brand icon ---- */
+.ob-card-icon {
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.ob-icon-brand {
+    background: var(--accent-purple-glow);
+    color: var(--accent-purple);
+    box-shadow: 0 0 20px var(--accent-purple-glow);
+}
+
+.ob-icon-success {
+    background: rgba(var(--success), 0.18);
+    color: var(--accent-emerald);
+    box-shadow: 0 0 20px var(--accent-emerald-glow);
+}
+
+/* ---- Typography ---- */
+.ob-title {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--text-heading);
+    margin: 0;
+    line-height: 1.2;
+}
+
+.ob-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+    margin: 0.25rem 0 1rem;
+}
+
+/* ---- Skip row ---- */
+.ob-skip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.ob-skip-btn {
+    color: var(--text-muted) !important;
+    font-size: 0.8125rem;
+    padding: 0;
+    text-decoration: none !important;
+}
+
+.ob-skip-btn:hover {
+    color: var(--text-secondary) !important;
+}
+
+.ob-skip-note {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+}
+
+/* ---- Back button ---- */
+.ob-back-btn {
+    display: inline-flex;
+    align-items: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    padding: 0;
+    transition: color var(--transition-fast);
+}
+
+.ob-back-btn:hover {
+    color: var(--text-secondary);
+}
+
+/* ---- Required asterisk ---- */
+.ob-required {
+    color: var(--accent-rose);
+    font-size: 0.875rem;
+}
+
+/* ---- Import tab bar ---- */
+.ob-import-tabs {
+    border-bottom: 2px solid var(--border-color);
+    margin-bottom: 1.5rem;
+    gap: 0.25rem;
+}
+
+.ob-import-tabs .nav-link {
+    color: var(--text-secondary);
+    border: none;
+    border-bottom: none;
+    border-radius: 0;
+    padding: 0.45rem 1rem;
+    margin-bottom: -2px;
+    font-size: 0.9rem;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.ob-import-tabs .nav-link:hover {
+    color: var(--text-primary);
+    border-bottom-color: var(--border-color);
+}
+
+.ob-import-tabs .nav-link.active {
+    color: rgb(var(--primary));
+    border-bottom-color: rgb(var(--primary));
+    font-weight: 600;
+    background: none;
+}
+
+/* ---- Upload zone (PKCS#7 / PFX tabs) ---- */
+.ob-upload-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    border: 2px dashed var(--border-color);
+    border-radius: 10px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.ob-upload-zone:hover {
+    border-color: rgb(var(--primary));
+    background: color-mix(in srgb, rgb(var(--primary)) 6%, transparent);
+}
+
+.ob-upload-zone-pending {
+    border-color: var(--bs-warning-border-subtle, #ffda6a);
+    background: color-mix(in srgb, var(--bs-warning, #ffc107) 8%, transparent);
+}
+
+.ob-upload-zone-icon {
+    font-size: 2.25rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.ob-upload-zone-link {
+    color: rgb(var(--primary));
+    font-weight: 500;
+    text-decoration: underline;
+}
+
+/* ---- Extracted cert summary card ---- */
+.ob-cert-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    background: color-mix(in srgb, var(--bs-success, #198754) 8%, var(--bg-card));
+    border: 1px solid color-mix(in srgb, var(--bs-success, #198754) 30%, transparent);
+    border-radius: 8px;
+}
+
+.ob-cert-summary-icon {
+    font-size: 1.5rem;
+    color: var(--bs-success, #198754);
+    flex-shrink: 0;
+}
+
+.ob-cert-summary-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.ob-cert-summary-subject {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    word-break: break-all;
+    margin-top: 0.1rem;
+}
+
+.ob-cert-summary-change {
+    flex-shrink: 0;
+}
+
+/* ---- PEM textarea ---- */
+.ob-pem-area {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    resize: vertical;
+    min-height: 9rem;
+    line-height: 1.55;
+}
+
+.ob-pem-area-readonly {
+    background-color: var(--bs-secondary-bg);
+    color: var(--bs-secondary-color);
+    cursor: default;
+}
+
+/* ---- File upload row ---- */
+.ob-upload-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
+
+.ob-file-label {
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.6rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--bg-glass);
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.ob-file-label:hover {
+    background: var(--bg-glass-strong);
+    border-color: var(--accent-purple);
+    color: var(--text-primary);
+}
+
+.ob-file-input {
+    display: none;
+}
+
+/* ---- CA info summary (Done step) ---- */
+.ob-ca-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    background: var(--bg-glass);
+    border: none;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    margin: 0.5rem 0;
+}
+
+.ob-ca-info-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.ob-ca-info-row:last-child {
+    border-bottom: none;
+}
+
+.ob-ca-info-label {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    width: 6rem;
+    flex-shrink: 0;
+}
+
+.ob-ca-info-value {
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+.ob-mono {
+    font-family: var(--font-mono);
+    font-size: 0.78rem !important;
+}
+
+/* ---- Action row ---- */
+.ob-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.ob-btn-submit {
+    min-width: 12rem;
+}
+
+.ob-btn-full {
+    width: 100%;
+    justify-content: center;
+}
+
+/* ---- CA certificate download row (Done step) ---- */
+.ob-download-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: color-mix(in srgb, rgb(var(--primary)) 6%, var(--bg-card));
+    border: 1px solid color-mix(in srgb, rgb(var(--primary)) 20%, transparent);
+    border-radius: 8px;
+    margin-top: 0.5rem;
+    text-align: center;
+}
+
+.ob-download-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+/* ---- Section spacing override for wizard ---- */
+.ob-card .form-section:first-of-type {
+    margin-top: 0.5rem;
+}
+
+.ob-card .form-section {
+    margin-bottom: 0;
+}

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Qertum.Contracts\Qertum.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,337 @@
+@page "/roles"
+@attribute [Authorize(Roles = "admin")]
+@inject CertificateRequestsApiClient Api
+
+<PageTitle>Roles &amp; Permissions — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Roles &amp; <em>Permissions</em></Heading>
+    <Subtitle>What each identity-provider role may do in the CA. Roles are created in the identity provider; changes here apply within a minute.</Subtitle>
+</PageHeader>
+
+<Notification Message="@notification" Type="@notificationType" OnDismiss="@(() => notification = null)" />
+
+@if (loadError is not null)
+{
+    <div class="alert alert-danger" role="alert" data-test="load-error">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>Could not load roles: @loadError
+    </div>
+}
+else if (overview is null)
+{
+    <LoadingState Text="Loading roles…" />
+}
+else
+{
+    <dl class="mb-4">
+        @foreach (var p in overview.Permissions)
+        {
+            <dt><code>@p.Name</code></dt>
+            <dd class="text-muted">@p.Description</dd>
+        }
+    </dl>
+
+    <div class="scroll-x">
+        <table class="table-dashboard">
+            <thead>
+                <tr>
+                    <th>Role</th>
+                    @foreach (var p in overview.Permissions)
+                    {
+                        <th title="@p.Description"><code>@p.Name</code></th>
+                    }
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr data-role="admin">
+                    <td><strong>admin</strong></td>
+                    @foreach (var p in overview.Permissions)
+                    {
+                        <td><input type="checkbox" checked disabled data-permission="@p.Name" aria-label="admin @p.Name" /></td>
+                    }
+                    <td class="text-muted">Built in — always every permission</td>
+                    <td></td>
+                </tr>
+
+                @foreach (var row in rows)
+                {
+                    <tr data-role="@row.Name" class="@(string.Equals(highlightRole, row.Name, StringComparison.OrdinalIgnoreCase) ? "table-warning" : null)">
+                        <td>@row.Name</td>
+                        @foreach (var p in overview.Permissions)
+                        {
+                            <td>
+                                <input type="checkbox" data-permission="@p.Name" aria-label="@row.Name @p.Name"
+                                       checked="@row.Draft.Contains(p.Name)" disabled="@row.Saving"
+                                       @onchange="e => Toggle(row.Draft, p.Name, e)" />
+                            </td>
+                        }
+                        <td>
+                            @if (row.Summary.NeverSeen)
+                            {
+                                <span class="badge badge-warning" data-status="never-seen">@NeverSeenText()</span>
+                            }
+                            else if (row.Summary.NotSeenRecently)
+                            {
+                                <span class="badge badge-warning" data-status="stale">Not seen for @overview.StaleAfterDays+ days (last @row.Summary.LastSeenUtc?.ToString("yyyy-MM-dd"))</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted small" data-status="seen">Seen @row.Summary.LastSeenUtc?.ToString("yyyy-MM-dd")</span>
+                            }
+                        </td>
+                        <td class="text-nowrap">
+                            @if (row.Renaming)
+                            {
+                                <input class="form-control form-control-sm d-inline-block w-auto me-1" data-test="rename-input"
+                                       value="@row.RenameTo" @oninput="e => row.RenameTo = e.Value?.ToString() ?? string.Empty" />
+                                <button class="btn btn-sm btn-primary me-1" data-action="confirm-rename"
+                                        disabled="@(row.Saving || string.IsNullOrEmpty(row.RenameTo))"
+                                        @onclick="() => RenameAsync(row)">Rename</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => row.Renaming = false">Cancel</button>
+                            }
+                            else if (row.IsDirty)
+                            {
+                                <button class="btn btn-sm btn-primary me-1" data-action="save" disabled="@row.Saving" @onclick="() => SaveAsync(row)">Save</button>
+                                <button class="btn btn-sm btn-outline-secondary" data-action="revert" disabled="@row.Saving" @onclick="() => row.Revert()">Revert</button>
+                            }
+                            else if (row.ConfirmRemove)
+                            {
+                                <button class="btn btn-sm btn-danger me-1" data-action="confirm-remove" @onclick="() => RemoveAllAsync(row)">Remove all grants</button>
+                                <button class="btn btn-sm btn-outline-secondary" @onclick="() => row.ConfirmRemove = false">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-secondary me-1" data-action="rename"
+                                        @onclick="() => { row.Renaming = true; row.RenameTo = row.Name; }">Rename</button>
+                                <button class="btn btn-sm btn-outline-danger" data-action="remove" @onclick="() => row.ConfirmRemove = true">Remove all grants</button>
+                            }
+                        </td>
+                    </tr>
+                }
+
+                <tr data-role="new">
+                    <td>
+                        <input id="new-role" class="form-control form-control-sm" placeholder="Add role…"
+                               value="@newRoleName" @oninput="e => { newRoleName = e.Value?.ToString() ?? string.Empty; newRoleError = null; }" />
+                        @if (newRoleError is not null)
+                        {
+                            <div class="text-danger small" data-test="new-role-error">@newRoleError</div>
+                        }
+                    </td>
+                    @foreach (var p in overview.Permissions)
+                    {
+                        <td><input type="checkbox" data-permission="@p.Name" aria-label="new role @p.Name"
+                                   checked="@newRolePermissions.Contains(p.Name)" @onchange="e => Toggle(newRolePermissions, p.Name, e)" /></td>
+                    }
+                    <td class="text-muted small">Needs at least one permission</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" data-action="add"
+                                disabled="@(adding || string.IsNullOrEmpty(newRoleName) || newRolePermissions.Count == 0)"
+                                @onclick="AddAsync">Add</button>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    @if (overview.ObservedWithoutPermissions.Count > 0)
+    {
+        <h2 class="h5 mt-4">Seen without permissions</h2>
+        <p class="text-muted small">Roles carried by tokens that reached the API but grant nothing here.</p>
+        <ul class="list-unstyled">
+            @foreach (var o in overview.ObservedWithoutPermissions)
+            {
+                <li class="mb-1">
+                    <code>@o.Name</code>
+                    <span class="text-muted small ms-2">last seen @o.LastSeenUtc.ToString("yyyy-MM-dd")</span>
+                    <button class="btn btn-sm btn-outline-primary ms-2" data-action="grant" data-role-name="@o.Name"
+                            @onclick="() => { newRoleName = o.Name; newRoleError = null; }">Grant…</button>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    private RolePermissionsOverviewResponse? overview;
+    private List<RoleRow> rows = [];
+    private string? loadError;
+    private string? notification;
+    private string notificationType = "success";
+
+    private string newRoleName = string.Empty;
+    private readonly HashSet<string> newRolePermissions = new(StringComparer.Ordinal);
+    private string? newRoleError;
+    private string? highlightRole;
+    private bool adding;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            overview = await Api.GetRolePermissionsOverviewAsync();
+            rows = overview.Roles.Select(r => new RoleRow(r)).ToList();
+            loadError = null;
+        }
+        catch (Exception ex)
+        {
+            // Never render an empty matrix for a failed load: it would read as "no role has grants".
+            overview = null;
+            loadError = ex is ApiProblemException problem ? problem.WithCorrelationId(problem.Detail ?? problem.Title) : ex.Message;
+        }
+    }
+
+    private static void Toggle(HashSet<string> set, string permission, ChangeEventArgs e)
+    {
+        if (e.Value is true) set.Add(permission);
+        else set.Remove(permission);
+    }
+
+    private IReadOnlyList<string> CatalogOrder(IEnumerable<string> permissions)
+    {
+        var chosen = permissions.ToHashSet(StringComparer.Ordinal);
+        return overview!.Permissions.Select(p => p.Name).Where(chosen.Contains).ToList();
+    }
+
+    private async Task SaveAsync(RoleRow row) => await PutAsync(row, CatalogOrder(row.Draft));
+
+    private async Task RemoveAllAsync(RoleRow row) => await PutAsync(row, []);
+
+    private async Task PutAsync(RoleRow row, IReadOnlyList<string> permissions)
+    {
+        row.Saving = true;
+        try
+        {
+            var change = await Api.SetRolePermissionsAsync(row.Name, permissions);
+            Notify(Describe(change), "success");
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Detail ?? ex.Title), "danger");
+        }
+        catch (Exception ex)
+        {
+            Notify($"Saving {row.Name} failed: {ex.Message}", "danger");
+        }
+        finally
+        {
+            row.Saving = false;
+        }
+    }
+
+    private async Task RenameAsync(RoleRow row)
+    {
+        if (!RoleNameRules.TryValidate(row.RenameTo, out var error))
+        {
+            Notify(error!, "danger");
+            return;
+        }
+
+        row.Saving = true;
+        try
+        {
+            var renamed = await Api.RenameRoleAsync(row.Name, row.RenameTo);
+            Notify($"Renamed {renamed.PreviousRole} to {renamed.Role}. Rename it in the identity provider too, or tokens will still carry the old name.", "success");
+            row.Renaming = false;
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Detail ?? ex.Title), "danger");
+        }
+        catch (Exception ex)
+        {
+            Notify($"Renaming {row.Name} failed: {ex.Message}", "danger");
+        }
+        finally
+        {
+            row.Saving = false;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        highlightRole = null;
+        var name = newRoleName;
+
+        if (!RoleNameRules.TryValidate(name, out var error))
+        {
+            newRoleError = error;
+            return;
+        }
+
+        if (string.Equals(name, AppRoles.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            newRoleError = "The admin role is built in and always has every permission.";
+            return;
+        }
+
+        var existing = rows.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            highlightRole = existing.Name;
+            newRoleError = $"{existing.Name} already exists — edit its row instead.";
+            return;
+        }
+
+        adding = true;
+        try
+        {
+            var change = await Api.SetRolePermissionsAsync(name, CatalogOrder(newRolePermissions));
+            Notify(Describe(change), "success");
+            newRoleName = string.Empty;
+            newRolePermissions.Clear();
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Detail ?? ex.Title), "danger");
+        }
+        catch (Exception ex)
+        {
+            Notify($"Adding {name} failed: {ex.Message}", "danger");
+        }
+        finally
+        {
+            adding = false;
+        }
+    }
+
+    private void Notify(string message, string type)
+    {
+        notification = message;
+        notificationType = type;
+    }
+
+    private static string Describe(RolePermissionChange change)
+    {
+        if (change.IsNoOp) return $"No changes to {change.Role}.";
+        var parts = new List<string>();
+        if (change.Granted.Count > 0) parts.Add($"granted {string.Join(", ", change.Granted)}");
+        if (change.Revoked.Count > 0) parts.Add($"revoked {string.Join(", ", change.Revoked)}");
+        return $"Saved {change.Role}: {string.Join("; ", parts)}.";
+    }
+
+    private string NeverSeenText() => overview?.TrackingStartedUtc is { } started
+        ? $"No token carrying this role has reached the API since {started:yyyy-MM-dd}"
+        : "Role tracking has not recorded any token yet";
+
+    private sealed class RoleRow(RoleGrantSummary summary)
+    {
+        public RoleGrantSummary Summary { get; } = summary;
+        public string Name => Summary.Name;
+        public HashSet<string> Saved { get; } = new(summary.Permissions, StringComparer.Ordinal);
+        public HashSet<string> Draft { get; private set; } = new(summary.Permissions, StringComparer.Ordinal);
+        public bool ConfirmRemove { get; set; }
+        public bool Renaming { get; set; }
+        public string RenameTo { get; set; } = string.Empty;
+        public bool Saving { get; set; }
+        public bool IsDirty => !Saved.SetEquals(Draft);
+        public void Revert() => Draft = new HashSet<string>(Saved, StringComparer.Ordinal);
+    }
+}

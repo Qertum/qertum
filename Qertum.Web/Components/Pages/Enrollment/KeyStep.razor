@@ -1,0 +1,209 @@
+<div data-step="Key">
+    <h2 class="form-section-title">Key and validity</h2>
+
+    @if (ClassicalRefused)
+    {
+        <div class="alert alert-secondary" data-test="pqc-stage-refused">
+            @(Stage == PqcStage.Pilot
+                ? "This template is in the PQC pilot stage: new requests must use a post-quantum, paired or composite algorithm (renewals of existing classical certificates are still allowed)."
+                : "Only post-quantum, paired and composite algorithms are accepted for this template.")
+            If its issuance policy allows none of them, the policy check will say so.
+        </div>
+    }
+    else
+    {
+        @if (Stage is { } warnStage && PqcStageGuidance.WarnsRequester(warnStage))
+        {
+            <div class="alert alert-warning" data-test="pqc-stage-warning">
+                <span class="bi bi-exclamation-triangle-fill me-2"></span>@PqcStageGuidance.Sentence(warnStage)
+            </div>
+        }
+        <div class="form-check mb-3">
+            <input id="pilot-pqc" class="form-check-input" type="checkbox" checked="@Draft.PilotPqc" @onchange="TogglePilotAsync" />
+            <label class="form-check-label" for="pilot-pqc">Pilot post-quantum algorithms</label>
+        </div>
+    }
+
+    @{
+        var visible = AlgorithmChoices.Visible(ClassicalRefused, Draft.PilotPqc);
+        var composite = visible.Where(c => c.Kind == AlgorithmKind.Composite).ToList();
+        // A template that issues a CA certificate needs a key that signs; a KEM key cannot, and the
+        // server refuses the combination (PolicyRules.KeyCapability), so it is never offered. The
+        // purpose stands in for KeyCertSign: EnrollmentPurposeClassifier gives a KeyCertSign
+        // template SubordinateCa and nothing else.
+        var kem = Draft.Template?.Purposes.Contains(EnrollmentPurpose.SubordinateCa) == true
+            ? []
+            : visible.Where(c => c.Kind == AlgorithmKind.Kem).ToList();
+        // The same holds for a signing + encryption pair: its second certificate is an ML-KEM one.
+        var pairs = Draft.Template?.Purposes.Contains(EnrollmentPurpose.SubordinateCa) == true
+            ? []
+            : visible.Where(c => c.Kind == AlgorithmKind.Pair).ToList();
+        // A non-featured selection stays visible: collapsing the list must not hide what is chosen.
+        var showAllComposite = _showAllComposite
+            || composite.Any(c => !c.Featured && c.Value == Draft.KeyAlgorithm);
+    }
+
+    <div class="option-list">
+        @foreach (var choice in visible.Where(c => c.Kind is not (AlgorithmKind.Composite or AlgorithmKind.Kem or AlgorithmKind.Pair)))
+        {
+            @Card(choice)
+        }
+    </div>
+
+    @if (kem.Count > 0)
+    {
+        <div class="mt-3" data-test="kem-choices">
+            <div class="form-label">Post-quantum encryption (ML-KEM)</div>
+            <div class="option-list">
+                @foreach (var choice in kem)
+                {
+                    @Card(choice)
+                }
+            </div>
+        </div>
+    }
+
+    @if (pairs.Count > 0)
+    {
+        <div class="mt-3" data-test="pair-choices">
+            <div class="form-label">Paired post-quantum signing + encryption certificates</div>
+            <div class="option-list">
+                @foreach (var choice in pairs)
+                {
+                    @Card(choice)
+                }
+            </div>
+        </div>
+    }
+
+    @if (composite.Count > 0)
+    {
+        <div class="mt-3" data-test="composite-choices">
+            <div class="form-label">Composite — ML-DSA + classical in one certificate</div>
+            <div class="option-list">
+                @foreach (var choice in composite.Where(c => c.Featured))
+                {
+                    @Card(choice)
+                }
+            </div>
+
+            @if (showAllComposite)
+            {
+                @foreach (var group in composite.Where(c => !c.Featured).GroupBy(c => c.Group)
+                              .OrderBy(g => AlgorithmChoices.CompositeGroupOrder(g.Key)))
+                {
+                    <div class="form-help mt-2" data-composite-group="@group.Key">@group.Key</div>
+                    <div class="option-list">
+                        @foreach (var choice in group)
+                        {
+                            @Card(choice)
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <button type="button" class="btn-outline-detail mt-2" data-action="show-all-composite"
+                        @onclick="() => _showAllComposite = true">Show all composite combinations</button>
+            }
+        </div>
+    }
+
+    @{
+        var pathNote = CertificateAlgorithmSummary.EnrollmentPathNote(Draft.KeyAlgorithm, CaAlgorithm);
+    }
+    @if (!string.IsNullOrEmpty(pathNote))
+    {
+        <p class="form-help mt-2" data-test="enrollment-path-note">@pathNote</p>
+    }
+
+    @if (CertificateKeyAlgorithmExtensions.Parse(Draft.KeyAlgorithm)?.GetFamily() == AlgorithmFamily.Hybrid)
+    {
+        <p class="form-help mt-2" data-test="paired-scope-note">@CertificateAlgorithmSummary.PairedIssuanceScopeNote</p>
+    }
+
+    @if (CertificateKeyAlgorithmExtensions.Parse(Draft.KeyAlgorithm)?.GetFamily() == AlgorithmFamily.Pair)
+    {
+        <p class="form-help mt-2" data-test="pair-scope-note">@CertificateAlgorithmSummary.PairScopeNote</p>
+    }
+
+    @if (CertificateKeyAlgorithmExtensions.Parse(Draft.KeyAlgorithm)?.GetFamily() == AlgorithmFamily.Composite)
+    {
+        <p class="form-help mt-2" data-test="composite-scope-note">@CertificateAlgorithmSummary.CompositeScopeNote</p>
+    }
+
+    @if (CertificateKeyAlgorithmExtensions.Parse(Draft.KeyAlgorithm)?.GetFamily() == AlgorithmFamily.Kem)
+    {
+        <p class="form-help mt-2" data-test="kem-scope-note">@CertificateAlgorithmSummary.KemScopeNote</p>
+    }
+
+    <div class="form-row mt-3">
+        <div class="form-field">
+            <label class="form-label" for="validity-days">Validity (days)</label>
+            <input id="validity-days" class="form-control" type="number" min="1"
+                   @bind="Draft.ValidityDays" @bind:after="Changed"
+                   placeholder="@($"Template default ({Draft.Template?.DefaultValidityDays} days)")" />
+            <div class="form-help">
+                Leave blank for the template default. A shorter window is always allowed; a longer one only
+                when the template's issuance policy raises the maximum.
+            </div>
+        </div>
+    </div>
+
+    @ChildContent
+
+    <div class="wizard-actions">
+        <button type="button" class="btn-outline-detail" data-action="back" @onclick="OnBack">Back</button>
+        <button type="button" class="btn btn-primary" data-action="next"
+                disabled="@(Draft.ValidityDays is < 1)" @onclick="OnNext">Next</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EnrollmentDraft Draft { get; set; } = default!;
+    /// <summary>True when this template's PQC stage refuses a new classical key, so classical choices are not offered.</summary>
+    [Parameter] public bool ClassicalRefused { get; set; }
+
+    /// <summary>The PQC stage that governs the chosen template; null when unknown. Drives the warning callout.</summary>
+    [Parameter] public PqcStage? Stage { get; set; }
+
+    /// <summary>
+    /// Canonical name of the CA key that will sign this request, from <c>GET /ca/status</c>. Null
+    /// when the CA is not loaded or its key is one Qertum has no algorithm value for.
+    /// </summary>
+    [Parameter] public string? CaAlgorithm { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnNext { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+
+    private bool _showAllComposite;
+
+    private Task Changed() => OnChanged.InvokeAsync();
+
+    private RenderFragment Card(AlgorithmChoice choice) =>
+        @<button type="button" class="option-card" data-algorithm="@choice.Value"
+                 aria-pressed="@(Draft.KeyAlgorithm == choice.Value ? "true" : "false")"
+                 @onclick="() => ChooseAsync(choice.Value)">
+            <span class="bi @(choice.Kind == AlgorithmKind.Classical ? "bi-key-fill" : "bi-shield-lock-fill") option-card-icon" aria-hidden="true"></span>
+            <div class="option-card-body">
+                <strong>@choice.Label</strong>
+                <span>@choice.Note</span>
+            </div>
+        </button>;
+
+    private Task ChooseAsync(string value)
+    {
+        Draft.KeyAlgorithm = value;
+        return Changed();
+    }
+
+    private Task TogglePilotAsync(ChangeEventArgs e)
+    {
+        Draft.PilotPqc = e.Value is true;
+        // Turning the pilot off must not leave a PQC algorithm selected that is no longer shown.
+        if (!Draft.PilotPqc && !AlgorithmChoices.IsClassical(Draft.KeyAlgorithm))
+            Draft.KeyAlgorithm = EnrollmentDraft.RecommendedAlgorithm(Draft.Purpose ?? Draft.Template?.Purposes.FirstOrDefault(), classicalRefused: false);
+        return Changed();
+    }
+}

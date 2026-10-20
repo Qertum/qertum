@@ -1,0 +1,194 @@
+@page "/certificate-templates"
+@using Qertum.Services
+@attribute [Authorize(Policy = AppPermissions.SettingsEdit)]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<PageTitle>Certificate Templates — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Certificate <em>Templates</em></Heading>
+    <Subtitle>Define X.509 profiles — key usages, EKUs, and SAN types — for each certificate type.</Subtitle>
+    <Actions>        <a href="/certificate-templates/new" class="btn btn-primary">
+            <span class="bi bi-plus-lg me-1"></span> New Template
+        </a>
+    </Actions>
+</PageHeader>
+
+<Notification Message="@notification" Type="@notificationType" OnDismiss="@(() => notification = null)" />
+
+@if (templates is null)
+{
+    <LoadingState Text="Loading templates…" />
+}
+else if (templates.Count == 0)
+{
+    <EmptyState Icon="bi-file-earmark-code" Title="No templates yet" Message="Create your first certificate template to get started.">        <a href="/certificate-templates/new" class="btn btn-primary mt-3">
+            <span class="bi bi-plus-lg me-1"></span> New Template
+        </a>
+    
+</EmptyState>
+}
+else
+{
+    <div class="form-card form-card-full table-card animate-in">
+        <table class="table-dashboard">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type Key</th>
+                    <th>Key Usages</th>
+                    <th>EKUs</th>
+                    <th>SANs</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in templates)
+                {
+                    <tr>
+                        <td>
+                            <div class="cell-title">@t.Name</div>
+                            @if (!string.IsNullOrWhiteSpace(t.Description))
+                            {
+                                <div class="cell-meta">@t.Description</div>
+                            }
+                        </td>
+                        <td>
+                            <code class="code-chip">@t.TypeKey</code>
+                            @if (t.IsBuiltIn)
+                            {
+                                <span class="badge badge-accent badge-sm ms-2">built-in</span>
+                            }
+                        </td>
+                        <td>
+                            @FormatJsonArray(t.KeyUsagesJson)
+                        </td>
+                        <td>
+                            @FormatEkuList(t.ExtendedKeyUsagesJson)
+                        </td>
+                        <td>
+                            @FormatJsonArray(t.SanTypesJson)
+                        </td>
+                        <td class="cell-actions">
+                            <a href="/certificate-templates/@t.Id/edit" class="btn-outline-detail me-2">
+                                <span class="bi bi-pencil-fill me-1"></span> Edit
+                            </a>
+                            @if (!t.IsBuiltIn)
+                            {
+                                <button class="btn btn-sm btn-danger-soft"
+                                        @onclick="() => ConfirmDelete(t)" disabled="@(deleting == t.Id)">
+                                    @if (deleting == t.Id)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                    }
+                                    else
+                                    {
+                                        <span class="bi bi-trash3-fill me-1"></span>
+                                    }
+                                    Delete
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (confirmDeleteTemplate is not null)
+{
+    <ConfirmDialog Tone="ConfirmDialogTone.Danger" Title="Delete Template" MaxWidthPx="440"
+                   ConfirmLabel="Delete" ConfirmIcon="bi-trash3-fill"
+                   OnConfirm="DeleteConfirmedAsync" OnCancel="@(() => confirmDeleteTemplate = null)">
+        <p>
+            Delete <strong class="confirm-dialog-emphasis">@confirmDeleteTemplate.Name</strong>? Any certificate requests using type key
+            <code class="confirm-dialog-code">@confirmDeleteTemplate.TypeKey</code> will no longer be processable.
+        </p>
+    </ConfirmDialog>
+}
+
+@code {
+    private List<CertificateTemplate>? templates;
+    private string? notification;
+    private string notificationType = "success";
+    private Guid? deleting;
+    private CertificateTemplate? confirmDeleteTemplate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            templates = (await CertificateRequestsApiClient.GetCertificateTemplatesAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            notification = $"Failed to load templates: {ex.Message}";
+            notificationType = "danger";
+        }
+    }
+
+    private void ConfirmDelete(CertificateTemplate template)
+    {
+        confirmDeleteTemplate = template;
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (confirmDeleteTemplate is null) return;
+        var target = confirmDeleteTemplate;
+        confirmDeleteTemplate = null;
+        deleting = target.Id;
+        try
+        {
+            await CertificateRequestsApiClient.DeleteCertificateTemplateAsync(target.Id);
+            notification = $"Template '{target.Name}' deleted.";
+            notificationType = "success";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            notification = $"Failed to delete: {ex.Message}";
+            notificationType = "danger";
+        }
+        finally
+        {
+            deleting = null;
+        }
+    }
+
+    private static string FormatJsonArray(string json)
+    {
+        try
+        {
+            var items = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+            return items.Count == 0 ? "—" : string.Join(", ", items);
+        }
+        catch { return "—"; }
+    }
+
+    private static string FormatEkuList(string json)
+    {
+        var oidNames = new Dictionary<string, string>
+        {
+            ["1.3.6.1.5.5.7.3.1"] = "ServerAuth",
+            ["1.3.6.1.5.5.7.3.2"] = "ClientAuth",
+            ["1.3.6.1.5.5.7.3.3"] = "CodeSigning",
+            ["1.3.6.1.5.5.7.3.4"] = "EmailProtection",
+            ["1.3.6.1.5.5.7.3.8"] = "TimeStamping",
+            ["1.3.6.1.5.5.7.3.9"] = "OCSPSigning",
+        };
+        try
+        {
+            var items = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? [];
+            if (items.Count == 0) return "—";
+            return string.Join(", ", items.Select(o => oidNames.TryGetValue(o, out var name) ? name : o));
+        }
+        catch { return "—"; }
+    }
+}

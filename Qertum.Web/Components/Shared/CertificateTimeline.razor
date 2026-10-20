@@ -1,0 +1,300 @@
+@using System.Net
+@* History of one certificate request, shared by CertificateDetail and CertificateRequestDetail so
+   the two cannot drift. Loads itself; a failed load says "unavailable" and never renders as an
+   empty history, and withheld sections are named rather than silently missing. Notes are part of
+   the history: anyone who can see it adds one, and only a note's author edits or deletes it.
+   Note text is output as text (never MarkupString), so markup in a note shows as typed. *@
+@inject CertificateRequestsApiClient ApiClient
+
+<div class="detail-card animate-in mt-4 span-all" data-test="timeline">
+    <div class="detail-card-title">
+        <span class="bi bi-clock-history detail-card-icon" aria-hidden="true"></span>
+        History
+    </div>
+
+    @if (loadFailed)
+    {
+        <p class="text-muted mb-0" data-test="timeline-unavailable">History is unavailable right now.</p>
+    }
+    else if (timeline is null)
+    {
+        <p class="text-muted mb-0">Loading history…</p>
+    }
+    else
+    {
+        @if (timeline.Completeness == TimelineCompleteness.PartialBeforeUpgrade)
+        {
+            <p class="form-help" data-test="timeline-partial">
+                This certificate predates event recording. Earlier steps come from its own record, so who
+                approved it, and when, may be missing.
+            </p>
+        }
+
+        <ol class="timeline-list">
+            @foreach (var entry in timeline.Entries)
+            {
+                <li class="timeline-entry" data-test="timeline-entry" data-kind="@entry.Kind">
+                    <span class="timeline-time">@entry.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm") UTC</span>
+                    <span class="timeline-action">@Describe(entry)</span>
+                    @if (!string.IsNullOrWhiteSpace(entry.PerformedBy))
+                    {
+                        <span class="timeline-by">by @entry.PerformedBy</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(entry.Category))
+                    {
+                        <span class="timeline-category">@entry.Category</span>
+                    }
+                    @if (entry.Kind == TimelineEntryKind.Note)
+                    {
+                        @RenderNote(entry)
+                    }
+                    else if (!string.IsNullOrWhiteSpace(entry.Detail))
+                    {
+                        <div class="timeline-detail">@entry.Detail</div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(entry.Hint))
+                    {
+                        <div class="timeline-hint">@entry.Hint</div>
+                    }
+                    @if (entry.Kind == TimelineEntryKind.Record)
+                    {
+                        <div class="timeline-source">From the certificate record; no event was recorded for this step.</div>
+                    }
+                    @if (entry.Kind == TimelineEntryKind.Renewal && Related(entry.RelatedRequestId) is { } other)
+                    {
+                        var (older, newer) = entry.Action == "RenewedFrom" ? (other, timeline.Subject) : (timeline.Subject, other);
+                        <div class="timeline-compare" data-test="timeline-renewal-compare">
+                            @RenderSummary(older, "Previous")
+                            @RenderSummary(newer, "Renewal")
+                        </div>
+                    }
+                </li>
+            }
+        </ol>
+
+        @if (timeline.Withheld.Count > 0)
+        {
+            <p class="form-help" data-test="timeline-withheld">
+                Not shown to you: @string.Join("; ", timeline.Withheld.Select(DescribeWithheld)).
+            </p>
+        }
+
+        <div class="timeline-add-note" data-test="note-form">
+            <label class="detail-label" for="timeline-new-note">Add a note</label>
+            <textarea id="timeline-new-note" class="form-control" rows="2" maxlength="@CertificateNote.MaxBodyLength"
+                      placeholder="Why a decision was made, what was done, who to ask…" data-test="note-text"
+                      @bind="newNote" @bind:event="oninput"></textarea>
+            <p class="form-help mb-2">Plain text. Everyone who can view certificates can read it. Never enter keys or secrets.</p>
+            @if (!string.IsNullOrWhiteSpace(noteError) && noteErrorFor is null)
+            {
+                <div class="alert alert-danger" role="alert" data-test="note-error">@noteError</div>
+            }
+            <button type="button" class="btn btn-primary" data-test="note-add"
+                    disabled="@(saving || string.IsNullOrWhiteSpace(newNote))" @onclick="AddAsync">Add note</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid RequestId { get; set; }
+
+    /// <summary>Change this (for example to the request's UpdatedAtUtc) to reload after an action.</summary>
+    [Parameter] public object? RefreshKey { get; set; }
+
+    private CertificateTimelineResponse? timeline;
+    private bool loadFailed;
+    private bool hasLoaded;
+    private Guid loadedId;
+    private object? loadedKey;
+
+    private string newNote = "";
+    private string editText = "";
+    private bool saving;
+    private string? noteError;
+    private NoteId? noteErrorFor;   // the note whose action failed; null when the add form's action did
+    private NoteId? editingNote;
+    private NoteId? deletingNote;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Equals, not ==: RefreshKey arrives boxed, and reference equality would reload on every render.
+        if (hasLoaded && loadedId == RequestId && Equals(loadedKey, RefreshKey)) return;
+        hasLoaded = true;
+        loadedId = RequestId;
+        loadedKey = RefreshKey;
+        timeline = null;
+        loadFailed = false;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            timeline = await ApiClient.GetTimelineAsync(RequestId);
+            loadFailed = false;
+        }
+        catch (Exception)
+        {
+            loadFailed = true;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        await RunAsync(null, async () =>
+        {
+            await ApiClient.AddNoteAsync(RequestId, newNote);
+            newNote = "";
+        });
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (editingNote is not { } id) return;
+        await RunAsync(id, async () =>
+        {
+            if (await ApiClient.EditNoteAsync(RequestId, id, editText) is null)
+                noteError = "That note no longer exists.";
+            editingNote = null;
+        });
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (deletingNote is not { } id) return;
+        await RunAsync(id, async () =>
+        {
+            if (!await ApiClient.DeleteNoteAsync(RequestId, id))
+                noteError = "That note no longer exists.";
+            deletingNote = null;
+        });
+    }
+
+    // One path for every note action: a refusal names who may change a note, anything else carries the
+    // server's correlation id, and the history is always re-read so it shows what is really stored.
+    private async Task RunAsync(NoteId? target, Func<Task> action)
+    {
+        // A second click that arrives before the first save finishes would post the same note twice.
+        if (saving) return;
+        saving = true;
+        noteError = null;
+        noteErrorFor = target;
+        try
+        {
+            await action();
+        }
+        catch (ApiProblemException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+        {
+            noteError = ex.WithCorrelationId("Only the author of a note can change it.");
+        }
+        catch (Exception ex)
+        {
+            noteError = ex.WithCorrelationId($"Failed to save the note: {ex.Message}");
+        }
+        finally
+        {
+            saving = false;
+        }
+        await ReloadAsync();
+    }
+
+    private void StartEdit(TimelineEntry entry)
+    {
+        editingNote = entry.NoteId;
+        editText = entry.Detail ?? "";
+        deletingNote = null;
+        noteError = null;
+    }
+
+    private void CancelEdit() => editingNote = null;
+
+    private void AskDelete(TimelineEntry entry)
+    {
+        deletingNote = entry.NoteId;
+        editingNote = null;
+        noteError = null;
+    }
+
+    private void KeepNote() => deletingNote = null;
+
+    private RenderFragment RenderNote(TimelineEntry entry) => @<text>
+        @if (!string.IsNullOrWhiteSpace(noteError) && noteErrorFor is not null && noteErrorFor == entry.NoteId)
+        {
+            <div class="alert alert-danger mt-2" role="alert" data-test="note-error">@noteError</div>
+        }
+        @if (editingNote is not null && editingNote == entry.NoteId)
+        {
+            <textarea class="form-control" rows="3" maxlength="@CertificateNote.MaxBodyLength" data-test="note-edit-text"
+                      aria-label="@($"Edit the note by {entry.PerformedBy}")" @bind="editText" @bind:event="oninput"></textarea>
+            <div class="d-flex gap-2 mt-2">
+                <button type="button" class="btn btn-sm btn-primary" data-test="note-save"
+                        disabled="@(saving || string.IsNullOrWhiteSpace(editText))" @onclick="SaveEditAsync">Save</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-test="note-cancel" @onclick="CancelEdit">Cancel</button>
+            </div>
+        }
+        else
+        {
+            <div class="timeline-note" data-test="timeline-note">@entry.Detail</div>
+            @if (entry.Edited)
+            {
+                <span class="timeline-hint" data-test="timeline-edited">edited @(entry.UpdatedAtUtc?.ToString("yyyy-MM-dd HH:mm")) UTC</span>
+            }
+            @if (entry.Mine && entry.NoteId is { } noteId)
+            {
+                @if (deletingNote == noteId)
+                {
+                    <div class="card confirm-panel mt-2" data-test="note-delete-panel">
+                        <div class="card-body">
+                            <p class="mb-2">Delete this note? It is removed for good.</p>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-danger" data-test="note-delete-confirm"
+                                        disabled="@saving" @onclick="DeleteAsync">Delete</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" data-test="note-delete-cancel" @onclick="KeepNote">Keep it</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex gap-2 mt-1">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-test="note-edit" aria-label="@($"Edit the note by {entry.PerformedBy}")" @onclick="() => StartEdit(entry)">Edit</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-test="note-delete" aria-label="@($"Delete the note by {entry.PerformedBy}")" @onclick="() => AskDelete(entry)">Delete</button>
+                    </div>
+                }
+            }
+        }
+    </text>;
+
+    private TimelineCertificateSummary? Related(Guid? id) =>
+        id is null ? null : timeline?.Related.FirstOrDefault(r => r.Id == id);
+
+    private static string Describe(TimelineEntry entry) => entry.Kind switch
+    {
+        TimelineEntryKind.Renewal when entry.Action == "RenewedFrom" => "Renewed from an earlier certificate",
+        TimelineEntryKind.Renewal => "Renewed as a new certificate",
+        TimelineEntryKind.WebhookDelivery => $"Webhook delivery: {entry.Action}",
+        TimelineEntryKind.Note => "Note",
+        _ => entry.Action,
+    };
+
+    private static string DescribeWithheld(WithheldTimelineSection section) => section.Section switch
+    {
+        TimelineSection.KeyExports => $"{section.Count} key export(s) (owner or administrator only)",
+        TimelineSection.WebhookDeliveries => $"{section.Count} webhook deliveries (needs settings.edit)",
+        TimelineSection.Diagnostics => $"{section.Count} diagnostic event(s) (needs settings.edit)",
+        _ => section.Section.ToString(),
+    };
+
+    private static RenderFragment RenderSummary(TimelineCertificateSummary summary, string label) => @<div class="timeline-compare-card">
+        <strong>@label</strong>
+        <a href="/certificate-requests/@summary.Id">@summary.CommonName</a>
+        <span>Serial @(summary.SerialNumber ?? "—")</span>
+        <span>@(summary.ValidFrom?.ToString("yyyy-MM-dd") ?? "—") → @(summary.ValidTo?.ToString("yyyy-MM-dd") ?? "—")</span>
+        <span>@summary.Status</span>
+        @if (summary.NoteCount > 0)
+        {
+            <span data-test="timeline-related-notes">@summary.NoteCount @(summary.NoteCount == 1 ? "note" : "notes")</span>
+        }
+    </div>;
+}

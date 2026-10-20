@@ -1,0 +1,72 @@
+@page
+@model Qertum.IdentityService.Pages.Admin.AuditModel
+@using Qertum.IdentityService.Services.Audit
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "Audit log";
+}
+
+<div class="card full">
+    <h1>Audit <em>log</em></h1>
+    <p class="card-sub">User and role administration on this identity provider, newest first. Times are UTC.</p>
+
+    <form method="get" class="filter-form">
+        <select name="Action" aria-label="Action">
+            <option value="">Any action</option>
+            @foreach (var action in Model.Actions)
+            {
+                <option value="@action" selected="@(action == Model.Action)">@action</option>
+            }
+        </select>
+        <input name="Actor" value="@Model.Actor" placeholder="By (contains)" aria-label="Acting identity" maxlength="128" />
+        <input type="date" name="From" value="@(Model.From?.ToString("yyyy-MM-dd"))" aria-label="From date" />
+        <input type="date" name="To" value="@(Model.To?.ToString("yyyy-MM-dd"))" aria-label="To date" />
+        <input name="Text" value="@Model.Text" placeholder="Text" aria-label="Free text" maxlength="200" />
+        <button type="submit" class="button secondary compact">Filter</button>
+        <a class="button secondary compact" href="/Admin/Audit">Clear</a>
+    </form>
+
+    @if (Model.Truncated)
+    {
+        <p class="hint">Search stopped after scanning the most recent @IdentityAuditLogReader.MaxEntriesScanned entries — narrow the date range to look further back.</p>
+    }
+
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr><th>Time (UTC)</th><th>Action</th><th>By</th><th>Target</th><th>Detail</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in Model.Entries)
+                {
+                    <tr>
+                        <td class="mono">@entry.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@entry.Action</td>
+                        <td>@entry.PerformedBy</td>
+                        <td>@entry.ResourceName</td>
+                        <td>@entry.Detail</td>
+                    </tr>
+                }
+                @if (Model.Entries.Count == 0)
+                {
+                    <tr><td colspan="5" class="muted">No entries.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pager">
+        @if (Model.PageNumber > 1)
+        {
+            <a class="button secondary compact" href="/Admin/Audit?p=@(Model.PageNumber - 1)@Model.FilterQuery()">Newer</a>
+        }
+        else
+        {
+            <span></span>
+        }
+        @if (Model.HasOlder)
+        {
+            <a class="button secondary compact" href="/Admin/Audit?p=@(Model.PageNumber + 1)@Model.FilterQuery()">Older</a>
+        }
+    </div>
+</div>

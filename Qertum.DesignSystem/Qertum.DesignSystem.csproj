@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <!-- Static web assets only: the design tokens both Qertum.Web and Qertum.IdentityService consume,
+       served to each at _content/Qertum.DesignSystem/. It references nothing, so the independently
+       deployable IdentityService takes no dependency on the CA by using it. -->
+</Project>

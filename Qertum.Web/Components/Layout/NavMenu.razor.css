@@ -1,0 +1,101 @@
+/* Mobile toggle + scroll mechanics only.
+   Brand/nav-link colors come from wwwroot/app.css (design tokens). */
+
+.navbar-toggler {
+    appearance: none;
+    cursor: pointer;
+    width: 3rem;
+    height: 2.25rem;
+    color: white;
+    position: absolute;
+    top: 0.6rem;
+    right: 1rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.65%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/1.5rem rgba(255, 255, 255, 0.04);
+    transition: background-color 150ms ease;
+}
+
+.navbar-toggler:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.navbar-toggler:checked {
+    background-color: rgba(59, 130, 246, 0.15);
+}
+
+.sidebar-top {
+    min-height: 3.75rem;
+    display: flex;
+    align-items: center;
+    padding: 0 1.25rem;
+}
+
+.nav-scrollable {
+    display: none;
+}
+
+.navbar-toggler:checked ~ .nav-scrollable {
+    display: block;
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 0.9rem 1.25rem;
+    border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.06));
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.7rem;
+    color: var(--text-muted, #636b7d);
+    letter-spacing: 0.02em;
+}
+
+.sidebar-footer .version-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-emerald, #10b981);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    flex-shrink: 0;
+}
+
+.sidebar-footer .env-label {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-weight: 600;
+    color: var(--text-secondary, #98a0b3);
+    letter-spacing: 0.05em;
+}
+
+@media (min-width: 641px) {
+    .navbar-toggler {
+        display: none;
+    }
+
+    .nav-scrollable {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.5rem 0;
+    }
+
+    .nav-scrollable nav.nav {
+        flex: 1 0 auto;
+    }
+
+    /* Custom scrollbar — subtle */
+    .nav-scrollable::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .nav-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 3px;
+    }
+
+    .nav-scrollable::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.12);
+    }
+}

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Validators are internal (they are resolved through IValidator<T>, never by name).
+         The test project needs to construct them directly. -->
+    <InternalsVisibleTo Include="Qertum.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" />
+    <PackageReference Include="DnsClient" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Formatting.Compact" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- Pin the patched native SQLite bundle: EF Core Sqlite transitively pulls
+         SQLitePCLRaw 2.1.11, which has a high-severity vulnerability (GHSA-2m69-gcr7-jv3q,
+         fixed in 3.x). -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="FluentValidation" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qertum.Contracts\Qertum.Contracts.csproj" />
+    <ProjectReference Include="..\Qertum.ServiceDefaults\Qertum.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qertum.Audit\Qertum.Audit.csproj" />
+  </ItemGroup>
+
+</Project>

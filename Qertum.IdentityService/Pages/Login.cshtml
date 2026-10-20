@@ -1,0 +1,59 @@
+@page
+@model Qertum.IdentityService.Pages.LoginModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in · Qertum IDM</title>
+    <link rel="stylesheet" href="~/identity.css" asp-append-version="true" />
+</head>
+<body class="centered">
+    <main class="shell-main">
+        <form class="card" method="post">
+            <a class="card-brand" href="/">
+                <span class="brand-mark" aria-hidden="true"></span>
+                <span class="brand-text">
+                    <span class="brand-name">Qer<em>tum</em></span>
+                    <span class="brand-sub">Identity</span>
+                </span>
+            </a>
+
+            <h1>Sign <em>in</em></h1>
+            <p class="card-sub">Access the Qertum identity provider.</p>
+
+            <div class="field">
+                <label asp-for="Input.Username">Username</label>
+                <input asp-for="Input.Username" autocomplete="username" autofocus placeholder="your.name" />
+            </div>
+
+            <div class="field">
+                <label asp-for="Input.Password">Password</label>
+                <input asp-for="Input.Password" type="password" autocomplete="current-password" placeholder="••••••••" />
+            </div>
+
+            <input type="hidden" asp-for="ReturnUrl" />
+
+            @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+            {
+                <div class="error">
+                    <span class="bi bi-exclamation-triangle-fill"></span>
+                    <span>@Model.ErrorMessage</span>
+                </div>
+            }
+
+            <button type="submit">
+                <span class="bi bi-box-arrow-in-right"></span>
+                Sign in
+            </button>
+
+            <div class="hint">
+                Users and hashed passwords live in <code>users.json</code> alongside this app's binaries.
+            </div>
+        </form>
+    </main>
+</body>
+</html>

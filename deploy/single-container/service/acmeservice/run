@@ -1,0 +1,6 @@
+#!/bin/sh
+# runit service: stdout/stderr go to the container log; the environment is the one entrypoint.sh exported.
+exec 2>&1
+cd /app/acmeservice
+export ASPNETCORE_URLS="http://0.0.0.0:8083"
+exec dotnet /app/acmeservice/Qertum.AcmeService.dll

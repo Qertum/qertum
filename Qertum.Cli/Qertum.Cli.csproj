@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>qca</AssemblyName>
+    <RootNamespace>Qertum.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Qertum.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The CLI calls the API through the same typed client and contract types as the Web app, so a
+         server-side rename is a compile error here rather than a silently blank column. -->
+    <ProjectReference Include="..\Qertum.ApiClient\Qertum.ApiClient.csproj" />
+    <!-- qca root signs offline with the same builders the server uses (CaCertificateBuilder,
+         QertumKeyCodec), so extensions and algorithm handling cannot drift apart. -->
+    <ProjectReference Include="..\Qertum.Services\Qertum.Services.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>

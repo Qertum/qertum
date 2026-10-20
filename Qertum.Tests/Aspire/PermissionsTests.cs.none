@@ -1,0 +1,105 @@
+using System.Net;
+using System.Net.Http.Json;
+using Calm.CustomCa.Services;
+using Xunit;
+
+namespace Calm.CustomCa.Tests.Aspire;
+
+[Collection("AspireIntegration")]
+public sealed class PermissionsTests(AspireIntegrationFixture fixture)
+{
+    [Fact(DisplayName = "IT-PERMS-001")]
+    public async Task Permissions_Get_ReturnsDictionary()
+    {
+        // Act
+        var resp = await fixture.ApiClientAsAdmin.GetAsync("/permissions", TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var perms = await resp.Content.ReadFromJsonAsync<Dictionary<string, List<string>>>(TestContext.Current.CancellationToken);
+        Assert.NotNull(perms);
+        
+        Assert.True(perms.Count >= 0); 
+    }
+
+    [Fact(DisplayName = "IT-PERMS-002")]
+    public async Task Permissions_Put_SetsPermissions()
+    {
+        // Act
+        var putResp = await fixture.ApiClientAsAdmin.PutAsJsonAsync("/permissions/operator", new { Permissions = new[] { "certificates.view", "certificates.create" } }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, putResp.StatusCode);
+
+        // Assert
+        var getResp = await fixture.ApiClientAsAdmin.GetAsync("/permissions", TestContext.Current.CancellationToken);
+        var perms = await getResp.Content.ReadFromJsonAsync<Dictionary<string, List<string>>>(TestContext.Current.CancellationToken);
+        Assert.NotNull(perms);
+        Assert.True(perms.ContainsKey("operator"));
+        Assert.Contains("certificates.view", perms["operator"]);
+        Assert.Contains("certificates.create", perms["operator"]);
+        Assert.DoesNotContain("settings.edit", perms["operator"]);
+    }
+
+    [Fact(DisplayName = "IT-PERMS-003")]
+    public async Task Permissions_PutAdmin_Rejected()
+    {
+        // Act
+        var putResp = await fixture.ApiClientAsAdmin.PutAsJsonAsync("/permissions/admin", new { Permissions = new[] { "certificates.view" } }, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, putResp.StatusCode);
+        var body = await putResp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("Admin role permissions cannot be modified", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // [Fact(DisplayName = "IT-PERMS-004")]
+    // public async Task Permissions_GetMe_ReturnsEffectivePermissions()
+    // {
+    //     // Act
+    //     var resp = await fixture.ApiClientAsAdmin.GetAsync("/me/permissions", TestContext.Current.CancellationToken);
+
+    //     // Assert
+    //     Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+    //     var perms = await resp.Content.ReadFromJsonAsync<List<string>>(TestContext.Current.CancellationToken);
+    //     Assert.NotNull(perms);
+    //     Assert.Contains("certificates.view", perms);
+    //     Assert.Contains("certificates.create", perms);
+    //     Assert.Contains("certificates.manage", perms);
+    //     Assert.Contains("settings.edit", perms);
+    // }
+
+    [Fact(DisplayName = "IT-PERMS-005")]
+    public async Task Permissions_Viewer_CannotCreate()
+    {
+        // Arrange
+        // Ensure viewer has only certificates.view
+        await fixture.ApiClientAsAdmin.PutAsJsonAsync("/permissions/viewer", new { Permissions = new[] { "certificates.view" } }, TestContext.Current.CancellationToken);
+
+        // Act
+        var resp = await fixture.ApiClientAsViewer.PostAsJsonAsync("/certificate-requests", new { CommonName = TestHelpers.UniqueCN(), RequestedBy = "v", Type = "WebServer", PropertiesJson = "{}" }, TestContext.Current.CancellationToken);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact(DisplayName = "IT-PERMS-006")]
+    public async Task Permissions_ViewerWithCreatePerm_CanCreate()
+    {
+        // Arrange
+        // Give viewer create permission
+        await fixture.ApiClientAsAdmin.PutAsJsonAsync("/permissions/viewer", new { Permissions = new[] { "certificates.view", "certificates.create" } }, TestContext.Current.CancellationToken);
+
+        try
+        {
+            // Act
+            var resp = await fixture.ApiClientAsViewer.PostAsJsonAsync("/certificate-requests", new { CommonName = TestHelpers.UniqueCN(), RequestedBy = "v", Type = "WebServer", PropertiesJson = "{}" }, TestContext.Current.CancellationToken);
+
+            // Assert
+            Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        }
+        finally
+        {
+            // Restore viewer permissions
+            await fixture.ApiClientAsAdmin.PutAsJsonAsync("/permissions/viewer", new { Permissions = new[] { "certificates.view" } }, TestContext.Current.CancellationToken);
+        }
+    }
+}

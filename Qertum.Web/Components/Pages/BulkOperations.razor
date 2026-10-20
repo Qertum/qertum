@@ -1,0 +1,443 @@
+@page "/bulk-operations"
+@attribute [Authorize]
+@inject CertificateRequestsApiClient Api
+
+<PageTitle>Bulk actions — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Bulk <em>actions</em></Heading>
+    <Subtitle>
+        Revoke or renew many certificates at once. You choose which certificates, see exactly how many are affected,
+        and confirm the count before anything changes.
+    </Subtitle>
+</PageHeader>
+
+@if (error is not null)
+{
+    <div class="alert alert-danger" role="alert" data-test="page-error">@error</div>
+}
+
+@if (step == Step.Choose)
+{
+    <div class="form-card form-card-full mb-4">
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-stack form-section-icon orange"></span>
+                What to do
+            </div>
+            <div class="form-section-body">
+                <div class="form-row cols-2">
+                    <AuthorizeView Policy="@AppPermissions.CertificatesManage">
+                        <div class="form-check">
+                            <input id="kind-revoke" class="form-check-input" type="radio" name="kind" data-test="kind-revoke"
+                                   checked="@(kind == BulkOperationKind.Revoke)" @onchange="@(() => kind = BulkOperationKind.Revoke)" />
+                            <label class="form-check-label" for="kind-revoke">Revoke certificates</label>
+                        </div>
+                    </AuthorizeView>
+                    <AuthorizeView Policy="@AppPermissions.CertificatesCreate">
+                        <div class="form-check">
+                            <input id="kind-renew" class="form-check-input" type="radio" name="kind" data-test="kind-renew"
+                                   checked="@(kind == BulkOperationKind.Renew)" @onchange="@(() => kind = BulkOperationKind.Renew)" />
+                            <label class="form-check-label" for="kind-renew">Renew certificates</label>
+                        </div>
+                    </AuthorizeView>
+                </div>
+                @if (kind == BulkOperationKind.Renew)
+                {
+                    <div class="form-help mt-2">
+                        Renewals are filed as new requests and wait for approval; the certificates being renewed stay as they are.
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-funnel-fill form-section-icon orange"></span>
+                Which certificates
+            </div>
+            <div class="form-section-body">
+                <div class="form-check">
+                    <input id="mode-criteria" class="form-check-input" type="radio" name="mode" data-test="mode-criteria"
+                           checked="@(mode == Mode.Criteria)" @onchange="@(() => mode = Mode.Criteria)" />
+                    <label class="form-check-label" for="mode-criteria">Certificates matching…</label>
+                </div>
+                @if (mode == Mode.Criteria)
+                {
+                    <div class="form-row cols-2 mt-2">
+                        <div class="form-field">
+                            <label class="form-label" for="criterion-issuer">Issuer</label>
+                            <select id="criterion-issuer" class="form-select" data-test="criterion-issuer" @bind="issuerId">
+                                <option value="">Any issuer</option>
+                                @foreach (var issuer in issuers)
+                                {
+                                    <option value="@issuer.Id">@issuer.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="criterion-template">Template</label>
+                            <select id="criterion-template" class="form-select" data-test="criterion-template" @bind="templateKey">
+                                <option value="">Any template</option>
+                                @foreach (var template in templates)
+                                {
+                                    <option value="@template.TypeKey">@template.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row cols-2">
+                        <div class="form-field">
+                            <label class="form-label" for="criterion-owner">Owner (subject)</label>
+                            <input id="criterion-owner" class="form-control" data-test="criterion-owner" maxlength="200"
+                                   value="@owner" @oninput="@(e => owner = e.Value?.ToString())" />
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label" for="criterion-days">Expires within (days)</label>
+                            <input id="criterion-days" class="form-control" type="number" min="0" max="36500" data-test="criterion-days"
+                                   value="@expiresWithin" @oninput="@(e => expiresWithin = ParseDays(e.Value?.ToString()))" />
+                            <div class="form-help mt-2">Includes certificates that have already expired but were never revoked.</div>
+                        </div>
+                    </div>
+                    <div class="form-row cols-1">
+                        <div class="form-field">
+                            <label class="form-label" for="criterion-cn">Common name contains</label>
+                            <input id="criterion-cn" class="form-control" data-test="criterion-cn" maxlength="200"
+                                   value="@commonName" @oninput="@(e => commonName = e.Value?.ToString())" />
+                        </div>
+                    </div>
+                }
+
+                <div class="form-check mt-3">
+                    <input id="mode-all" class="form-check-input" type="radio" name="mode" data-test="mode-all"
+                           checked="@(mode == Mode.All)" @onchange="@(() => mode = Mode.All)" />
+                    <label class="form-check-label" for="mode-all">All eligible certificates</label>
+                </div>
+                @if (mode == Mode.All)
+                {
+                    <div class="form-help mt-2">
+                        Every issued certificate the action applies to, whatever its issuer, template or owner. The next step shows
+                        how many that is before anything happens.
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (kind == BulkOperationKind.Revoke)
+        {
+            <div class="form-section">
+                <div class="form-section-title">
+                    <span class="bi bi-chat-left-text-fill form-section-icon orange"></span>
+                    Reason
+                </div>
+                <div class="form-section-body">
+                    <div class="form-field">
+                        <label class="form-label" for="bulk-reason">Why are these certificates revoked?</label>
+                        <input id="bulk-reason" class="form-control" data-test="reason" maxlength="500"
+                               value="@reason" @oninput="@(e => reason = e.Value?.ToString())" />
+                        <div class="form-help mt-2">Kept in the audit entry of every revoked certificate.</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="form-section">
+            <div class="form-section-body">
+                <button class="btn btn-primary" data-test="preview-button" disabled="@(!CanPreview || busy)" @onclick="PreviewAsync">
+                    @if (busy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    Preview
+                </button>
+                <span class="form-help ms-3">Nothing changes yet.</span>
+            </div>
+        </div>
+    </div>
+}
+else if (step == Step.Preview && preview is not null)
+{
+    <div class="form-card form-card-full mb-4">
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-eye-fill form-section-icon orange"></span>
+                Preview
+            </div>
+            <div class="form-section-body">
+                <p>
+                    <strong data-test="preview-count">@preview.Operation.ItemCount</strong>
+                    certificate@(preview.Operation.ItemCount == 1 ? "" : "s") would be @(preview.Operation.Kind == BulkOperationKind.Revoke ? "revoked" : "renewed").
+                </p>
+                @if (preview.Operation.Excluded.Count > 0)
+                {
+                    <p class="form-help">Matched but left out:</p>
+                    <ul>
+                        @foreach (var (reasonKey, count) in preview.Operation.Excluded.OrderBy(e => e.Key, StringComparer.Ordinal))
+                        {
+                            <li data-test="excluded-@reasonKey">@count @ExcludedText(reasonKey)</li>
+                        }
+                    </ul>
+                }
+
+                <div class="scroll-x table-card">
+                    <table class="table-dashboard">
+                        <thead><tr><th>Common name</th><th>Request</th></tr></thead>
+                        <tbody>
+                            @foreach (var item in preview.Sample)
+                            {
+                                <tr data-test="sample-row"><td>@item.CommonName</td><td><code>@item.RequestId</code></td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                @if (preview.Operation.ItemCount > preview.Sample.Count)
+                {
+                    <div class="form-help mt-2">Showing the first @preview.Sample.Count of @preview.Operation.ItemCount.</div>
+                }
+
+                <div class="mt-3">
+                    <button class="btn-outline-detail me-2" data-test="back" disabled="@busy" @onclick="BackAsync">Back</button>
+                    <button class="btn @(preview.Operation.Kind == BulkOperationKind.Revoke ? "btn-danger-soft" : "btn-primary")"
+                            data-test="continue" disabled="@busy" @onclick="@(() => { confirmText = ""; showConfirm = true; })">
+                        Continue…
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (showConfirm)
+    {
+        <ConfirmDialog Tone="@(preview.Operation.Kind == BulkOperationKind.Revoke ? ConfirmDialogTone.Danger : ConfirmDialogTone.Neutral)"
+                       Title="@(preview.Operation.Kind == BulkOperationKind.Revoke ? "Revoke certificates" : "Renew certificates")"
+                       ConfirmLabel="@(preview.Operation.Kind == BulkOperationKind.Revoke ? "Revoke" : "Renew")"
+                       TestId="bulk" Busy="@busy" ConfirmDisabled="@(confirmText.Trim() != preview.Operation.ItemCount.ToString())"
+                       OnConfirm="ExecuteAsync" OnCancel="@(() => showConfirm = false)">
+            <p>
+                This @(preview.Operation.Kind == BulkOperationKind.Revoke ? "revokes" : "files renewal requests for")
+                <strong>@preview.Operation.ItemCount</strong> certificate@(preview.Operation.ItemCount == 1 ? "" : "s").
+                @if (preview.Operation.Kind == BulkOperationKind.Revoke)
+                {
+                    <span>Revocation cannot be undone.</span>
+                }
+            </p>
+            <label class="form-label" for="confirm-input">Type the number to confirm</label>
+            <input id="confirm-input" class="form-control" data-test="confirm-input" inputmode="numeric"
+                   value="@confirmText" @oninput="@(e => confirmText = e.Value?.ToString() ?? "")" />
+        </ConfirmDialog>
+    }
+}
+else if (step == Step.Progress && operation is not null)
+{
+    <div class="form-card form-card-full mb-4">
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-activity form-section-icon orange"></span>
+                @(IsFinal ? "Finished" : "Running")
+            </div>
+            <div class="form-section-body">
+                <p data-test="progress-counts">
+                    @Processed of @operation.ItemCount processed:
+                    @operation.DoneCount done, @operation.SkippedCount skipped, @operation.FailedCount failed.
+                </p>
+                @if (IsFinal)
+                {
+                    <p data-test="final-status"><span class="status-badge">@operation.Status</span></p>
+                }
+                else if (timedOut)
+                {
+                    <p class="form-help" data-test="timed-out">
+                        Still running. It continues in the background; open this page again later or use
+                        <code>qca bulk show @operation.Id</code>.
+                    </p>
+                }
+                else
+                {
+                    <LoadingState Text="Working through the certificates…" />
+                }
+
+                @if (failedItems.Count > 0)
+                {
+                    <div class="scroll-x table-card">
+                        <table class="table-dashboard">
+                            <thead><tr><th>Common name</th><th>Reason</th></tr></thead>
+                            <tbody>
+                                @foreach (var item in failedItems)
+                                {
+                                    <tr data-test="failed-row"><td>@item.CommonName</td><td>@item.Detail</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                @if (IsFinal)
+                {
+                    <a class="btn btn-outline-secondary mt-3" href="bulk-operations" @onclick="Reset" @onclick:preventDefault>Start another</a>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Bulk]" />
+
+@code {
+    private enum Step { Choose, Preview, Progress }
+    private enum Mode { Criteria, All }
+
+    private Step step = Step.Choose;
+    private BulkOperationKind? kind;
+    private Mode? mode;
+    private string issuerId = "";
+    private string templateKey = "";
+    private string? owner;
+    private int? expiresWithin;
+    private string? commonName;
+    private string? reason;
+
+    private IReadOnlyList<IssuerResponse> issuers = [];
+    private IReadOnlyList<CertificateTemplate> templates = [];
+
+    private BulkOperationPreview? preview;
+    private BulkOperationView? operation;
+    private List<BulkOperationItemView> failedItems = [];
+    private bool showConfirm;
+    private string confirmText = "";
+    private bool busy;
+    private bool timedOut;
+    private string? error;
+
+    private static readonly TimeSpan WaitLimit = TimeSpan.FromMinutes(15);
+
+    private bool IsFinal => operation is not null && operation.Status is not (BulkOperationStatus.Previewed or BulkOperationStatus.Running);
+    private int Processed => operation is null ? 0 : operation.DoneCount + operation.SkippedCount + operation.FailedCount;
+
+    private bool HasCriterion =>
+        !string.IsNullOrWhiteSpace(issuerId) || !string.IsNullOrWhiteSpace(templateKey) || !string.IsNullOrWhiteSpace(owner)
+        || expiresWithin is not null || !string.IsNullOrWhiteSpace(commonName);
+
+    private bool CanPreview =>
+        kind is not null && mode is not null
+        && (mode == Mode.All || HasCriterion)
+        && (kind == BulkOperationKind.Renew || !string.IsNullOrWhiteSpace(reason));
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Selection lists are conveniences: the filter also takes typed values, so a caller without
+        // certificates.view (the lists' permission) still gets a working page.
+        try { issuers = await Api.GetIssuersAsync(); } catch (ApiProblemException) { }
+        try { templates = await Api.GetCertificateTemplatesAsync(); } catch (ApiProblemException) { }
+    }
+
+    private static int? ParseDays(string? text) => int.TryParse(text, out var days) ? days : null;
+
+    private static string ExcludedText(string reasonKey) => reasonKey switch
+    {
+        "not-issued" => "not issued (still pending, rejected or already revoked)",
+        "active-renewal" => "already has a renewal in progress",
+        "ca-capable" => "are CA certificates; a CA is renewed by hand",
+        "client-key" => "have a key held by the client (ACME or EST); they renew through that protocol",
+        _ => reasonKey
+    };
+
+    private async Task PreviewAsync()
+    {
+        if (!CanPreview || kind is not { } chosen) return;
+        busy = true;
+        error = null;
+        try
+        {
+            var filter = mode == Mode.All
+                ? new BulkOperationFilter { All = true }
+                : new BulkOperationFilter
+                {
+                    IssuerId = Guid.TryParse(issuerId, out var issuer) ? new IssuerId(issuer) : null,
+                    TemplateKey = Blank(templateKey),
+                    OwnerSubject = Blank(owner),
+                    ExpiresWithinDays = expiresWithin,
+                    CommonNameContains = Blank(commonName)
+                };
+            preview = await Api.PreviewBulkOperationAsync(
+                new PreviewBulkOperationRequest(chosen, filter, chosen == BulkOperationKind.Revoke ? reason!.Trim() : null));
+            step = Step.Preview;
+        }
+        catch (ApiProblemException ex)
+        {
+            error = ex.WithCorrelationId(ex.Detail ?? ex.Title);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private async Task BackAsync()
+    {
+        if (preview is null) return;
+        busy = true;
+        error = null;
+        try
+        {
+            await Api.CancelBulkOperationAsync(preview.Operation.Id);
+        }
+        catch (ApiProblemException ex)
+        {
+            // Already gone or expired: nothing to cancel, and the user is going back anyway.
+            error = ex.Detail is null ? null : ex.WithCorrelationId(ex.Detail);
+        }
+        finally
+        {
+            busy = false;
+        }
+        preview = null;
+        step = Step.Choose;
+    }
+
+    private async Task ExecuteAsync()
+    {
+        if (preview is null) return;
+        busy = true;
+        error = null;
+        try
+        {
+            operation = await Api.ExecuteBulkOperationAsync(preview.Operation.Id, preview.Operation.ItemCount);
+            showConfirm = false;
+            step = Step.Progress;
+            timedOut = false;
+            failedItems = [];
+            StateHasChanged();
+
+            var result = await Api.WaitForBulkOperationAsync(operation.Id, WaitLimit, async update =>
+            {
+                operation = update;
+                await InvokeAsync(StateHasChanged);
+            });
+            timedOut = result.Outcome == BulkWaitOutcome.TimedOut;
+            if (result.Operation is not null) operation = result.Operation;
+            if (IsFinal && operation is { FailedCount: > 0 })
+                failedItems = [.. (await Api.GetBulkOperationItemsAsync(operation.Id, BulkItemOutcome.Failed, 1, 100)).Items];
+        }
+        catch (ApiProblemException ex)
+        {
+            showConfirm = false;
+            error = ex.WithCorrelationId(ex.Detail ?? ex.Title);
+            if (step != Step.Progress) step = Step.Choose;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void Reset()
+    {
+        preview = null;
+        operation = null;
+        failedItems = [];
+        showConfirm = false;
+        error = null;
+        step = Step.Choose;
+    }
+}

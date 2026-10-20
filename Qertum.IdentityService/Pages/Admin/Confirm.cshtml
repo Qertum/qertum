@@ -1,0 +1,38 @@
+@page
+@model Qertum.IdentityService.Pages.Admin.ConfirmModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "Confirm your password";
+}
+
+<form class="card wide" method="post">
+    <h1>Confirm <em>your password</em></h1>
+    <p class="card-sub">Re-enter your password to use the admin pages for the next 5 minutes.</p>
+
+    @if (Model.Expired)
+    {
+        <div class="error">
+            <span class="bi bi-clock-history"></span>
+            <span>Your confirmation had expired, so the form was not submitted. Confirm, then submit it again.</span>
+        </div>
+    }
+
+    <input type="hidden" asp-for="ReturnUrl" />
+
+    <div class="field">
+        <label asp-for="Password">Password</label>
+        <input asp-for="Password" type="password" autocomplete="current-password" required autofocus />
+    </div>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="error">
+            <span class="bi bi-exclamation-triangle-fill"></span>
+            <span>@Model.ErrorMessage</span>
+        </div>
+    }
+
+    <button type="submit">
+        <span class="bi bi-shield-lock"></span> Confirm
+    </button>
+</form>

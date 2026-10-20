@@ -1,0 +1,102 @@
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+@* Each load writes an ApprovalPreviewed audit entry, so this loads once per request/refresh, not per render. *@
+@if (loading)
+{
+    <div class="alert alert-secondary mt-3" data-test="approval-preview" data-state="loading">Checking the current issuance policy…</div>
+}
+else if (preview is null)
+{
+    <div class="alert alert-secondary mt-3" data-test="approval-preview" data-state="unavailable">
+        The approval preview is unavailable. Approving still re-checks the current policy.
+    </div>
+}
+else if (preview.Allowed)
+{
+    <div class="alert alert-success mt-3" data-test="approval-preview" data-state="admitted">
+        @(preview.PolicyName is null
+            ? "No issuance policy governs this request; approving is not restricted by policy."
+            : $"Policy '{preview.PolicyName}' v{preview.PolicyVersionNumber} admits this request.")
+        @ChangedNote()
+    </div>
+}
+else
+{
+    <div class="alert alert-warning mt-3" data-test="approval-preview" data-state="refused">
+        @(preview.PolicyName is null
+            ? "The issuance rules would refuse this approval:"
+            : $"Policy '{preview.PolicyName}' v{preview.PolicyVersionNumber} would refuse this approval:")
+        <ul class="mt-2 mb-0">
+            @foreach (var violation in preview.Violations)
+            {
+                <li>@violation.Message</li>
+            }
+        </ul>
+        @ChangedNote()
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid RequestId { get; set; }
+
+    /// <summary>Bump to load again (e.g. after a refused approval).</summary>
+    [Parameter] public int RefreshKey { get; set; }
+
+    /// <summary>Receives what the panel shows, so Approve can report it.</summary>
+    [Parameter] public EventCallback<ApprovalPreviewResponse?> OnLoaded { get; set; }
+
+    private ApprovalPreviewResponse? preview;
+    private bool loading;
+    private (Guid, int)? loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // App.razor prerenders, then the circuit renders a new instance: loading in both would write
+        // two ApprovalPreviewed audit entries for one look. Only the interactive render loads.
+        if (!RendererInfo.IsInteractive)
+        {
+            loading = true;
+            return;
+        }
+
+        var loadFor = (RequestId, RefreshKey);
+        if (loadedFor == loadFor) return;
+        loadedFor = loadFor;
+
+        loading = true;
+        preview = null;
+        try
+        {
+            var result = await CertificateRequestsApiClient.PreviewApprovalAsync(RequestId);
+            if (loadedFor != loadFor) return;
+            preview = result;
+        }
+        catch
+        {
+            if (loadedFor != loadFor) return;
+            preview = null;
+        }
+        finally
+        {
+            if (loadedFor == loadFor) loading = false;
+        }
+
+        await OnLoaded.InvokeAsync(preview);
+    }
+
+    private RenderFragment ChangedNote() => __builder =>
+    {
+        if (preview is { PolicyChangedSinceEvaluation: true })
+        {
+            <div class="small mt-1" data-test="approval-preview-changed">
+                @(preview.EvaluatedPolicyVersionNumber is { } created
+                    ? $"The request was last evaluated under policy '{preview.EvaluatedPolicyName}' v{created}; the policy has changed since."
+                    : "No policy version was recorded when the request was last evaluated.")
+            </div>
+        }
+        if (preview?.RequesterRolesCheckedAtSubmission == true)
+        {
+            <div class="small mt-1" data-test="approval-preview-requester-roles">@Qertum.Services.Policies.ApprovalAuditDetail.RequesterRolesNote</div>
+        }
+    };
+}

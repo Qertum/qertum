@@ -1,0 +1,986 @@
+@page "/certificates/{Id:guid}"
+@implements IAsyncDisposable
+@using System.Security.Cryptography.X509Certificates
+@using System.Text
+@using System.Globalization
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
+@inject TimeProvider Clock
+
+<PageTitle>Certificate — Qertum</PageTitle>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="dashboard-header">
+        <a href="/certificates" class="back-link"><span class="bi bi-arrow-left"></span> Back to certificates</a>
+        <h1><em>Certificate</em></h1>
+    </div>
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (certificate is null)
+{
+    <LoadingState Text="Loading certificate…" />
+}
+else
+{
+    <div class="dashboard-header">
+        <a href="/certificates" class="back-link"><span class="bi bi-arrow-left"></span> Back to certificates</a>
+        <div class="dashboard-header-row">
+            <div>
+                <h1>@certificate.CommonName</h1>
+                <p class="dashboard-subtitle">Issued certificate details</p>
+            </div>
+            <span class="validity-badge validity-badge-lg @GetBadgeClass()">
+                <span class="bi @GetBadgeIcon() text-sm"></span>
+                @GetBadgeLabel()
+            </span>
+        </div>
+    </div>
+
+    @* ── Hero Card ── *@
+    <div class="cert-hero @GetHeroClass() animate-in">
+        <div class="cert-hero-icon">
+            <span class="bi @GetHeroIcon()"></span>
+        </div>
+        <div class="cert-hero-content">
+            <div class="cert-hero-label">Certificate Status</div>
+            <div class="cert-hero-title">@GetHeroTitle()</div>
+            <div class="cert-hero-subtitle">
+                @if (certificate.ValidFrom.HasValue && certificate.ValidTo.HasValue)
+                {
+                    @certificate.ValidFrom.Value.ToLocalTime().ToString("d")
+                    <span> — </span>
+                    @certificate.ValidTo.Value.ToLocalTime().ToString("d")
+                }
+                else
+                {
+                    <span>Validity dates not available</span>
+                }
+            </div>
+        </div>
+        @if (certificate.Status != CertificateRequestStatus.Revoked && certificate.ValidTo.HasValue && certificate.ValidTo.Value > Now)
+        {
+            <div class="cert-hero-remaining">
+                <div class="cert-hero-remaining-value">@((int)(certificate.ValidTo.Value - Now).TotalDays)</div>
+                <div class="cert-hero-remaining-label">days remaining</div>
+            </div>
+        }
+    </div>
+
+    <div class="detail-grid">
+        @* ── Left: Subject ── *@
+        <div class="detail-card animate-in" id="detail-subject">
+            <div class="detail-card-title">
+                <span class="bi bi-person-badge-fill detail-card-icon cyan"></span>
+                Subject
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Common Name (CN)</div>
+                <div class="detail-value">@certificate.CommonName</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Requested By</div>
+                <div class="detail-value">@certificate.RequestedBy</div>
+            </div>
+
+            <div class="detail-field" data-test="issued-by">
+                <div class="detail-label">Issued By</div>
+                <div class="detail-value">
+                    @if (certificate.IssuerName is { } issuerName)
+                    {
+                        <AuthorizeView Roles="admin">
+                            <Authorized><a href="issuers">@issuerName</a></Authorized>
+                            <NotAuthorized>@issuerName</NotAuthorized>
+                        </AuthorizeView>
+                    }
+                    else
+                    {
+                        <span>—</span>
+                    }
+                </div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Certificate ID</div>
+                <div class="detail-value mono">@certificate.Id</div>
+            </div>
+
+            <div class="detail-separator"></div>
+
+            <div class="detail-card-title mt-2">
+                <span class="bi bi-clock-history detail-card-icon purple"></span>
+                Timeline
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Request Created</div>
+                <div class="detail-value">@certificate.CreatedAtUtc.ToLocalTime().ToString("f")</div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Last Updated</div>
+                <div class="detail-value">@certificate.UpdatedAtUtc.ToLocalTime().ToString("f")</div>
+            </div>
+
+            @if (certificate.PolicyVersionId is not null)
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Issuance Policy</div>
+                    <div class="detail-value">
+                        @(policyLabel ?? "linked policy")
+                        @if (certificate.PolicyEvaluatedAtUtc is { } evaluated)
+                        {
+                            <span class="text-muted"> — evaluated @evaluated.ToLocalTime().ToString("f")</span>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (certificate.ValidityDays is int requestedValidity)
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Requested Validity</div>
+                    <div class="detail-value">@requestedValidity days</div>
+                </div>
+            }
+
+            @if (certificate.Status == CertificateRequestStatus.Revoked && certificate.RevokedAtUtc.HasValue)
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Revoked On</div>
+                    <div class="detail-value detail-value-danger">
+                        @certificate.RevokedAtUtc.Value.ToLocalTime().ToString("f")
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ── Right: Validity ── *@
+        <div class="detail-card animate-in" id="detail-validity">
+            <div class="detail-card-title">
+                <span class="bi bi-shield-lock-fill detail-card-icon emerald"></span>
+                Validity Period
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Not Before</div>
+                <div class="detail-value">
+                    @(certificate.ValidFrom.HasValue ? certificate.ValidFrom.Value.ToLocalTime().ToString("f") : "—")
+                </div>
+            </div>
+
+            <div class="detail-field">
+                <div class="detail-label">Not After</div>
+                <div class="detail-value">
+                    @(certificate.ValidTo.HasValue ? certificate.ValidTo.Value.ToLocalTime().ToString("f") : "—")
+                </div>
+            </div>
+
+            @if (certificate.ValidFrom.HasValue && certificate.ValidTo.HasValue)
+            {
+                <div class="detail-field">
+                    <div class="detail-label">Duration</div>
+                    <div class="detail-value">@GetDuration()</div>
+                </div>
+
+                <div class="validity-progress-wrapper">
+                    <div class="validity-progress-bar">
+                        <div class="validity-progress-fill @GetProgressClass()"
+                             style="width: @GetProgressPct()%">
+                        </div>
+                    </div>
+                    <div class="validity-progress-labels">
+                        <span>@certificate.ValidFrom.Value.ToLocalTime().ToString("d")</span>
+                        <span>@certificate.ValidTo.Value.ToLocalTime().ToString("d")</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <CertificateMetadataCard Certificate="certificate" />
+
+    @if (!string.IsNullOrWhiteSpace(certificate.CertificatePem))
+    {
+        @* Every detail card is its own stacking context (backdrop-filter, animate-in's transform), so the
+           menu's z-index only counts inside this card; the card itself must rise above the later ones. *@
+        <div class="detail-card animate-in mt-4 @(showDownloadMenu ? "detail-card-raised" : null)" style="grid-column: 1 / -1;" data-test="certificate-data-card">
+            <div class="detail-card-title d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="bi bi-file-earmark-code detail-card-icon blue"></span>
+                    Certificate Data
+                    @if (IsFullPqc)
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-pqc" data-test="pqc-only-badge">@CertificateAlgorithmSummary.PqcSchemeName(certificate.KeyAlgorithm) · Full PQC</span>
+                    }
+                    else if (IsHybrid)
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-hybrid">Classical</span>
+                    }
+                    else if (IsPair)
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-pair" data-test="pair-badge">Signing certificate · ML-DSA</span>
+                    }
+                    else if (IsComposite)
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-composite" data-test="composite-badge">Composite · ML-DSA + classical</span>
+                    }
+                    else if (IsKem)
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-kem" data-test="kem-badge">ML-KEM · Full PQC (encryption)</span>
+                    }
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleExtendedData">
+                        <span class="bi @(showExtendedData ? "bi-eye-slash" : "bi-journal-plus") me-1"></span>
+                        @(showExtendedData ? "Basic View" : "Extended Properties")
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="ToggleRawData">
+                        <span class="bi @(showRawData ? "bi-eye-slash" : "bi-eye") me-1"></span>
+                        @(showRawData ? "Hide Raw Data" : "View Raw Data")
+                    </button>
+                    <div style="position:relative; display:inline-block;">
+                        <button class="btn btn-sm btn-outline-success" type="button" data-test="download-menu-toggle"
+                                @onclick="() => showDownloadMenu = !showDownloadMenu">
+                            <span class="bi bi-download me-1"></span>Download
+                        </button>
+                        @if (showDownloadMenu)
+                        {
+                            <div style="position:fixed;inset:0;z-index:1040;" @onclick="() => showDownloadMenu = false"></div>
+                            <ul class="dropdown-menu show" style="position:absolute;right:0;top:calc(100% + 4px);z-index:1050;min-width:220px;">
+                                @if (IsHybrid)
+                                {
+                                    <li>
+                                        <div class="format-option-hint format-option-note px-3 py-2" data-test="paired-download-note">
+                                            @DownloadFormatGuidance.PairedIssuanceNote
+                                        </div>
+                                    </li>
+                                    <li><hr class="dropdown-divider" /></li>
+                                }
+                                @if (IsPair)
+                                {
+                                    <li>
+                                        <div class="format-option-hint format-option-note px-3 py-2" data-test="pair-download-note">
+                                            @DownloadFormatGuidance.PairDownloadNote
+                                        </div>
+                                    </li>
+                                    <li><hr class="dropdown-divider" /></li>
+                                }
+                                <li>
+                                    <div class="px-3 py-2" @onclick:stopPropagation>
+                                        <div class="form-check mb-0">
+                                            <input class="form-check-input" type="checkbox" id="include-chain-check" @bind="includeChain" />
+                                            <label class="form-check-label text-xs" for="include-chain-check" style="cursor:pointer;">
+                                                Include CA chain
+                                            </label>
+                                        </div>
+                                    </div>
+                                </li>
+                                <li><hr class="dropdown-divider" /></li>
+                                <li><h6 class="dropdown-header text-xxs">Public Certificate</h6></li>
+                                <li>
+                                    <button class="dropdown-item format-option" @onclick="DownloadPem">
+                                        <span class="bi bi-file-earmark-text me-2"></span>PEM <span class="text-muted text-xs">.crt</span>
+                                        <span class="format-option-hint" data-format-hint="pem">@DownloadFormatGuidance.For("pem")</span>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item format-option" @onclick="DownloadDer" title="@(includeChain ? "DER is a single-certificate format; chain will not be included" : null)">
+                                        <span class="bi bi-file-earmark-binary me-2"></span>DER <span class="text-muted text-xs">.cer@(includeChain ? " (no chain)" : "")</span>
+                                        <span class="format-option-hint" data-format-hint="der">@DownloadFormatGuidance.For("der")</span>
+                                    </button>
+                                </li>
+                                <li>
+                                    <button class="dropdown-item format-option" @onclick="DownloadPkcs7">
+                                        <span class="bi bi-file-earmark-zip me-2"></span>PKCS#7 <span class="text-muted text-xs">.p7b</span>
+                                        <span class="format-option-hint" data-format-hint="p7b">@DownloadFormatGuidance.For("p7b")</span>
+                                    </button>
+                                </li>
+                                @if (certificate.HasPrivateKey)
+                                {
+                                    <li><hr class="dropdown-divider" /></li>
+                                    <li><h6 class="dropdown-header text-xxs">With Private Key</h6></li>
+                                    <li>
+                                        <button class="dropdown-item format-option" @onclick="ShowPfxModal">
+                                            <span class="bi bi-file-earmark-lock-fill me-2"></span>PKCS#12 <span class="text-muted text-xs">.pfx</span>
+                                            <span class="format-option-hint" data-format-hint="pfx">@DownloadFormatGuidance.For("pfx")</span>
+                                            @if (IsComposite)
+                                            {
+                                                <span class="format-option-hint" data-test="composite-pkcs12-note">@DownloadFormatGuidance.CompositePkcs12Note</span>
+                                            }
+                                            else if (IsFullPqc || IsPair)
+                                            {
+                                                <span class="format-option-hint" data-test="pqc-pkcs12-note">@DownloadFormatGuidance.PqcPkcs12Note</span>
+                                            }
+                                            else if (IsKem)
+                                            {
+                                                <span class="format-option-hint" data-test="kem-pkcs12-note">@DownloadFormatGuidance.KemPkcs12Note</span>
+                                            }
+                                        </button>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-3">
+                @if (parsedCertificate != null)
+                {
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                        <div class="detail-field">
+                            <div class="detail-label">Subject</div>
+                            <div class="detail-value mono-break">@parsedCertificate.Subject</div>
+                        </div>
+                        <div class="detail-field">
+                            <div class="detail-label">Issuer</div>
+                            <div class="detail-value mono-break">@parsedCertificate.Issuer</div>
+                        </div>
+                        <div class="detail-field">
+                            <div class="detail-label">Thumbprint</div>
+                            <div class="detail-value mono-break">@parsedCertificate.Thumbprint</div>
+                        </div>
+                        @* Two independent facts. Shown as one "Signature Algorithm" field, the
+                           issuer's algorithm was read as the certificate's own — an ML-DSA leaf
+                           under the RSA CA looked like an RSA certificate. *@
+                        <div class="detail-field">
+                            <div class="detail-label">Subject Public Key Algorithm</div>
+                            <div class="detail-value" data-test="subject-key-algorithm">@SubjectKeyAlgorithmLabel(pqcLeg: false)</div>
+                        </div>
+                        <div class="detail-field">
+                            <div class="detail-label">Issuer Signature Algorithm</div>
+                            <div class="detail-value" data-test="issuer-signature-algorithm">@IssuerSignatureLabel(parsedCertificate)</div>
+                        </div>
+                        @{
+                            var pathNote = CertificateAlgorithmSummary.CertificationPathNote(
+                                CertificateAlgorithmSummary.SubjectIsPostQuantum(certificate.KeyAlgorithm, pqcLeg: false),
+                                CertificateAlgorithmSummary.IssuerIsPostQuantum(parsedCertificate.SignatureAlgorithm.Value),
+                                subjectIsKem: IsKem);
+                        }
+                        @if (!string.IsNullOrEmpty(pathNote))
+                        {
+                            <div class="detail-field span-all">
+                                <p class="text-muted note-text" data-test="certification-path-note">@pathNote</p>
+                            </div>
+                        }
+                        @if (IsComposite)
+                        {
+                            <div class="detail-field span-all">
+                                <p class="text-muted note-text" data-test="composite-scope-note">@CertificateAlgorithmSummary.CompositeScopeNote</p>
+                            </div>
+                        }
+                        @if (IsKem)
+                        {
+                            <div class="detail-field span-all">
+                                <p class="text-muted note-text" data-test="kem-scope-note">@CertificateAlgorithmSummary.KemScopeNote</p>
+                            </div>
+                        }
+
+                        @if (showExtendedData)
+                        {
+                            var properties = CertificatePropertyEvaluator.EvaluateProperties(parsedCertificate);
+
+                            foreach (var prop in properties)
+                            {
+                                if (prop.IsLongText)
+                                {
+                                    <div class="detail-field span-all mt-2">
+                                        <div class="detail-label">@prop.Name</div>
+                                        <textarea class="form-control mono mt-1 text-sm pem-box" rows="8" readonly>@prop.Value</textarea>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="detail-field">
+                                        <div class="detail-label">@prop.Name</div>
+                                        <div class="detail-value mono-break">@prop.Value</div>
+                                    </div>
+                                }
+                            }
+
+                            @foreach (var ext in parsedCertificate.Extensions)
+                            {
+                                <div class="detail-field span-all mt-2">
+                                    <div class="detail-label">Extension: @(ext.Oid?.FriendlyName ?? ext.Oid?.Value)</div>
+                                    <div class="detail-value pem-block">@ext.Format(true)</div>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+                else
+                {
+                    @* The stored key algorithm is authoritative and survives a parse failure, so the
+                       one field that is still knowable is still shown. *@
+                    <div class="detail-field">
+                        <div class="detail-label">Subject Public Key Algorithm</div>
+                        <div class="detail-value" data-test="subject-key-algorithm">@SubjectKeyAlgorithmLabel(pqcLeg: false)</div>
+                    </div>
+                    <p class="text-muted text-sm">Could not parse certificate details automatically.</p>
+                }
+            </div>
+
+            @if (showRawData)
+            {
+                <div class="mt-4 pt-3 border-top">
+                    <div class="mb-3">
+                        <label class="form-label form-label-muted">Certificate (PEM)</label>
+                        <textarea class="form-control mono text-sm" rows="10" readonly>@certificate.CertificatePem</textarea>
+                    </div>
+
+                    @if (certificate.HasPrivateKey)
+                    {
+                        <div class="mt-3">
+                            <label class="form-label form-label-muted">Private Key (PEM)</label>
+                            <p class="text-muted text-sm">
+                                The private key is never sent to the browser. Download it as a file instead.
+                            </p>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => DownloadPrivateKey(false)">
+                                <span class="bi bi-key me-1"></span>Download Private Key
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @if ((IsHybrid || IsPair) && !string.IsNullOrWhiteSpace(certificate.PqcCertificatePem))
+    {
+        <div class="detail-card animate-in mt-4 span-all" data-test="@(IsPair ? "pair-card" : null)">
+            <div class="detail-card-title d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="bi bi-file-earmark-code detail-card-icon icon-purple"></span>
+                    @(IsPair ? "Encryption Certificate" : "PQC Certificate")
+                    @if (IsPair)
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-pair">ML-KEM · Encryption</span>
+                    }
+                    else
+                    {
+                        <span class="badge algorithm-badge algorithm-badge-pqc">ML-DSA · Paired issuance</span>
+                    }
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => showPqcRawData = !showPqcRawData">
+                        <span class="bi @(showPqcRawData ? "bi-eye-slash" : "bi-eye") me-1"></span>
+                        @(showPqcRawData ? "Hide Raw Data" : "View Raw Data")
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" @onclick="DownloadPqcPem">
+                        <span class="bi bi-download me-1"></span>PEM
+                    </button>
+                    @if (certificate.HasPqcPrivateKey)
+                    {
+                        <button class="btn btn-sm btn-outline-success" @onclick="() => DownloadPrivateKey(true)">
+                            <span class="bi bi-key me-1"></span>@(IsPair ? "Encryption Key" : "PQC Key")
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="mt-3">
+                @if (IsPair)
+                {
+                    <p class="text-muted note-text-block">
+                        This ML-KEM certificate was issued alongside the ML-DSA signing certificate above. Others encrypt to its holder
+                        with it. Its PKCS#12 file is downloaded through the API or the CLI (<code>qca cert download-cert --pqc -F pfx</code>).
+                    </p>
+                    <p class="text-muted note-text-block" data-test="pair-scope-note">
+                        @CertificateAlgorithmSummary.PairScopeNote
+                    </p>
+                    <p class="text-muted note-text-block" data-test="pair-kem-pkcs12-note">@DownloadFormatGuidance.KemPkcs12Note</p>
+                }
+                else
+                {
+                    <p class="text-muted note-text-block">
+                        This ML-DSA certificate was issued alongside the classical certificate above as a paired bundle.
+                        Use it with relying parties that support FIPS 204 (ML-DSA). PKCS#12 export is not available for PQC certificates.
+                    </p>
+                    <p class="text-muted note-text-block" data-test="paired-scope-note">
+                        @CertificateAlgorithmSummary.PairedIssuanceScopeNote
+                    </p>
+                }
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;">
+                    <div class="detail-field">
+                        <div class="detail-label">Subject Public Key Algorithm</div>
+                        <div class="detail-value" data-test="pqc-subject-key-algorithm">@SubjectKeyAlgorithmLabel(pqcLeg: true)</div>
+                    </div>
+                    <div class="detail-field">
+                        <div class="detail-label">Issuer Signature Algorithm</div>
+                        <div class="detail-value" data-test="pqc-issuer-signature-algorithm">
+                            @(parsedPqcCertificate is null
+                                ? CertificateAlgorithmSummary.Unknown
+                                : IssuerSignatureLabel(parsedPqcCertificate))
+                        </div>
+                    </div>
+                    @{
+                        var pqcPathNote = CertificateAlgorithmSummary.CertificationPathNote(
+                            CertificateAlgorithmSummary.SubjectIsPostQuantum(certificate.KeyAlgorithm, pqcLeg: true),
+                            CertificateAlgorithmSummary.IssuerIsPostQuantum(parsedPqcCertificate?.SignatureAlgorithm.Value),
+                            subjectIsKem: IsPair);
+                    }
+                    @if (!string.IsNullOrEmpty(pqcPathNote))
+                    {
+                        <div class="detail-field span-all">
+                            <p class="text-muted note-text" data-test="pqc-certification-path-note">@pqcPathNote</p>
+                        </div>
+                    }
+                </div>
+            </div>
+            @if (showPqcRawData)
+            {
+                <div class="mt-3 pt-3 border-top">
+                    <div class="mb-3">
+                        <label class="form-label form-label-muted">@(IsPair ? "Encryption Certificate (PEM)" : "PQC Certificate (PEM)")</label>
+                        <textarea class="form-control mono text-sm" rows="10" readonly>@certificate.PqcCertificatePem</textarea>
+                    </div>
+                    @if (certificate.HasPqcPrivateKey)
+                    {
+                        <div class="mt-3">
+                            <label class="form-label form-label-muted">@(IsPair ? "Encryption Private Key (PEM)" : "PQC Private Key (PEM)")</label>
+                            <p class="text-muted text-sm">
+                                The private key is never sent to the browser. Download it as a file instead.
+                            </p>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => DownloadPrivateKey(true)">
+                                <span class="bi bi-key me-1"></span>@(IsPair ? "Download Encryption Private Key" : "Download PQC Private Key")
+                            </button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    <div class="detail-actions mt-4">
+        <a href="certificate-requests/@certificate.Id" class="btn-outline-detail">
+            <span class="bi bi-file-text me-1"></span> View Original Request
+        </a>
+
+        @if (!IsRevoked && !IsPendingRevocation && !IsExpired)
+        {
+            <button class="btn btn-danger ms-2" @onclick="ShowRevokeModal" disabled="@actionInProgress">
+                <span class="bi bi-shield-slash me-1"></span> Revoke
+            </button>
+        }
+        @if (IsPendingRevocation)
+        {
+            <button class="btn btn-outline-warning ms-2" disabled>
+                <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                Revoking…
+            </button>
+        }
+
+        <button class="btn btn-outline-primary ms-2" @onclick="RenewCertificate" disabled="@actionInProgress">
+            <span class="bi bi-arrow-repeat me-1"></span> Renew
+        </button>
+
+        @if (!string.IsNullOrWhiteSpace(actionError))
+        {
+            <div class="alert alert-danger mt-3" role="alert">@actionError</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(actionSuccess))
+        {
+            <div class="alert alert-success mt-3" role="alert">@actionSuccess</div>
+        }
+    </div>
+
+    @if (showPfxModal)
+    {
+        <ConfirmDialog Title="Download PKCS#12 / PFX" Icon="bi-file-earmark-lock-fill"
+                       ConfirmLabel="Download PFX" ConfirmIcon="bi-download"
+                       ConfirmDisabled="@(string.IsNullOrEmpty(pfxPassword) && !pfxEmptyPasswordAcknowledged)"
+                       OnConfirm="ConfirmPfxDownload" OnCancel="ClosePfxModal">
+            <p class="form-help">The PFX file bundles the certificate and its private key. Protect it with a strong password.</p>
+            <div class="mb-3">
+                <label class="form-label">Password</label>
+                <div class="input-group">
+                    <input type="@(pfxShowPassword ? "text" : "password")" class="form-control" placeholder="Enter password…"
+                           @bind="pfxPassword" @bind:event="oninput" />
+                    <button class="btn btn-outline-secondary" type="button"
+                            @onclick="() => pfxShowPassword = !pfxShowPassword"
+                            title="@(pfxShowPassword ? "Hide" : "Show") password">
+                        <span class="bi @(pfxShowPassword ? "bi-eye-slash" : "bi-eye")"></span>
+                    </button>
+                </div>
+            </div>
+            @if (string.IsNullOrEmpty(pfxPassword))
+            {
+                <div class="alert alert-warning d-flex align-items-start gap-2 mb-3">
+                    <span class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1"></span>
+                    <div>
+                        <strong>No password set.</strong> The PFX will not be encrypted — anyone who obtains the file will have full access to the private key.
+                    </div>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="pfx-no-pwd-ack" @bind="pfxEmptyPasswordAcknowledged" />
+                    <label class="form-check-label" for="pfx-no-pwd-ack">
+                        I understand the risks and want to download without a password
+                    </label>
+                </div>
+            }
+        </ConfirmDialog>
+    }
+
+    <CertificateTimeline RequestId="Id" RefreshKey="certificate.UpdatedAtUtc" />
+
+    @if (showRevokeModal)
+    {
+        <ConfirmDialog Tone="ConfirmDialogTone.Danger" Title="Revoke Certificate"
+                       ConfirmLabel="Revoke Certificate" Busy="actionInProgress"
+                       OnConfirm="ConfirmRevoke" OnCancel="@(() => showRevokeModal = false)">
+            <p>Are you sure you want to revoke <strong class="confirm-dialog-emphasis">@certificate.CommonName</strong>? This cannot be undone.</p>
+            <div class="mb-3">
+                <label class="form-label">Reason (optional)</label>
+                <select class="form-select" @bind="revokeReason">
+                    <option value="">— select reason —</option>
+                    <option value="key-compromise">Key Compromise</option>
+                    <option value="superseded">Superseded</option>
+                    <option value="affiliation-changed">Affiliation Changed</option>
+                    <option value="cessation-of-operation">Cessation of Operation</option>
+                    <option value="unspecified">Unspecified</option>
+                </select>
+            </div>
+        </ConfirmDialog>
+    }
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Download, AutomationOperation.Renew, AutomationOperation.Revoke, AutomationOperation.Metadata]" TargetId="Id" />
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    [Parameter]
+    public Guid Id { get; set; }
+
+    // ReSharper disable once RedundantNameQualifier — disambiguates from System.Security.Cryptography.X509Certificates.CertificateRequest
+    private Qertum.Services.CertificateRequest? certificate;
+
+    // "name vN" for the policy version recorded on the request; the row only stores the version id.
+    private string? policyLabel;
+    private string? loadError;
+    private X509Certificate2? parsedCertificate;
+    private X509Certificate2? parsedPqcCertificate;
+    private bool showRawData;
+    private bool showExtendedData;
+    private bool showDownloadMenu;
+    private bool showPqcRawData;
+    private bool includeChain;
+    private string? cachedCaPem;
+    private bool showPfxModal;
+    private string? pfxPassword;
+    private bool pfxShowPassword;
+    private bool pfxEmptyPasswordAcknowledged;
+    private bool showRevokeModal;
+    private bool actionInProgress;
+    private string? actionError;
+    private string? actionSuccess;
+    private string? revokeReason;
+
+    private bool IsFullPqc => certificate?.KeyAlgorithm?.GetFamily() == AlgorithmFamily.Pqc;
+    private bool IsHybrid => certificate?.KeyAlgorithm?.GetFamily() == AlgorithmFamily.Hybrid;
+    private bool IsPair => certificate?.KeyAlgorithm?.GetFamily() == AlgorithmFamily.Pair;
+    private bool IsComposite => certificate?.KeyAlgorithm?.GetFamily() == AlgorithmFamily.Composite;
+    private bool IsKem => certificate?.KeyAlgorithm?.GetFamily() == AlgorithmFamily.Kem;
+
+    private string SubjectKeyAlgorithmLabel(bool pqcLeg) =>
+        CertificateAlgorithmSummary.SubjectKeyLabel(certificate?.KeyAlgorithm, pqcLeg);
+
+    private static string IssuerSignatureLabel(X509Certificate2 cert) =>
+        CertificateAlgorithmSummary.IssuerSignatureLabel(cert.SignatureAlgorithm.Value, cert.SignatureAlgorithm.FriendlyName);
+
+    private void ToggleRawData() => showRawData = !showRawData;
+    private void ToggleExtendedData() => showExtendedData = !showExtendedData;
+
+    private string SafeFilename(string extension)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var safe = new string(certificate!.CommonName.Where(c => !invalid.Contains(c)).ToArray());
+        return (string.IsNullOrWhiteSpace(safe) ? "certificate" : safe) + extension;
+    }
+
+    private async Task<string?> GetCaPemAsync()
+    {
+        if (cachedCaPem is not null) return cachedCaPem;
+        try
+        {
+            var bytes = await CertificateRequestsApiClient.DownloadCaCertificateAsync();
+            cachedCaPem = Encoding.ASCII.GetString(bytes);
+            return cachedCaPem;
+        }
+        catch { return null; }
+    }
+
+    private async Task DownloadPem()
+    {
+        showDownloadMenu = false;
+        string pem = certificate!.CertificatePem!;
+        if (includeChain)
+        {
+            var caPem = await GetCaPemAsync();
+            if (caPem is not null) pem = pem.TrimEnd() + "\n" + caPem;
+        }
+        var bytes = Encoding.ASCII.GetBytes(pem);
+        await JS.InvokeVoidAsync("downloadFile", SafeFilename(".crt"), "application/x-pem-file", Convert.ToBase64String(bytes));
+    }
+
+    private async Task DownloadDer()
+    {
+        showDownloadMenu = false;
+        var der = parsedCertificate!.Export(X509ContentType.Cert);
+        await JS.InvokeVoidAsync("downloadFile", SafeFilename(".cer"), "application/x-x509-ca-cert", Convert.ToBase64String(der));
+    }
+
+    private async Task DownloadPkcs7()
+    {
+        showDownloadMenu = false;
+        var collection = new X509Certificate2Collection(parsedCertificate!);
+        if (includeChain)
+        {
+            var caPem = await GetCaPemAsync();
+            if (caPem is not null) collection.Add(X509Certificate2.CreateFromPem(caPem));
+        }
+        var p7b = collection.Export(X509ContentType.Pkcs7)!;
+        await JS.InvokeVoidAsync("downloadFile", SafeFilename(".p7b"), "application/x-pkcs7-certificates", Convert.ToBase64String(p7b));
+    }
+
+    private async Task DownloadPqcPem()
+    {
+        string pem = certificate!.PqcCertificatePem!;
+        var bytes = Encoding.ASCII.GetBytes(pem);
+        await JS.InvokeVoidAsync("downloadFile", SafeFilename("-pqc.crt"), "application/x-pem-file", Convert.ToBase64String(bytes));
+    }
+
+    /// <summary>
+    /// Fetches the private key from the API and hands it to the browser as a file. The key is not
+    /// held in component state, so it never reaches the rendered DOM or the prerendered markup.
+    /// </summary>
+    private async Task DownloadPrivateKey(bool pqc)
+    {
+        actionError = null;
+        var key = await CertificateRequestsApiClient.DownloadPrivateKeyAsync(certificate!.Id, pqc);
+        if (key is null)
+        {
+            actionError = "The private key for this certificate is not available to you.";
+            return;
+        }
+
+        await JS.InvokeVoidAsync("downloadFile",
+            SafeFilename(pqc ? "-pqc.key" : ".key"),
+            "application/x-pem-file",
+            Convert.ToBase64String(key));
+    }
+
+    private void ShowPfxModal()
+    {
+        showDownloadMenu = false;
+        pfxPassword = null;
+        pfxShowPassword = false;
+        pfxEmptyPasswordAcknowledged = false;
+        showPfxModal = true;
+    }
+
+    private void ClosePfxModal()
+    {
+        showPfxModal = false;
+        pfxPassword = null;
+        pfxShowPassword = false;
+        pfxEmptyPasswordAcknowledged = false;
+    }
+
+    /// <summary>
+    /// The PKCS#12 bundle is assembled server-side, where the key already lives, so the browser
+    /// receives only the finished file.
+    /// </summary>
+    private async Task ConfirmPfxDownload()
+    {
+        showPfxModal = false;
+        actionError = null;
+
+        var pfx = await CertificateRequestsApiClient.DownloadPfxAsync(certificate!.Id, pfxPassword, pqc: false, includeChain: includeChain);
+        if (pfx is null)
+        {
+            actionError = "This certificate cannot be exported as PKCS#12.";
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("downloadFile", SafeFilename(".pfx"), "application/x-pkcs12", Convert.ToBase64String(pfx));
+        }
+
+        pfxPassword = null;
+        pfxEmptyPasswordAcknowledged = false;
+    }
+
+    private void ShowRevokeModal()
+    {
+        revokeReason = null;
+        actionError = null;
+        showRevokeModal = true;
+    }
+
+    private CancellationTokenSource? _revocationPollCts;
+
+    private async Task ConfirmRevoke()
+    {
+        showRevokeModal = false;
+        actionInProgress = true;
+        actionError = null;
+        try
+        {
+            var result = await CertificateRequestsApiClient.RevokeAsync(Id, revokeReason);
+            if (result is null) { actionError = "Certificate not found or could not be revoked."; return; }
+            certificate = result;
+            if (result.Status == CertificateRequestStatus.PendingRevocation)
+            {
+                actionSuccess = "Revocation queued — the certificate will be revoked shortly.";
+                _revocationPollCts?.Cancel();
+                _revocationPollCts = new CancellationTokenSource();
+                _ = PollForRevocationAsync(_revocationPollCts.Token);
+            }
+            else
+            {
+                actionSuccess = "Certificate revoked successfully.";
+            }
+        }
+        catch (Exception ex) { actionError = ex.WithCorrelationId($"Failed to revoke: {ex.Message}"); }
+        finally { actionInProgress = false; }
+    }
+
+    private async Task PollForRevocationAsync(CancellationToken ct)
+    {
+        try
+        {
+            // Polls as the server's Retry-After hint says, and stops at the first final state or after five minutes.
+            await CertificateRequestsApiClient.WaitForFinalAsync(Id, TimeSpan.FromMinutes(5), async updated =>
+            {
+                certificate = updated;
+                if (updated.Status == CertificateRequestStatus.Revoked)
+                    actionSuccess = "Certificate revoked successfully.";
+                await InvokeAsync(StateHasChanged);
+            }, ct);
+        }
+        catch (OperationCanceledException) { }
+        catch { /* component disposed or network error — stop polling */ }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _revocationPollCts?.Cancel();
+        _revocationPollCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task RenewCertificate()
+    {
+        actionInProgress = true;
+        actionError = null;
+        try
+        {
+            var renewal = await CertificateRequestsApiClient.RenewAsync(Id);
+            if (renewal is null) { actionError = "Certificate not found or could not be renewed."; return; }
+            NavigationManager.NavigateTo($"/certificate-requests/{renewal.Id}");
+        }
+        catch (Exception ex) { actionError = ex.WithCorrelationId($"Failed to renew: {ex.Message}"); }
+        finally { actionInProgress = false; }
+    }
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var result = await CertificateRequestsApiClient.GetByIdAsync(Id);
+            if (result is null)
+                loadError = "Certificate not found.";
+            else if (result.Status is not (CertificateRequestStatus.Issued or CertificateRequestStatus.Revoked or CertificateRequestStatus.PendingRevocation))
+                loadError = "This certificate request has not been issued yet.";
+            else
+            {
+                certificate = result;
+                if (!string.IsNullOrWhiteSpace(certificate.CertificatePem))
+                {
+                    try
+                    {
+                        parsedCertificate = X509Certificate2.CreateFromPem(certificate.CertificatePem);
+                        var bc = parsedCertificate.Extensions.OfType<X509BasicConstraintsExtension>().FirstOrDefault();
+                        if (bc is { CertificateAuthority: true }) includeChain = true;
+                    }
+                    catch { /* Ignore parse errors */ }
+                }
+                if (!string.IsNullOrWhiteSpace(certificate.PqcCertificatePem))
+                {
+                    // Parsed separately: the PQC leg of a pair is signed independently, so its
+                    // issuer signature algorithm is its own fact, not the classical one's.
+                    try { parsedPqcCertificate = X509Certificate2.CreateFromPem(certificate.PqcCertificatePem); }
+                    catch { /* Ignore parse errors */ }
+                }
+                if (!includeChain && certificate.Type == "SubordinateCA") includeChain = true;
+                await LoadPolicyLabelAsync();
+            }
+        }
+        catch (Exception ex) { loadError = ex.WithCorrelationId($"Failed to load certificate: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Resolves the recorded policy version to "name vN". The version id is all the request carries,
+    /// so this walks the policy list rather than adding a lookup endpoint for one label.
+    /// </summary>
+    private async Task LoadPolicyLabelAsync()
+    {
+        if (certificate?.PolicyVersionId is not { } versionId) return;
+
+        try
+        {
+            foreach (var summary in await CertificateRequestsApiClient.GetIssuancePoliciesAsync())
+            {
+                var versions = await CertificateRequestsApiClient.GetIssuancePolicyVersionsAsync(summary.Id);
+                var match = versions.FirstOrDefault(v => v.Id == versionId);
+                if (match is not null)
+                {
+                    policyLabel = $"{summary.Name} v{match.VersionNumber}";
+                    return;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // A caller without certificates.view on policies still sees the certificate itself.
+        }
+    }
+
+    // ── Badge / Hero helpers ──
+
+    private bool IsRevoked => certificate?.Status == CertificateRequestStatus.Revoked;
+    private bool IsPendingRevocation => certificate?.Status == CertificateRequestStatus.PendingRevocation;
+    private bool IsExpired => !IsRevoked && !IsPendingRevocation && certificate?.ValidTo.HasValue == true && certificate.ValidTo.Value <= Now;
+    private bool IsExpiring => !IsRevoked && !IsPendingRevocation && !IsExpired && certificate?.ValidTo.HasValue == true && certificate.ValidTo.Value <= Now.AddDays(30);
+
+    private string GetBadgeClass() => IsRevoked ? "revoked-badge" : IsPendingRevocation ? "pending-badge" : IsExpired ? "expired" : IsExpiring ? "expiring-soon" : "valid";
+    private string GetBadgeIcon() => IsRevoked ? "bi-shield-fill-minus" : IsPendingRevocation ? "bi-hourglass-split" : IsExpired ? "bi-shield-fill-x" : IsExpiring ? "bi-exclamation-triangle-fill" : "bi-shield-fill-check";
+    private string GetBadgeLabel() => IsRevoked ? "Revoked" : IsPendingRevocation ? "Pending Revocation" : IsExpired ? "Expired" : IsExpiring ? "Expiring Soon" : "Valid";
+
+    private string GetHeroClass() => IsRevoked ? "cert-hero-revoked" : IsPendingRevocation ? "cert-hero-revoked" : IsExpired ? "cert-hero-expired" : IsExpiring ? "cert-hero-expiring" : "cert-hero-valid";
+    private string GetHeroIcon() => GetBadgeIcon();
+    private string GetHeroTitle() => IsRevoked ? "Certificate Revoked" : IsPendingRevocation ? "Revocation Pending" : IsExpired ? "Certificate Expired" : IsExpiring ? "Expiring Soon" : "Certificate Valid";
+
+    private string GetProgressClass() => IsRevoked ? "revoked" : IsPendingRevocation ? "revoked" : IsExpired ? "expired" : IsExpiring ? "expiring" : "valid";
+
+    private string GetDuration()
+    {
+        if (certificate?.ValidFrom == null || certificate.ValidTo == null) return "—";
+        var span = certificate.ValidTo.Value - certificate.ValidFrom.Value;
+        if (span.TotalDays >= 365) return $"{(int)(span.TotalDays / 365)} year{((int)(span.TotalDays / 365) != 1 ? "s" : "")}";
+        return $"{(int)span.TotalDays} days";
+    }
+
+    private string GetProgressPct()
+    {
+        if (certificate?.ValidFrom == null || certificate.ValidTo == null) return "0";
+        var total = (certificate.ValidTo.Value - certificate.ValidFrom.Value).TotalSeconds;
+        var elapsed = (Now - certificate.ValidFrom.Value).TotalSeconds;
+        return Math.Clamp(elapsed / total * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture);
+    }
+}

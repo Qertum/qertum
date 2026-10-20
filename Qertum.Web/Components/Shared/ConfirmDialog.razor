@@ -1,0 +1,83 @@
+@namespace Qertum.Web.Components.Shared
+@using Microsoft.AspNetCore.Components.Web
+
+<div class="confirm-dialog @(AlignTop ? "confirm-dialog-top" : null)"
+     data-test="@(TestId is null ? null : TestId + "-confirm")"
+     @onkeydown="OnKeyDownAsync">
+    <div class="form-card confirm-dialog-panel animate-in" style="--confirm-dialog-width: @(MaxWidthPx)px;"
+         role="dialog" aria-modal="true" aria-labelledby="@titleId" tabindex="-1" @ref="panel">
+        <div class="confirm-dialog-body">
+            <h5 id="@titleId" class="confirm-dialog-title confirm-dialog-title-@(Tone.ToString().ToLowerInvariant())">
+                @if (!string.IsNullOrEmpty(ResolvedIcon))
+                {
+                    <span class="bi @ResolvedIcon me-2"></span>
+                }
+                @Title
+            </h5>
+            @ChildContent
+            <div class="confirm-dialog-actions">
+                <button type="button" class="btn-outline-detail" disabled="@Busy"
+                        data-test="@(TestId is null ? null : TestId + "-cancel")" @onclick="OnCancel">
+                    @CancelLabel
+                </button>
+                <button type="button" class="confirm-dialog-confirm btn @(Tone == ConfirmDialogTone.Danger ? "btn-danger-soft" : "btn-primary")"
+                        disabled="@(Busy || ConfirmDisabled)"
+                        data-test="@(TestId is null ? null : TestId + "-apply")" @onclick="OnConfirm">
+                    @if (Busy)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    else if (!string.IsNullOrEmpty(ConfirmIcon))
+                    {
+                        <span class="bi @ConfirmIcon me-1"></span>
+                    }
+                    @ConfirmLabel
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private static int nextId;
+    private readonly string titleId = $"confirm-dialog-title-{Interlocked.Increment(ref nextId)}";
+    private ElementReference panel;
+
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public ConfirmDialogTone Tone { get; set; } = ConfirmDialogTone.Neutral;
+    /// <summary>Bootstrap icon class for the title. Defaults to a warning triangle for <see cref="ConfirmDialogTone.Danger"/>.</summary>
+    [Parameter] public string? Icon { get; set; }
+    [Parameter, EditorRequired] public string ConfirmLabel { get; set; } = "";
+    [Parameter] public string? ConfirmIcon { get; set; }
+    [Parameter] public string CancelLabel { get; set; } = "Cancel";
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+    /// <summary>True while the action runs: disables both buttons and shows a spinner on confirm.</summary>
+    [Parameter] public bool Busy { get; set; }
+    /// <summary>Disables confirm only (a required field is empty, an acknowledgement is missing).</summary>
+    [Parameter] public bool ConfirmDisabled { get; set; }
+    [Parameter] public int MaxWidthPx { get; set; } = 480;
+    /// <summary>Aligns the panel to the top and lets the overlay scroll, for long forms.</summary>
+    [Parameter] public bool AlignTop { get; set; }
+    /// <summary>Base for the <c>data-test</c> names: <c>{TestId}-confirm</c>, <c>-apply</c>, <c>-cancel</c>. Null renders none.</summary>
+    [Parameter] public string? TestId { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string? ResolvedIcon => Icon ?? (Tone == ConfirmDialogTone.Danger ? "bi-exclamation-triangle-fill" : null);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try { await panel.FocusAsync(); }
+        catch (Exception ex) when (ex is InvalidOperationException or Microsoft.JSInterop.JSException or Microsoft.JSInterop.JSDisconnectedException)
+        {
+            // Moving focus into the dialog is a convenience; a prerender or a dropped circuit must not fail the page.
+        }
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && !Busy)
+            await OnCancel.InvokeAsync();
+    }
+}

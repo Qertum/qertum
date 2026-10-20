@@ -1,0 +1,60 @@
+.onboarding-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+}
+
+.onboarding-header {
+    display: flex;
+    align-items: center;
+    padding: 0 1.25rem;
+    min-height: 3.75rem;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.onboarding-header .navbar-brand {
+    color: var(--text-heading) !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    text-decoration: none;
+    padding: 0.25rem 0;
+    position: relative;
+}
+
+.onboarding-header .navbar-brand::before {
+    content: '';
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: rgb(var(--primary));
+    box-shadow:
+        0 0 22px rgba(var(--primary), 0.35),
+        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+    flex-shrink: 0;
+    position: relative;
+}
+
+.onboarding-header .navbar-brand::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'><path d='M5.5 8V6a2.5 2.5 0 0 1 5 0v2h.5a1 1 0 0 1 1 1v3.5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h.5zm1 0h3V6a1.5 1.5 0 0 0-3 0v2z'/></svg>") center/80% no-repeat;
+    opacity: 0.95;
+    pointer-events: none;
+}
+
+.onboarding-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem 1.5rem 4rem;
+}

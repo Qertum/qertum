@@ -1,0 +1,176 @@
+@page "/policies"
+@attribute [Authorize]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+<PageTitle>Issuance Policies — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Issuance <em>Policies</em></Heading>
+    <Subtitle>Versioned rules — allowed names, IP ranges, key algorithms and maximum validity — enforced on every certificate a linked template issues.</Subtitle>
+    <Actions>        <button class="btn btn-primary" type="button" @onclick="() => creating = true">
+            <span class="bi bi-plus-lg me-1"></span> New Policy
+        </button>
+    </Actions>
+</PageHeader>
+
+<Notification Message="@notification" Type="@notificationType" OnDismiss="@(() => notification = null)" />
+
+@if (policies is null)
+{
+    <LoadingState Text="Loading policies…" />
+}
+else
+{
+    <div class="form-card form-card-full form-card-toolbar animate-in">
+        <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch" id="show-archived" @bind="showArchived" />
+            <label class="form-check-label" for="show-archived">Show archived policies</label>
+        </div>
+    </div>
+
+    @if (Visible.Count == 0)
+    {
+        <EmptyState Icon="bi-shield-check" Title="No policies yet" Message="
+                Without a policy a template issues whatever is asked of it. Create one, publish it, then link it to a template.
+            " />
+    }
+    else
+    {
+        <div class="form-card form-card-full table-card animate-in">
+            <table class="table-dashboard">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Published</th>
+                        <th>Templates</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var policy in Visible)
+                    {
+                        <tr>
+                            <td>
+                                <div class="cell-title">
+                                    @policy.Name
+                                    @if (policy.IsArchived)
+                                    {
+                                        <span class="badge badge-neutral badge-sm ms-2">archived</span>
+                                    }
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(policy.Description))
+                                {
+                                    <div class="cell-meta">@policy.Description</div>
+                                }
+                            </td>
+                            <td>
+                                @if (policy.PublishedVersionNumber is int version)
+                                {
+                                    <span class="text-soft">v@(version)</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">not published</span>
+                                }
+                                @if (policy.HasDraft)
+                                {
+                                    <span class="badge badge-info badge-sm ms-2">draft</span>
+                                }
+                            </td>
+                            <td>
+                                @policy.LinkedTemplateCount
+                            </td>
+                            <td class="cell-actions">
+                                <a href="/policies/@policy.Id" class="btn-outline-detail">
+                                    <span class="bi bi-sliders me-1"></span> Open
+                                </a>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@if (creating)
+{
+    <ConfirmDialog Title="New issuance policy" ConfirmLabel="Create" OnConfirm="CreateAsync" OnCancel="CancelCreate"
+                   ConfirmDisabled="@(busy || string.IsNullOrWhiteSpace(newName))">
+        <div class="form-field mb-3">
+            <label class="form-label" for="new-policy-name">Name</label>
+            <input id="new-policy-name" class="form-control" @bind="newName" placeholder="e.g. Corporate web servers" />
+        </div>
+        <div class="form-field mb-3">
+            <label class="form-label" for="new-policy-description">Description</label>
+            <input id="new-policy-description" class="form-control" @bind="newDescription" placeholder="Optional" />
+        </div>
+        <div class="form-help mb-3">
+            The policy starts with an empty draft and nothing published, so it governs nothing until you publish it
+            and link a template to it.
+        </div>
+    </ConfirmDialog>
+}
+
+@code {
+    private IReadOnlyList<IssuancePolicySummaryResponse>? policies;
+    private bool showArchived;
+    private bool creating;
+    private bool busy;
+    private string newName = string.Empty;
+    private string? newDescription;
+    private string? notification;
+    private string notificationType = "success";
+
+    private List<IssuancePolicySummaryResponse> Visible =>
+        (policies ?? []).Where(p => showArchived || !p.IsArchived).ToList();
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            policies = await CertificateRequestsApiClient.GetIssuancePoliciesAsync();
+        }
+        catch (Exception ex)
+        {
+            policies = [];
+            Notify(ex.WithCorrelationId(ex.Message), "danger");
+        }
+    }
+
+    private void CancelCreate()
+    {
+        creating = false;
+        newName = string.Empty;
+        newDescription = null;
+    }
+
+    private async Task CreateAsync()
+    {
+        busy = true;
+        try
+        {
+            var created = await CertificateRequestsApiClient.CreateIssuancePolicyAsync(
+                new SaveIssuancePolicyRequest { Name = newName, Description = newDescription });
+            CancelCreate();
+            NavigationManager.NavigateTo($"/policies/{created.Id}");
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Message), "danger");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void Notify(string message, string type)
+    {
+        notification = message;
+        notificationType = type;
+    }
+}

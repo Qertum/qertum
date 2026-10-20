@@ -1,0 +1,178 @@
+@page "/approvals"
+@attribute [Authorize]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<PageTitle>Approvals — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Two-person <em>Approvals</em></Heading>
+    <Subtitle>Sensitive operations can need a second administrator's agreement. Ask here, wait for a decision, then perform the operation yourself within the time window.</Subtitle>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger" role="alert" data-test="approvals-error">@error</div>
+}
+
+<div class="form-card animate-in">
+    <div class="form-section">
+        <div class="form-section-title">
+            <span class="bi bi-person-check-fill form-section-icon blue"></span>
+            Ask for an approval
+        </div>
+        <div class="form-section-body">
+            <div class="form-row cols-2">
+                <div class="form-field">
+                    <label class="form-label" for="request-operation">Operation</label>
+                    <select id="request-operation" class="form-select" data-test="request-operation" @onchange="e => operation = e.Value?.ToString()">
+                        <option value="">Choose…</option>
+                        @foreach (var op in Operations)
+                        {
+                            <option value="@op">@op</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="form-label" for="request-target">Target id</label>
+                    <input id="request-target" class="form-control" data-test="request-target" maxlength="64"
+                           value="@target" @oninput="e => target = e.Value?.ToString()" />
+                    <div class="form-help mt-2">The certificate request, issuer, policy or bulk operation it acts on. Not needed for issuer-create-intermediate.</div>
+                </div>
+            </div>
+            <div class="form-row cols-1">
+                <div class="form-field">
+                    <label class="form-label" for="request-note">What will you do, and why?</label>
+                    <input id="request-note" class="form-control" data-test="request-note" maxlength="500"
+                           value="@note" @oninput="e => note = e.Value?.ToString()" />
+                    <div class="form-help mt-2">The approver reads this. It is not copied into the audit log or webhooks.</div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-primary" data-test="request-submit" disabled="@(busy || string.IsNullOrWhiteSpace(operation))"
+                    @onclick="RequestAsync">Request approval</button>
+        </div>
+    </div>
+</div>
+
+@if (result is null)
+{
+    <LoadingState Text="Loading approvals…" />
+}
+else if (result.Items.Count == 0)
+{
+    <div class="recent-table-section" data-test="approvals-empty">
+        <EmptyState Icon="bi-person-check" Title="No approvals" Message="Nothing has been asked for yet." />
+    </div>
+}
+else
+{
+    <div class="recent-table-section animate-in">
+        <table class="table-dashboard" id="approvals-table">
+            <thead>
+                <tr>
+                    <th>Operation</th>
+                    <th>Target</th>
+                    <th>Requested by</th>
+                    <th>Note</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in result.Items)
+                {
+                    <tr data-test="approval-row">
+                        <td>@a.Operation</td>
+                        <td>@(a.TargetLabel ?? a.TargetId ?? "—")</td>
+                        <td>@a.RequestedByName</td>
+                        <td>@a.Note</td>
+                        <td>
+                            <span class="badge @(a.Status == ApprovalStatus.Pending ? "badge-warning" : "badge-neutral")">@a.Status</span>
+                            @if (a.Status == ApprovalStatus.Approved && a.GrantExpiresAtUtc is { } until)
+                            {
+                                <div class="form-help">use by @until.ToLocalTime().ToString("t")</div>
+                            }
+                        </td>
+                        <td>
+                            @if (isAdmin && !a.IsMine && a.Status == ApprovalStatus.Pending)
+                            {
+                                <button type="button" class="btn btn-primary btn-sm" data-test="approve-@a.Id" disabled="@busy"
+                                        @onclick="() => DecideAsync(a, true)">Approve</button>
+                                <button type="button" class="btn-outline-detail btn-sm" data-test="deny-@a.Id" disabled="@busy"
+                                        @onclick="() => DecideAsync(a, false)">Deny</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private static readonly string[] Operations =
+    [
+        "key-export", "pfx-export", "issuer-create-intermediate", "issuer-install-certificate", "issuer-upload-crl",
+        "issuer-make-default", "issuer-retire", "issuer-archive", "issuer-delete", "issuer-key-export", "issuer-pfx-export", "bulk-revoke", "policy-publish"
+    ];
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
+    private PagedResult<ApprovalResponse>? result;
+    private string? error;
+    private string? operation;
+    private string? target;
+    private string? note;
+    private bool isAdmin;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isAdmin = AuthenticationStateTask is not null && (await AuthenticationStateTask).User.IsInRole("admin");
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            result = await CertificateRequestsApiClient.GetApprovalsAsync();
+        }
+        catch (Exception ex)
+        {
+            error = ex.WithCorrelationId($"Failed to load approvals: {ex.Message}");
+        }
+    }
+
+    private async Task RequestAsync()
+    {
+        if (string.IsNullOrWhiteSpace(operation)) return;
+        await RunAsync(async () =>
+        {
+            await CertificateRequestsApiClient.RequestApprovalAsync(new RequestApprovalRequest(operation!, string.IsNullOrWhiteSpace(target) ? null : target.Trim(), note));
+            note = null;
+        }, "Failed to request the approval");
+    }
+
+    private Task DecideAsync(ApprovalResponse approval, bool approve) =>
+        RunAsync(() => CertificateRequestsApiClient.DecideApprovalAsync(approval.Id, approve, null),
+            approve ? "Failed to approve" : "Failed to deny");
+
+    private async Task RunAsync(Func<Task> action, string failure)
+    {
+        busy = true;
+        error = null;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            error = ex.WithCorrelationId($"{failure}: {ex.Message}");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+}

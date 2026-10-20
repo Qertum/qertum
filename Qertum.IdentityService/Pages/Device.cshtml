@@ -1,0 +1,42 @@
+@page "/device"
+@model Qertum.IdentityService.Pages.DeviceModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Device Login · Qertum IDM</title>
+    <link rel="stylesheet" href="~/identity.css" asp-append-version="true" />
+</head>
+<body class="centered">
+    <main class="shell-main">
+        <form class="card" method="get" action="/connect/verify">
+            <a class="card-brand" href="/">
+                <span class="brand-mark" aria-hidden="true"></span>
+                <span class="brand-text">
+                    <span class="brand-name">Qer<em>tum</em></span>
+                    <span class="brand-sub">Identity</span>
+                </span>
+            </a>
+
+            <h1>Device <em>Login</em></h1>
+            <p class="card-sub">Enter the code displayed in your terminal.</p>
+
+            <div class="field">
+                <label for="user_code">Device Code</label>
+                <input id="user_code" name="user_code" type="text"
+                       autocomplete="off" autofocus placeholder="XXXX-XXXX"
+                       style="font-family:var(--font-mono);letter-spacing:.12em;text-transform:uppercase" />
+            </div>
+
+            <button type="submit">
+                <span class="bi bi-arrow-right-circle"></span>
+                Continue
+            </button>
+        </form>
+    </main>
+</body>
+</html>

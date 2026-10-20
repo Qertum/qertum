@@ -1,0 +1,262 @@
+@using Qertum.Services
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<section class="form-card animate-in" aria-labelledby="destination-policy-heading">
+    <div class="form-section">
+        <div class="form-section-title" id="destination-policy-heading">
+            <span class="bi bi-broadcast form-section-icon cyan" aria-hidden="true"></span>
+            Webhook Destinations
+        </div>
+        <div class="form-section-body">
+            <div class="form-help" data-test="destination-policy-applies-immediately">
+                Controls which addresses webhook deliveries may reach. Public destinations are allowed by default;
+                internal receivers need an exact origin and IP address rule. Each change here applies as soon as
+                you make it — <em>Save settings</em> does not include it. Subscriptions are authored on
+                <a href="/webhooks">Webhooks</a>.
+            </div>
+
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="alert alert-@(isError ? "danger" : "success") py-2 px-3 mb-0 text-sm" role="alert">@message</div>
+            }
+
+            @if (policy is null)
+            {
+                <div class="form-help">Loading destination policy…</div>
+            }
+            else
+            {
+                <div class="form-row cols-1">
+                    <div class="form-field">
+                        <label class="form-label" for="destination-public-mode">Public destination mode</label>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <select id="destination-public-mode" class="form-select" style="max-width: 22rem"
+                                    @bind="selectedMode" disabled="@busy">
+                                <option value="AnyPublic">Any public origin</option>
+                                <option value="ListedPublic">Listed public origins only</option>
+                                <option value="Default">Use JSON configuration default</option>
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary" @onclick="SaveModeAsync" disabled="@busy">Save mode</button>
+                        </div>
+                        <div class="form-help mt-2">Effective mode: <strong>@policy.PublicMode</strong>. Every resolved address must pass policy checks.</div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (policy is not null)
+    {
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-list-check form-section-icon cyan" aria-hidden="true"></span>
+                Exact-Origin Rules
+            </div>
+            <div class="form-section-body">
+                <div class="form-row cols-1">
+                    <div class="form-field">
+                        @if (policy.Rules.Count == 0)
+                        {
+                            <div class="form-help mb-2">No rules configured.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive mb-2">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Origin</th>
+                                            <th>Type</th>
+                                            <th>Source</th>
+                                            <th>IP pins</th>
+                                            <th>Status</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var rule in policy.Rules)
+                                        {
+                                            <tr>
+                                                <td><code class="mono">@FormatOrigin(rule)</code></td>
+                                                <td>@rule.Kind</td>
+                                                <td>@rule.Source</td>
+                                                <td>@(rule.AllowedIpAddresses.Count == 0 ? "—" : string.Join(", ", rule.AllowedIpAddresses))</td>
+                                                <td>
+                                                    @if (rule.Enabled)
+                                                    {
+                                                        <span class="badge badge-success">Enabled</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge badge-neutral">Disabled</span>
+                                                    }
+                                                </td>
+                                                <td class="text-end">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary me-1" disabled="@busy"
+                                                            @onclick="() => ToggleAsync(rule)">@(rule.Enabled ? "Disable" : "Enable")</button>
+                                                    @if (rule.Source == "Admin")
+                                                    {
+                                                        <button type="button" class="btn btn-sm btn-outline-danger" disabled="@busy"
+                                                                @onclick="() => DeleteAsync(rule)">Delete</button>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        <div class="form-help">
+                            Configuration rules come from server JSON. Disabling a configuration rule survives restart;
+                            change its origin or IP pins in JSON.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row @(selectedKind == "Internal" ? "cols-3" : "cols-2")">
+                    <div class="form-field">
+                        <label class="form-label" for="destination-origin">Exact origin</label>
+                        <input id="destination-origin" class="form-control" @bind="origin"
+                               placeholder="https://receiver.example:443" disabled="@busy" />
+                    </div>
+                    <div class="form-field">
+                        <label class="form-label" for="destination-kind">Type</label>
+                        <select id="destination-kind" class="form-select" @bind="selectedKind" disabled="@busy">
+                            <option value="Public">Public</option>
+                            <option value="Internal">Internal</option>
+                        </select>
+                    </div>
+                    @if (selectedKind == "Internal")
+                    {
+                        <div class="form-field">
+                            <label class="form-label" for="destination-pins">Exact IP pins</label>
+                            <input id="destination-pins" class="form-control" @bind="pins"
+                                   placeholder="10.0.0.7, 10.0.0.8" disabled="@busy" />
+                            <div class="form-help">Separate multiple addresses with commas. CIDR ranges are not accepted.</div>
+                        </div>
+                    }
+                </div>
+                <div>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="AddAsync" disabled="@busy">Add rule</button>
+                </div>
+            </div>
+        </div>
+    }
+</section>
+
+@code {
+    private WebhookDestinationPolicyResponse? policy;
+    private string selectedMode = "AnyPublic";
+    private string selectedKind = "Public";
+    private string origin = "";
+    private string pins = "";
+    private string? message;
+    private bool isError;
+    private bool busy;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            policy = await CertificateRequestsApiClient.GetWebhookDestinationPolicyAsync();
+            selectedMode = policy.PublicMode.ToString();
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
+    }
+
+    private async Task SaveModeAsync()
+    {
+        busy = true;
+        try
+        {
+            var mode = selectedMode switch
+            {
+                "AnyPublic" => WebhookPublicMode.AnyPublic,
+                "ListedPublic" => WebhookPublicMode.ListedPublic,
+                _ => (WebhookPublicMode?)null
+            };
+            policy = await CertificateRequestsApiClient.SetWebhookDestinationPublicModeAsync(mode);
+            message = "Destination mode saved.";
+            isError = false;
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { busy = false; }
+    }
+
+    private async Task AddAsync()
+    {
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
+            uri.Scheme is not ("http" or "https") || uri.AbsolutePath != "/" ||
+            !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) ||
+            !string.IsNullOrEmpty(uri.UserInfo))
+        {
+            message = "Enter an exact HTTP(S) origin without path, query, or credentials.";
+            isError = true;
+            return;
+        }
+
+        busy = true;
+        try
+        {
+            await CertificateRequestsApiClient.AddWebhookDestinationRuleAsync(new SaveWebhookDestinationRuleRequest
+            {
+                Kind = selectedKind == "Internal" ? WebhookDestinationRuleKind.Internal : WebhookDestinationRuleKind.Public,
+                Scheme = uri.Scheme,
+                Host = uri.IdnHost.TrimEnd('.'),
+                Port = uri.Port,
+                AllowedIpAddresses = selectedKind == "Internal"
+                    ? [.. pins.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)]
+                    : []
+            });
+            origin = "";
+            pins = "";
+            message = "Destination rule added.";
+            isError = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { busy = false; }
+    }
+
+    private async Task ToggleAsync(WebhookDestinationRuleResponse rule)
+    {
+        busy = true;
+        try
+        {
+            await CertificateRequestsApiClient.SetWebhookDestinationRuleEnabledAsync(rule.Id, !rule.Enabled);
+            message = "Destination rule updated.";
+            isError = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { busy = false; }
+    }
+
+    private async Task DeleteAsync(WebhookDestinationRuleResponse rule)
+    {
+        busy = true;
+        try
+        {
+            await CertificateRequestsApiClient.DeleteWebhookDestinationRuleAsync(rule.Id);
+            message = "Destination rule deleted.";
+            isError = false;
+            await ReloadAsync();
+        }
+        catch (Exception ex) { ShowError(ex); }
+        finally { busy = false; }
+    }
+
+    private void ShowError(Exception ex)
+    {
+        message = ex.Message;
+        isError = true;
+    }
+
+    private static string FormatOrigin(WebhookDestinationRuleResponse rule)
+        => $"{rule.Scheme}://{(rule.Host.Contains(':') ? $"[{rule.Host}]" : rule.Host)}:{rule.Port}";
+}

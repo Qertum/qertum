@@ -1,0 +1,141 @@
+@page "/notices"
+@attribute [Authorize(Policy = AppPermissions.CertificatesView)]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject TimeProvider Clock
+
+<PageTitle>Notices — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Expiry <em>Notices</em></Heading>
+    <Subtitle>Certificates nearing expiry, and renewals that are waiting for approval or have failed. A notice closes by itself when the situation ends.</Subtitle>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert" data-test="notices-error">@loadError</div>
+}
+else if (result is null)
+{
+    <LoadingState Text="Loading notices…" />
+}
+else
+{
+    <div class="list-toolbar">
+        <div class="filter-chips">
+            @foreach (var f in Filters)
+            {
+                <button type="button" class="filter-chip @(statusFilter == f.Key ? "active" : "")"
+                        data-test="chip-@f.Key" @onclick="() => SelectFilter(f.Key)">@f.Label</button>
+            }
+        </div>
+        <div class="list-toolbar-spacer"></div>
+        <Pager Page="@CurrentPage" PageSize="PageSize" TotalCount="@result.TotalCount" OnPageChange="GoToPage" />
+        <div class="list-count">@result.TotalCount matching</div>
+    </div>
+
+    @if (result.Items.Count == 0)
+    {
+        <div class="recent-table-section" data-test="notices-empty">
+            <EmptyState Icon="bi-bell" Title="No notices" Message="Nothing needs attention right now." />
+        </div>
+    }
+    else
+    {
+        <div class="recent-table-section animate-in">
+            <table class="table-dashboard" id="notices-table">
+                <thead>
+                    <tr>
+                        <th>Certificate</th>
+                        <th>Notice</th>
+                        <th>Since</th>
+                        <th>Contact</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var n in result.Items)
+                    {
+                        <tr class="clickable-row" data-test="notice-row" @onclick="() => Open(n)">
+                            <td class="td-common-name">@(n.CommonName ?? "(request no longer exists)")</td>
+                            <td>@NoticeDescriptions.Describe(n.Kind, n.Step)</td>
+                            <td>@n.CreatedAtUtc.ToLocalTime().ToString("g")</td>
+                            <td data-test="notice-contact">@Contact(n)</td>
+                            <td>
+                                <span class="badge @(n.Status == NoticeStatus.Open ? "badge-warning" : "badge-neutral")">@n.Status</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>Rows per page.</summary>
+    public const int PageSize = 50;
+
+    private const string AllFilter = "All";
+
+    private sealed record StatusFilter(string Key, string Label, NoticeStatus? Status);
+
+    private static readonly StatusFilter[] Filters =
+    [
+        new("Open", "Open", NoticeStatus.Open),
+        new("Resolved", "Resolved", NoticeStatus.Resolved),
+        new(AllFilter, "All", null),
+    ];
+
+    // The filter and page live in the URL so a link can open the page pre-filtered and a refresh keeps the place.
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? Status { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private int CurrentPage => PageNumber is > 0 ? PageNumber.Value : 1;
+
+    private PagedResult<NoticeItem>? result;
+    private string statusFilter = "Open";
+    private string? loadError;
+
+    private static string Contact(NoticeItem n) =>
+        n.OwnerTeam is null && n.ContactEmail is null
+            ? "Unknown"
+            : string.Join(" · ", new[] { n.OwnerTeam, n.ContactEmail }.Where(v => !string.IsNullOrWhiteSpace(v)));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Unknown values fall back to Open rather than an empty list for a typo.
+        statusFilter = Filters.FirstOrDefault(f => string.Equals(f.Key, Status, StringComparison.OrdinalIgnoreCase))?.Key ?? "Open";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            loadError = null;
+            result = await CertificateRequestsApiClient.GetNoticesAsync(
+                Filters.First(f => f.Key == statusFilter).Status, null, CurrentPage, PageSize);
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.WithCorrelationId($"Failed to load notices: {ex.Message}");
+        }
+    }
+
+    private void Open(NoticeItem n) => NavigationManager.NavigateTo($"certificate-requests/{n.RequestId}");
+
+    private void SelectFilter(string key) => NavigateWith(key == "Open" ? null : key, page: null);
+
+    private void GoToPage(int page) => NavigateWith(statusFilter == "Open" ? null : statusFilter, page);
+
+    private void NavigateWith(string? status, int? page) =>
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["status"] = status,
+            ["page"] = page is > 1 ? page : null
+        }));
+}

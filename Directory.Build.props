@@ -1,0 +1,23 @@
+<Project>
+  <!-- Settings every project shares. A .csproj states only what differs from these. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Build-time enforcement of the root .editorconfig. Its warning-severity style rules (readonly
+         fields, static local functions) fail the build under TreatWarningsAsErrors; suggestion-severity
+         rules stay advisory. Tighten a rule by raising its severity there, not by adding a suppression. -->
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- GenerateDocumentationFile is deliberately not here: only Qertum.Contracts sets it. Contracts
+         is the API's published shape, read by Qertum.ApiClient and its consumers, so its XML docs are
+         required; everywhere else it would turn every undocumented public member into a build error. -->
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Prevent NuGet Audit warnings (like NU1903 for deprecated packages) from being treated as errors -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+    <!-- Suppress VSTest warning when running Microsoft.Testing.Platform -->
+    <NoWarn>$(NoWarn);MTP0001</NoWarn>
+  </PropertyGroup>
+</Project>

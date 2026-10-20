@@ -1,0 +1,331 @@
+@using System.Text.Json
+@inject CertificateRequestsApiClient Api
+@inject IJSRuntime JS
+
+<div class="card issuer-ceremony" data-test="issuer-ceremony">
+    <div class="card-body">
+        @if (error is not null)
+        {
+            <div class="alert alert-danger" role="alert" data-test="ceremony-error">
+                <span class="bi bi-exclamation-triangle-fill me-2"></span>@error
+            </div>
+        }
+
+        @if (step == Step.Define)
+        {
+            <h2 class="h5">Create an intermediate CA</h2>
+            <p class="text-muted">
+                An online parent signs it immediately. An offline parent — or a new offline root — gets a request
+                file to sign on the offline machine; the intermediate waits until you install its certificate.
+            </p>
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-name">Name</label>
+                    <input id="ceremony-name" class="form-control" value="@request.Name" @onchange="e => request.Name = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-cn">Common name (CN)</label>
+                    <input id="ceremony-cn" class="form-control" value="@request.CommonName" @onchange="e => request.CommonName = e.Value?.ToString() ?? string.Empty" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="ceremony-o">Organization (O)</label>
+                    <input id="ceremony-o" class="form-control" value="@request.OrganizationName" @onchange="e => request.OrganizationName = Blank(e)" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="ceremony-ou">Organizational unit (OU)</label>
+                    <input id="ceremony-ou" class="form-control" value="@request.OrganizationalUnit" @onchange="e => request.OrganizationalUnit = Blank(e)" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="ceremony-c">Country (C)</label>
+                    <input id="ceremony-c" class="form-control" maxlength="2" value="@request.Country" @onchange="e => request.Country = Blank(e)" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-st">State (ST)</label>
+                    <input id="ceremony-st" class="form-control" value="@request.State" @onchange="e => request.State = Blank(e)" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-l">Locality (L)</label>
+                    <input id="ceremony-l" class="form-control" value="@request.Locality" @onchange="e => request.Locality = Blank(e)" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="ceremony-algorithm">Key algorithm</label>
+                    <select id="ceremony-algorithm" class="form-select" value="@algorithm" @onchange="e => algorithm = e.Value?.ToString() ?? algorithm">
+                        @foreach (var choice in AlgorithmOptions)
+                        {
+                            <option value="@choice">@choice</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="ceremony-validity">Validity (days)</label>
+                    <input id="ceremony-validity" type="number" min="1" max="36500" class="form-control" value="@request.ValidityDays"
+                           @onchange="e => request.ValidityDays = int.TryParse(e.Value?.ToString(), out var d) ? d : request.ValidityDays" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="ceremony-pathlen">Path length</label>
+                    <select id="ceremony-pathlen" class="form-select" value="@pathLength" @onchange="e => pathLength = e.Value?.ToString() ?? pathLength">
+                        <option value="0">0 — issues leaf certificates only</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="none">none — unlimited</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-permitted-dns">Permitted DNS suffixes (one per line)</label>
+                    <textarea id="ceremony-permitted-dns" class="form-control" rows="3" @bind="permittedDns"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-excluded-dns">Excluded DNS suffixes (one per line)</label>
+                    <textarea id="ceremony-excluded-dns" class="form-control" rows="3" @bind="excludedDns"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-permitted-ip">Permitted IP ranges, CIDR (one per line)</label>
+                    <textarea id="ceremony-permitted-ip" class="form-control" rows="3" @bind="permittedIp"></textarea>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="ceremony-excluded-ip">Excluded IP ranges, CIDR (one per line)</label>
+                    <textarea id="ceremony-excluded-ip" class="form-control" rows="3" @bind="excludedIp"></textarea>
+                </div>
+                <div class="col-12">
+                    <label class="form-label" for="ceremony-parent">Parent</label>
+                    <select id="ceremony-parent" class="form-select" value="@parent" @onchange="e => parent = e.Value?.ToString() ?? string.Empty">
+                        @foreach (var issuer in OnlineParents)
+                        {
+                            <option value="@issuer.Id">@issuer.Name — sign now (online)</option>
+                        }
+                        @foreach (var issuer in OfflineParents)
+                        {
+                            <option value="@issuer.Id">@issuer.Name — sign offline</option>
+                        }
+                        <option value="">(new offline root) — sign offline</option>
+                    </select>
+                </div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+                <button type="button" class="btn btn-primary" data-test="ceremony-submit" disabled="@busy" @onclick="CreateAsync">Create</button>
+                <button type="button" class="btn btn-outline-secondary" @onclick="CloseAsync">Cancel</button>
+            </div>
+        }
+        else if (step == Step.Offline && requestFile is not null)
+        {
+            <div data-test="ceremony-sign-step">
+                <h2 class="h5">Sign "@requestFile.Name" offline</h2>
+                <p>
+                    Validity @requestFile.ValidityDays days, path length @(requestFile.PathLength?.ToString() ?? "unlimited"),
+                    constraints: @ConstraintSummary(requestFile.PermittedDnsSuffixes, requestFile.ExcludedDnsSuffixes, requestFile.PermittedIpRanges, requestFile.ExcludedIpRanges).
+                </p>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-primary" data-test="ceremony-download-csr" @onclick="DownloadCsrAsync">
+                        <span class="bi bi-download me-1" aria-hidden="true"></span>Download CSR
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" data-test="ceremony-download-request" @onclick="DownloadRequestFileAsync">
+                        <span class="bi bi-file-earmark-code me-1" aria-hidden="true"></span>Download full request file (JSON)
+                    </button>
+                </div>
+                <p class="text-muted small mt-2 mb-0">The CSR is all OpenSSL needs. The JSON file also carries the requested validity and constraints, and is what <code>qca root sign</code> reads.</p>
+                <p class="mt-3 mb-1">On the offline machine, with the root created by <code>qca root init</code>:</p>
+                <pre class="mb-2"><code>qca root sign --dir &lt;root-dir&gt; --request @RequestFileName</code></pre>
+                <p class="mb-1">Or with OpenSSL, from the downloaded CSR:</p>
+                <pre class="mb-2"><code>openssl x509 -req -in @CsrFileName -CA root.pem -CAkey root.key -copy_extensions copy -days @requestFile.ValidityDays -out intermediate.pem</code></pre>
+                <p class="text-muted small">The CSR carries the path length and name constraints as requested extensions; <code>-copy_extensions copy</code> keeps them. That option needs OpenSSL 3.2 or newer; LibreSSL (the macOS default) and older OpenSSL reject it with "unknown option -copy_extensions". Use <code>qca root sign</code> there, since without the option the constraints are silently dropped.</p>
+            </div>
+
+            <div class="mt-4" data-test="ceremony-install-step">
+                <h3 class="h6">Install the signed certificate</h3>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label" for="ceremony-cert-file">Intermediate certificate (PEM)</label>
+                        <InputFile id="ceremony-cert-file" data-test="cert-file" class="form-control" accept=".pem,.crt,.cer" OnChange="e => ReadPemAsync(e, pem => certificatePem = pem)" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="ceremony-chain-file">Chain up to the root (PEM)</label>
+                        <InputFile id="ceremony-chain-file" data-test="chain-file" class="form-control" accept=".pem,.crt,.cer" OnChange="e => ReadPemAsync(e, pem => chainPem = pem)" />
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <button type="button" class="btn btn-primary" data-test="ceremony-install" disabled="@(busy || certificatePem is null || chainPem is null)" @onclick="InstallAsync">Install</button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CloseAsync">Finish later</button>
+                </div>
+            </div>
+        }
+        else if (step == Step.Done)
+        {
+            <div class="alert alert-success" role="status" data-test="ceremony-done">
+                <span class="bi bi-check-circle-fill me-2"></span>@doneMessage
+            </div>
+            <button type="button" class="btn btn-outline-secondary" @onclick="CloseAsync">Close</button>
+        }
+    </div>
+</div>
+
+@code {
+    private enum Step { Define, Offline, Done }
+
+    /// <summary>Known issuers, for the parent choices.</summary>
+    [Parameter] public IReadOnlyList<IssuerResponse> Issuers { get; set; } = [];
+
+    /// <summary>A PendingCertificate issuer: open straight at the offline-signing and install step.</summary>
+    [Parameter] public IssuerId? ResumeIssuerId { get; set; }
+
+    /// <summary>Raised after an issuer was created or installed.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>Raised when the ceremony is closed.</summary>
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    /// <summary>Signing algorithms a CA key may use: everything that signs except paired hybrids.</summary>
+    internal static IReadOnlyList<string> AlgorithmOptions { get; } = Enum.GetValues<CertificateKeyAlgorithm>()
+        .Where(a => a.CanSign() && a.GetFamily() != AlgorithmFamily.Hybrid)
+        .Select(a => a.ToCanonicalString())
+        .ToList();
+
+    private Step step = Step.Define;
+    private readonly CreateIntermediateRequest request = new();
+    private string algorithm = CertificateKeyAlgorithm.EcdsaP384.ToCanonicalString();
+    private string pathLength = "0";
+    private string? permittedDns, excludedDns, permittedIp, excludedIp;
+    private string parent = string.Empty;
+    private IntermediateRequestFile? requestFile;
+    private string? certificatePem, chainPem;
+    private string? error, doneMessage;
+    private bool busy;
+
+    private IEnumerable<IssuerResponse> OnlineParents => Issuers.Where(i =>
+        i.Status == IssuerStatus.Active && i.KeyCustody == IssuerKeyCustody.Online);
+
+    private IEnumerable<IssuerResponse> OfflineParents => Issuers.Where(i =>
+        i.Status == IssuerStatus.Active && i.KeyCustody == IssuerKeyCustody.Offline);
+
+    private string CsrFileName => $"{requestFile?.IssuerId}.csr.pem";
+    private string RequestFileName => $"{requestFile?.IssuerId}.request.json";
+
+    protected override async Task OnInitializedAsync()
+    {
+        parent = OnlineParents.FirstOrDefault(i => i.IsDefault)?.Id.ToString() ?? string.Empty;
+        if (ResumeIssuerId is { } id)
+        {
+            try
+            {
+                requestFile = await Api.GetIntermediateRequestFileAsync(id);
+                step = Step.Offline;
+            }
+            catch (ApiProblemException ex)
+            {
+                error = Describe(ex);
+            }
+            catch (HttpRequestException ex)
+            {
+                error = $"Could not load the request file: {ex.Message}";
+            }
+        }
+    }
+
+    private async Task CreateAsync()
+    {
+        error = null;
+        busy = true;
+        try
+        {
+            request.KeyAlgorithm = CertificateKeyAlgorithmExtensions.Parse(algorithm);
+            request.PathLength = pathLength == "none" ? null : int.Parse(pathLength, System.Globalization.CultureInfo.InvariantCulture);
+            request.PermittedDnsSuffixes = Lines(permittedDns);
+            request.ExcludedDnsSuffixes = Lines(excludedDns);
+            request.PermittedIpRanges = Lines(permittedIp);
+            request.ExcludedIpRanges = Lines(excludedIp);
+            request.ParentIssuerId = Guid.TryParse(parent, out var parentId) ? new IssuerId(parentId) : null;
+
+            var created = await Api.CreateIntermediateAsync(request);
+            await OnChanged.InvokeAsync();
+            if (created.RequestFile is null)
+            {
+                doneMessage = $"\"{created.Issuer.Name}\" was signed by its parent and is active.";
+                step = Step.Done;
+            }
+            else
+            {
+                requestFile = created.RequestFile;
+                step = Step.Offline;
+            }
+        }
+        catch (ApiProblemException ex)
+        {
+            error = Describe(ex);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task InstallAsync()
+    {
+        if (requestFile is null || certificatePem is null || chainPem is null) return;
+        error = null;
+        busy = true;
+        try
+        {
+            var installed = await Api.InstallIssuerCertificateAsync(requestFile.IssuerId, new InstallIssuerCertificateRequest(certificatePem, chainPem));
+            await OnChanged.InvokeAsync();
+            doneMessage = $"\"{installed.Name}\" is installed and active.";
+            step = Step.Done;
+        }
+        catch (ApiProblemException ex)
+        {
+            // Refusals name the constraint the signed certificate weakened; show them as sent.
+            error = Describe(ex);
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task DownloadRequestFileAsync()
+    {
+        if (requestFile is null) return;
+        var json = JsonSerializer.SerializeToUtf8Bytes(requestFile, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
+        await JS.InvokeVoidAsync("downloadFile", RequestFileName, "application/json", Convert.ToBase64String(json));
+    }
+
+    private async Task DownloadCsrAsync()
+    {
+        if (requestFile is null) return;
+        var pem = System.Text.Encoding.UTF8.GetBytes(requestFile.CsrPem);
+        await JS.InvokeVoidAsync("downloadFile", CsrFileName, "application/x-pem-file", Convert.ToBase64String(pem));
+    }
+
+    private async Task ReadPemAsync(InputFileChangeEventArgs e, Action<string> assign)
+    {
+        error = null;
+        try
+        {
+            using var reader = new StreamReader(e.File.OpenReadStream(maxAllowedSize: 262_144));
+            assign(await reader.ReadToEndAsync());
+        }
+        catch (IOException)
+        {
+            error = "Could not read the file.";
+        }
+    }
+
+    private Task CloseAsync() => OnClosed.InvokeAsync();
+
+    private static string? Blank(ChangeEventArgs e) =>
+        string.IsNullOrWhiteSpace(e.Value?.ToString()) ? null : e.Value!.ToString()!.Trim();
+
+    private static List<string> Lines(string? text) =>
+        (text ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private static string Describe(ApiProblemException ex) => ex.WithCorrelationId(ex.Detail ?? ex.Title);
+
+    internal static string ConstraintSummary(IReadOnlyList<string> permittedDnsSuffixes, IReadOnlyList<string> excludedDnsSuffixes,
+        IReadOnlyList<string> permittedIpRanges, IReadOnlyList<string> excludedIpRanges)
+    {
+        var parts = new List<string>();
+        if (permittedDnsSuffixes.Count > 0) parts.Add("permit DNS " + string.Join(", ", permittedDnsSuffixes));
+        if (excludedDnsSuffixes.Count > 0) parts.Add("exclude DNS " + string.Join(", ", excludedDnsSuffixes));
+        if (permittedIpRanges.Count > 0) parts.Add("permit IP " + string.Join(", ", permittedIpRanges));
+        if (excludedIpRanges.Count > 0) parts.Add("exclude IP " + string.Join(", ", excludedIpRanges));
+        return parts.Count == 0 ? "none" : string.Join("; ", parts);
+    }
+}

@@ -1,0 +1,99 @@
+<div data-step="Purpose">
+    <h2 class="form-section-title">What do you need a certificate for?</h2>
+
+    @if (Options.Templates.Count == 0)
+    {
+        <div class="alert alert-warning">
+            <AuthorizeView Roles="admin">
+                <Authorized>
+                    No certificate templates are configured.
+                    <a href="/certificate-templates/new">Create one</a> before requesting a certificate.
+                </Authorized>
+                <NotAuthorized>
+                    No certificate templates are available to your roles; ask an administrator.
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    }
+    else
+    {
+        <div class="option-list">
+            @foreach (var option in Options.Purposes)
+            {
+                var (title, detail, icon) = Describe(option.Purpose);
+                <button type="button" class="option-card" data-purpose="@option.Purpose"
+                        aria-pressed="@(ExpandedPurpose == option.Purpose ? "true" : "false")"
+                        @onclick="() => OnPurposeChosen.InvokeAsync(option.Purpose)">
+                    <span class="bi @icon option-card-icon" aria-hidden="true"></span>
+                    <div class="option-card-body">
+                        <strong>@title</strong>
+                        <span>@detail</span>
+                    </div>
+                    <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+                </button>
+
+                @if (ExpandedPurpose == option.Purpose)
+                {
+                    <div class="option-list ms-5">
+                        @foreach (var template in TemplatesFor(option))
+                        {
+                            @TemplateCard(template)
+                        }
+                    </div>
+                }
+            }
+
+            <button type="button" class="option-card" data-purpose="direct"
+                    aria-pressed="@(ShowAllTemplates ? "true" : "false")" @onclick="OnDirectChosen">
+                <span class="bi bi-list-ul option-card-icon" aria-hidden="true"></span>
+                <div class="option-card-body">
+                    <strong>Choose template directly</strong>
+                    <span>Skip the guidance and pick any template.</span>
+                </div>
+                <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+            </button>
+
+            @if (ShowAllTemplates)
+            {
+                <div class="option-list ms-5">
+                    @foreach (var template in Options.Templates)
+                    {
+                        @TemplateCard(template)
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public EnrollmentOptionsResponse Options { get; set; } = default!;
+    [Parameter] public EnrollmentPurpose? ExpandedPurpose { get; set; }
+    [Parameter] public bool ShowAllTemplates { get; set; }
+    [Parameter] public EventCallback<EnrollmentPurpose> OnPurposeChosen { get; set; }
+    [Parameter] public EventCallback OnDirectChosen { get; set; }
+    [Parameter] public EventCallback<EnrollmentTemplateSummary> OnTemplateChosen { get; set; }
+
+    private IEnumerable<EnrollmentTemplateSummary> TemplatesFor(EnrollmentPurposeOption option) =>
+        Options.Templates.Where(t => option.TemplateTypeKeys.Contains(t.TypeKey));
+
+    private RenderFragment TemplateCard(EnrollmentTemplateSummary template) => @<button type="button" class="option-card"
+            data-template="@template.TypeKey" @onclick="() => OnTemplateChosen.InvokeAsync(template)">
+        <span class="bi bi-file-earmark-text option-card-icon" aria-hidden="true"></span>
+        <div class="option-card-body">
+            <strong>@template.Name</strong>
+            <span>@(template.Description ?? template.TypeKey)</span>
+        </div>
+        <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+    </button>;
+
+    private static (string Title, string Detail, string Icon) Describe(EnrollmentPurpose purpose) => purpose switch
+    {
+        EnrollmentPurpose.WebServer => ("Secure a web server", "TLS certificate for a website, API or load balancer.", "bi-globe2"),
+        EnrollmentPurpose.ClientAuthentication => ("Authenticate a client or device", "Mutual TLS for users, services and devices.", "bi-phone"),
+        EnrollmentPurpose.Email => ("Protect email (S/MIME)", "Sign and encrypt email for an address.", "bi-envelope-fill"),
+        EnrollmentPurpose.CodeSigning => ("Sign code", "Sign software, scripts and packages.", "bi-code-slash"),
+        EnrollmentPurpose.SubordinateCa => ("Create a subordinate CA", "An intermediate CA signed by this root CA.", "bi-diagram-3-fill"),
+        _ => ("Something else", "Templates without a recognized purpose.", "bi-three-dots")
+    };
+}

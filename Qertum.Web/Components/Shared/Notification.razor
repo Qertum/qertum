@@ -1,0 +1,17 @@
+@namespace Qertum.Web.Components.Shared
+
+@if (!string.IsNullOrWhiteSpace(Message))
+{
+    <div class="alert alert-@Type alert-dismissible fade show" role="alert" data-test="notification">
+        <span class="bi @(Type == "success" ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") me-2"></span>
+        @Message
+        <button type="button" class="btn-close" aria-label="Close" @onclick="OnDismiss"></button>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Message { get; set; }
+    /// <summary>Bootstrap alert type: <c>success</c>, <c>danger</c>, <c>warning</c> or <c>info</c>.</summary>
+    [Parameter] public string Type { get; set; } = "success";
+    [Parameter] public EventCallback OnDismiss { get; set; }
+}

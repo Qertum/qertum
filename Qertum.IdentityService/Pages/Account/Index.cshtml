@@ -1,0 +1,67 @@
+@page
+@model Qertum.IdentityService.Pages.Account.IndexModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "Profile";
+}
+
+<form class="card wide" method="post">
+    <h1><em>Profile</em></h1>
+    <p class="card-sub">Review your account details and update your display name or email.</p>
+
+    <div class="field">
+        <label>Username</label>
+        <div class="readonly mono">@Model.Username</div>
+    </div>
+
+    <div class="field">
+        <label>Roles</label>
+        <ul class="role-list">
+            @foreach (var role in Model.Roles)
+            {
+                <li>
+                    <span class="chip">@role</span>
+                    <span class="muted">@(Model.DescriptionFor(role) ?? "No description")</span>
+                </li>
+            }
+        </ul>
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.DisplayName">Display name</label>
+        <input asp-for="Input.DisplayName" placeholder="Jane Doe" />
+    </div>
+
+    <div class="field">
+        <label asp-for="Input.Email">Email</label>
+        <input asp-for="Input.Email" type="email" placeholder="jane@contoso.com" />
+    </div>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="error">
+            <span class="bi bi-exclamation-triangle-fill"></span>
+            <span>@Model.ErrorMessage</span>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="success">
+            <span class="bi bi-check-circle-fill"></span>
+            <span>@Model.StatusMessage</span>
+        </div>
+    }
+
+    <button type="submit">
+        <span class="bi bi-check2"></span>
+        Save profile
+    </button>
+    <a class="button secondary" href="/Account/ChangePassword">
+        <span class="bi bi-key"></span>
+        Change password
+    </a>
+    <a class="button secondary" href="/Account/Logout">
+        <span class="bi bi-box-arrow-right"></span>
+        Sign out
+    </a>
+</form>

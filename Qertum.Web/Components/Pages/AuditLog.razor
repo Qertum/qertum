@@ -1,0 +1,242 @@
+@page "/audit-log"
+@attribute [Authorize(Roles = "admin")]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+<PageTitle>Audit Log — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Audit <em>Log</em></Heading>
+    <Subtitle>Complete record of every state transition and CA settings change.</Subtitle>
+    <Actions>        <div class="audit-header-controls">
+            <select class="form-control audit-page-size" id="audit-page-size" @bind="pageSize" @bind:after="LoadPageAsync">
+                <option value="50">50 per page</option>
+                <option value="100">100 per page</option>
+                <option value="200">200 per page</option>
+            </select>
+        </div>
+    </Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>@loadError
+    </div>
+}
+else if (entries is null)
+{
+    <LoadingState Text="Loading audit log…" />
+}
+else if (entries.Count == 0 && currentPage == 1)
+{
+    <div class="recent-table-section">
+        <EmptyState Icon="bi-journal-text" Title="No audit entries yet" Message="Audit entries are created on every certificate lifecycle event." />
+    </div>
+}
+else
+{
+    <!-- Summary chips -->
+    <div class="audit-chips animate-in">
+        @foreach (var grp in ActionGroups)
+        {
+            <div class="audit-chip @grp.CssClass" @onclick="() => ToggleFilter(grp.Action)"
+                 title="Filter by @grp.Label" id="audit-chip-@grp.Action.ToLowerInvariant()">
+                <span class="bi @grp.Icon"></span>
+                <span class="audit-chip-label">@grp.Label</span>
+                <span class="audit-chip-count">@(entries.Count(e => e.Action == grp.Action))</span>
+                @if (activeFilter == grp.Action)
+                {
+                    <span class="bi bi-x-circle-fill audit-chip-clear"></span>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="recent-table-section animate-in">
+        <div class="recent-table-header">
+            <div class="recent-table-title">
+                @if (activeFilter is not null)
+                {
+                    <span>Filtered: <strong>@activeFilter</strong></span>
+                    <button class="btn-link audit-clear-filter ms-2" @onclick="() => activeFilter = null">Clear filter</button>
+                }
+                else
+                {
+                    <span>@VisibleEntries.Count entries</span>
+                }
+            </div>
+            <div class="audit-pagination">
+                <button class="btn btn-outline-secondary btn-sm" @onclick="PrevPage"
+                        disabled="@(currentPage <= 1)" id="audit-prev-page">
+                    <span class="bi bi-chevron-left"></span>
+                </button>
+                <span class="audit-page-label">Page @currentPage</span>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="NextPage"
+                        disabled="@(entries.Count < pageSize)" id="audit-next-page">
+                    <span class="bi bi-chevron-right"></span>
+                </button>
+            </div>
+        </div>
+
+        <table class="table-dashboard" id="audit-log-table">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Action</th>
+                    <th>Resource</th>
+                    <th>Performed By</th>
+                    <th>Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in VisibleEntries)
+                {
+                    <tr class="@(entry.ResourceId.HasValue ? "clickable-row" : "")"
+                        @onclick="() => NavigateToResource(entry)"
+                        id="audit-row-@entry.Id">
+                        <td class="audit-time">
+                            <span title="@entry.OccurredAtUtc.ToString("o")">
+                                @entry.OccurredAtUtc.ToLocalTime().ToString("g")
+                            </span>
+                        </td>
+                        <td>
+                            <span class="audit-action-badge @GetActionClass(entry.Action)">
+                                <span class="bi @GetActionIcon(entry.Action)"></span>
+                                @entry.Action
+                            </span>
+                        </td>
+                        <td class="td-common-name">
+                            @if (!string.IsNullOrWhiteSpace(entry.ResourceName))
+                            {
+                                @entry.ResourceName
+                            }
+                            else if (entry.ResourceId.HasValue)
+                            {
+                                <span class="text-muted-inline">@entry.ResourceId.Value.ToString("D")[..8]…</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted-inline">—</span>
+                            }
+                        </td>
+                        <td class="audit-performer">@entry.PerformedBy</td>
+                        <td class="audit-detail">
+                            @if (!string.IsNullOrWhiteSpace(entry.Detail))
+                            {
+                                <span title="@entry.Detail">@TruncateDetail(entry.Detail)</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted-inline">—</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<AuditLogEntry>? entries;
+    private string? loadError;
+    private int currentPage = 1;
+    private int pageSize = 100;
+    private string? activeFilter;
+
+    private IReadOnlyList<AuditLogEntry> VisibleEntries =>
+        entries is null ? [] :
+        activeFilter is null ? entries :
+        entries.Where(e => e.Action == activeFilter).ToList();
+
+    private record ActionGroup(string Action, string Label, string CssClass, string Icon);
+
+    private static readonly ActionGroup[] ActionGroups =
+    [
+        new("Created",        "Created",         "audit-chip-created",  "bi-file-earmark-plus"),
+        new("Approved",       "Approved",        "audit-chip-approved", "bi-check-circle"),
+        new("Rejected",       "Rejected",        "audit-chip-rejected", "bi-x-circle"),
+        new("Issued",         "Issued",          "audit-chip-issued",   "bi-shield-check"),
+        new("Revoked",        "Revoked",         "audit-chip-revoked",  "bi-shield-minus"),
+        new("Renewed",        "Renewed",         "audit-chip-renewed",  "bi-arrow-repeat"),
+        new("SettingsUpdated","Settings Updated","audit-chip-settings", "bi-gear"),
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPageAsync();
+    }
+
+    private async Task LoadPageAsync()
+    {
+        try
+        {
+            loadError = null;
+            entries = null;
+            entries = await CertificateRequestsApiClient.GetAuditLogAsync(currentPage, pageSize);
+        }
+        catch (Exception ex) { loadError = ex.Message; }
+    }
+
+    private async Task PrevPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+            await LoadPageAsync();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        currentPage++;
+        await LoadPageAsync();
+    }
+
+    private void ToggleFilter(string action)
+    {
+        activeFilter = activeFilter == action ? null : action;
+    }
+
+    private void NavigateToResource(AuditLogEntry entry)
+    {
+        if (!entry.ResourceId.HasValue) return;
+
+        var action = entry.Action;
+        if (action is "Issued" or "Revoked")
+            NavigationManager.NavigateTo($"certificates/{entry.ResourceId}");
+        else if (action is "Created" or "Approved" or "Rejected" or "Renewed")
+            NavigationManager.NavigateTo($"certificate-requests/{entry.ResourceId}");
+    }
+
+    private static string GetActionClass(string action) => action switch
+    {
+        "Created"         => "audit-action-created",
+        "Approved"        => "audit-action-approved",
+        "Rejected"        => "audit-action-rejected",
+        "Issued"          => "audit-action-issued",
+        "Revoked"         => "audit-action-revoked",
+        "Renewed"         => "audit-action-renewed",
+        "SettingsUpdated" => "audit-action-settings",
+        _                 => "audit-action-default"
+    };
+
+    private static string GetActionIcon(string action) => action switch
+    {
+        "Created"         => "bi-file-earmark-plus",
+        "Approved"        => "bi-check-circle-fill",
+        "Rejected"        => "bi-x-circle-fill",
+        "Issued"          => "bi-shield-fill-check",
+        "Revoked"         => "bi-shield-fill-minus",
+        "Renewed"         => "bi-arrow-repeat",
+        "SettingsUpdated" => "bi-gear-fill",
+        _                 => "bi-circle"
+    };
+
+    private static string TruncateDetail(string? detail)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) return string.Empty;
+        return detail.Length > 60 ? detail[..60] + "…" : detail;
+    }
+}

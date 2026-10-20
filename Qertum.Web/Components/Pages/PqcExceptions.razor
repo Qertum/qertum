@@ -1,0 +1,271 @@
+@page "/pqc-exceptions"
+@attribute [Authorize(Roles = "admin")]
+@using Qertum.Services
+@inject CertificateRequestsApiClient Api
+@inject TimeProvider Clock
+
+<PageTitle>PQC exceptions — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>PQC <em>exceptions</em></Heading>
+    <Subtitle>
+                Time-limited permission for one identity to keep a classical key while its template is in the Pilot or Enforce
+                stage. An exception covers only the names it lists, never a certificate authority key, and lapses on its own.
+            </Subtitle>
+</PageHeader>
+
+<Notification Message="@notification" Type="@notificationType" OnDismiss="@(() => notification = null)" />
+
+<div class="form-card form-card-full mb-4">
+    <div class="form-section">
+        <div class="form-section-title">
+            <span class="bi bi-plus-circle-fill form-section-icon orange"></span>
+            Grant an exception
+        </div>
+        <div class="form-section-body">
+            <div class="form-row cols-2">
+                <div class="form-field">
+                    <label class="form-label" for="pqc-template">Template</label>
+                    <select id="pqc-template" class="form-select" @bind="templateKey">
+                        @foreach (var template in templates)
+                        {
+                            <option value="@template.TypeKey">@template.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="form-label" for="pqc-family">Classical family</label>
+                    <select id="pqc-family" class="form-select" @bind="family">
+                        <option value="@PqcExceptionFamily.Rsa">RSA</option>
+                        <option value="@PqcExceptionFamily.Ecdsa">ECDSA</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row cols-2">
+                <div class="form-field">
+                    <label class="form-label" for="pqc-name">DNS name or suffix</label>
+                    <input id="pqc-name" class="form-control" placeholder="legacy.corp.example" @bind="namePattern" @bind:event="oninput" />
+                    <div class="form-help mt-2">
+                        An exact name or a suffix (it also covers every name below it). Every DNS name on the request must be
+                        covered; wildcards and IP addresses are not accepted.
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label class="form-label" for="pqc-days">Lasts (days)</label>
+                    <input id="pqc-days" class="form-control" type="number" @bind="days" @bind:event="oninput" />
+                    <div class="form-help mt-2">From 1 to 3650; the server may allow fewer.</div>
+                </div>
+            </div>
+            <div class="form-row cols-1">
+                <div class="form-field">
+                    <label class="form-label" for="pqc-reason">Reason</label>
+                    <input id="pqc-reason" class="form-control" maxlength="500" @bind="reason" @bind:event="oninput" />
+                </div>
+            </div>
+            @if (formError is not null)
+            {
+                <div class="text-danger small mb-2" data-test="form-error">@formError</div>
+            }
+            <button class="btn btn-primary" data-action="create" disabled="@isSaving" @onclick="CreateAsync">Grant exception</button>
+        </div>
+    </div>
+</div>
+
+<div class="form-check mb-3">
+    <input id="show-inactive" class="form-check-input" type="checkbox" checked="@showInactive" @onchange="ToggleInactiveAsync" />
+    <label class="form-check-label" for="show-inactive">Show expired and revoked</label>
+</div>
+
+@if (loadError is not null)
+{
+    <div class="alert alert-danger" role="alert" data-test="load-error">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>Could not load exceptions: @loadError
+    </div>
+}
+else if (exceptions is null)
+{
+    <LoadingState Text="Loading exceptions…" />
+}
+else if (exceptions.Count == 0)
+{
+    <p class="text-muted" data-test="empty">No exceptions.</p>
+}
+else
+{
+    <div class="scroll-x">
+        <table class="table-dashboard">
+            <thead>
+                <tr>
+                    <th>State</th>
+                    <th>Template</th>
+                    <th>Family</th>
+                    <th>Name</th>
+                    <th>Expires</th>
+                    <th>Reason</th>
+                    <th>Granted by</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in exceptions)
+                {
+                    <tr data-exception="@item.Id">
+                        <td>
+                            @if (item.RevokedAtUtc is not null)
+                            {
+                                <span class="badge badge-neutral">Revoked</span>
+                            }
+                            else if (item.IsActive)
+                            {
+                                <span class="badge badge-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-warning">Expired</span>
+                            }
+                        </td>
+                        <td>@item.TemplateTypeKey</td>
+                        <td>@item.Family</td>
+                        <td><code>@item.NamePattern</code></td>
+                        <td>@item.ExpiresAtUtc.ToString("yyyy-MM-dd")</td>
+                        <td>@item.Reason</td>
+                        <td>@item.GrantedBy</td>
+                        <td class="text-nowrap">
+                            @if (item.RevokedAtUtc is null)
+                            {
+                                @if (confirmRevokeId == item.Id)
+                                {
+                                    <button class="btn btn-sm btn-danger me-1" data-action="confirm-revoke" @onclick="() => RevokeAsync(item)">Revoke</button>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => confirmRevokeId = null">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-danger" data-action="revoke" @onclick="() => confirmRevokeId = item.Id">Revoke</button>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    private List<PqcExceptionResponse>? exceptions;
+    private IReadOnlyList<CertificateTemplate> templates = [];
+    private string? loadError;
+    private string? notification;
+    private string notificationType = "success";
+    private bool showInactive;
+    private bool isSaving;
+    private PqcExceptionId? confirmRevokeId;
+
+    private string templateKey = string.Empty;
+    private PqcExceptionFamily family = PqcExceptionFamily.Rsa;
+    private string namePattern = string.Empty;
+    private int days = 90;
+    private string reason = string.Empty;
+    private string? formError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            templates = await Api.GetCertificateTemplatesAsync();
+            templateKey = templates.FirstOrDefault()?.TypeKey ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            exceptions = [.. await Api.GetPqcExceptionsAsync(showInactive)];
+            loadError = null;
+        }
+        catch (Exception ex)
+        {
+            loadError = ex.Message;
+        }
+    }
+
+    private async Task ToggleInactiveAsync(ChangeEventArgs args)
+    {
+        showInactive = args.Value is true;
+        await LoadAsync();
+    }
+
+    // The same rules the server enforces, so an obviously wrong form never costs a round trip.
+    private string? Validate()
+    {
+        var pattern = namePattern.Trim();
+        if (string.IsNullOrWhiteSpace(templateKey)) return "Choose a template.";
+        if (pattern.Length == 0) return "Enter a DNS name or suffix.";
+        if (pattern.Contains('*')) return "Wildcards are not accepted; use the suffix instead (corp.example covers *.corp.example).";
+        if (pattern.Contains(' ') || System.Net.IPAddress.TryParse(pattern, out _)) return "Enter a DNS name, not an IP address.";
+        if (days is < 1 or > 3650) return "Days must be between 1 and 3650.";
+        if (string.IsNullOrWhiteSpace(reason)) return "Give a reason.";
+        return null;
+    }
+
+    private async Task CreateAsync()
+    {
+        formError = Validate();
+        if (formError is not null) return;
+
+        isSaving = true;
+        try
+        {
+            var created = await Api.CreatePqcExceptionAsync(new CreatePqcExceptionRequest
+            {
+                TemplateTypeKey = templateKey,
+                NamePattern = namePattern.Trim(),
+                Family = family,
+                ExpiresAtUtc = Now.AddDays(days),
+                Reason = reason.Trim()
+            });
+            Notify($"Exception granted for {created.NamePattern} until {created.ExpiresAtUtc:yyyy-MM-dd}.", "success");
+            namePattern = string.Empty;
+            reason = string.Empty;
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId($"Could not grant the exception: {ex.Message}"), "danger");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task RevokeAsync(PqcExceptionResponse item)
+    {
+        confirmRevokeId = null;
+        try
+        {
+            await Api.RevokePqcExceptionAsync(item.Id);
+            Notify($"Exception for {item.NamePattern} revoked.", "success");
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId($"Could not revoke the exception: {ex.Message}"), "danger");
+        }
+    }
+
+    private void Notify(string message, string type)
+    {
+        notification = message;
+        notificationType = type;
+    }
+}

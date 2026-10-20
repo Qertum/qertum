@@ -1,0 +1,103 @@
+@page "/expired"
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject TimeProvider Clock
+
+<PageTitle>Expired Certificates — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Expired <em>Certificates</em></Heading>
+    <Subtitle>Certificates that have passed their validity date</Subtitle>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (certificates is null)
+{
+    <LoadingState Text="Loading expired certificates…" />
+}
+else if (totalCount == 0)
+{
+    <div class="recent-table-section">
+        <EmptyState Glyph="✅" Title="No expired certificates" Message="All active certificates are within their validity period." />
+    </div>
+}
+else
+{
+    <div class="recent-table-section animate-in">
+        <table class="table-dashboard" id="expired-certificates-table">
+            <thead>
+                <tr>
+                    <th>Common Name</th>
+                    <th>Requested By</th>
+                    <th>Valid From</th>
+                    <th>Expired On</th>
+                    <th>Expired Since</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cert in certificates)
+                {
+                    <tr class="clickable-row" @onclick="() => GoTo(cert.Id)">
+                        <td class="td-common-name">
+                            <span class="bi bi-shield-fill-x cert-row-icon-expired"></span>
+                            @cert.CommonName
+                        </td>
+                        <td>@cert.RequestedBy</td>
+                        <td>@(cert.ValidFrom?.ToLocalTime().ToString("d") ?? "—")</td>
+                        <td>@(cert.ValidTo?.ToLocalTime().ToString("d") ?? "—")</td>
+                        <td>@GetExpiredSince(cert.ValidTo)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <Pager Page="@CurrentPage" PageSize="PageSize" TotalCount="@totalCount" OnPageChange="GoToPage" />
+}
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>Rows per request; the server pages, so this caps the fetch, not the reach.</summary>
+    public const int PageSize = 50;
+
+    private IReadOnlyList<CertificateRequest>? certificates;
+    private int totalCount;
+
+    // The page lives in the URL so the one being read survives a refresh or a shared link.
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private int CurrentPage => PageNumber is > 0 ? PageNumber.Value : 1;
+    private string? loadError;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            var result = await CertificateRequestsApiClient.GetExpiredAsync(CurrentPage, PageSize);
+            certificates = result.Items;
+            totalCount = result.TotalCount;
+        }
+        catch (Exception ex) { loadError = $"Failed to load: {ex.Message}"; }
+    }
+
+    private string GetExpiredSince(DateTime? validTo)
+    {
+        if (!validTo.HasValue) return "—";
+        var elapsed = Now - validTo.Value;
+        if (elapsed.TotalDays >= 365) return $"{(int)(elapsed.TotalDays / 365)}y {(int)(elapsed.TotalDays % 365)}d ago";
+        if (elapsed.TotalDays >= 30) return $"{(int)(elapsed.TotalDays / 30)}mo {(int)(elapsed.TotalDays % 30)}d ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    private void GoTo(Guid id) => NavigationManager.NavigateTo($"certificates/{id}");
+
+    private void GoToPage(int page) =>
+        NavigationManager.NavigateTo(NavigationManager.GetUriWithQueryParameter(
+            "page", page > 1 ? (int?)page : null));
+}

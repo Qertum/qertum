@@ -1,0 +1,247 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject Auth.IdentityAuthority Identity
+@inject Auth.CircuitTokenAccessor TokenCapture
+@inject Auth.IStepUpNotifier StepUp
+@inject TimeProvider Clock
+@inject NavigationManager Nav
+@inject CertificateRequestsApiClient ApiClient
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row">
+            <div class="breadcrumb-wrap">
+                @if (!string.IsNullOrEmpty(currentCrumb))
+                {
+                    <span class="breadcrumb-current">@currentCrumb</span>
+                }
+            </div>
+
+            <div class="top-row-spacer"></div>
+
+            <a class="top-action" href="/new-certificate-request" title="New certificate request">
+                <span class="bi bi-plus-lg" aria-hidden="true"></span>
+                <span class="top-action-label">New request</span>
+            </a>
+
+            <AuthorizeView>
+                <Authorized>
+                    <details class="user-menu">
+                        <summary>
+                            <span class="user-avatar" aria-hidden="true">@GetInitials(context.User.Identity?.Name)</span>
+                            <span class="user-name">@context.User.Identity?.Name</span>
+                            <span class="bi bi-chevron-down ms-1" aria-hidden="true"></span>
+                        </summary>
+                        <div class="user-menu-panel">
+                            <a href="@Identity.AccountUrl" target="_blank" rel="noopener">
+                                <span class="bi bi-person me-2"></span>Profile
+                            </a>
+                            <a href="@Identity.ChangePasswordUrl" target="_blank" rel="noopener">
+                                <span class="bi bi-key me-2"></span>Change password
+                            </a>
+                            <a href="/me/access">
+                                <span class="bi bi-shield-check me-2"></span>My access
+                            </a>
+                            <div class="user-menu-sep"></div>
+                            <a href="/signout">
+                                <span class="bi bi-box-arrow-right me-2"></span>Sign out
+                            </a>
+                        </div>
+                    </details>
+                </Authorized>
+                <NotAuthorized>
+                    <a class="top-action" href="/">Sign in</a>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+
+        @if (_caInitialized == false)
+        {
+            @if (_pendingRootCaRequestId.HasValue)
+            {
+                <div class="ca-setup-banner ca-setup-banner-pending">
+                    <span class="bi bi-hourglass-split ca-setup-banner-icon" aria-hidden="true"></span>
+                    <span class="ca-setup-banner-text">Root CA request is pending approval — certificates cannot be issued until it is approved.</span>
+                    <AuthorizeView Roles="admin">
+                        <Authorized>
+                            <a href="/certificate-requests/@_pendingRootCaRequestId" class="ca-setup-banner-action">Review request</a>
+                        </Authorized>
+                    </AuthorizeView>
+                </div>
+            }
+            else
+            {
+                <div class="ca-setup-banner">
+                    <span class="bi bi-exclamation-triangle-fill ca-setup-banner-icon" aria-hidden="true"></span>
+                    <span class="ca-setup-banner-text">No CA certificate is configured — certificates cannot be issued.</span>
+                    <AuthorizeView Roles="admin">
+                        <Authorized>
+                            <a href="/onboarding" class="ca-setup-banner-action">Set up CA</a>
+                        </Authorized>
+                        <NotAuthorized>
+                            <span class="ca-setup-banner-hint">Contact an administrator.</span>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                </div>
+            }
+        }
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private string? currentCrumb;
+    private bool? _caInitialized;
+    private Guid? _pendingRootCaRequestId;
+    private string? _lastPath;
+
+    protected override void OnInitialized()
+    {
+        _lastPath = Nav.ToBaseRelativePath(Nav.Uri).Trim('/');
+        UpdateCrumb(Nav.Uri);
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        StepUp.Required += OnStepUpRequired;
+
+        // This runs during the SSR prerender phase (where HttpContext IS available and tokens
+        // CAN be read). If the CA is not configured and the user is an admin, NavigateTo throws
+        // NavigationException which Blazor converts to an HTTP 302 — so the redirect happens
+        // server-side before any HTML is sent to the browser.
+        //
+        // It also re-runs when the interactive circuit connects, which handles the rare case
+        // where prerendering didn't redirect (e.g. the API was transiently unreachable).
+        //
+        // Nav.NavigateTo is intentionally OUTSIDE the catch so NavigationException is never
+        // swallowed — a bare catch{} would silently suppress the prerender redirect.
+        // Capture the session's tokens while HttpContext is still live: the circuit's own
+        // revalidation has no other way to reach them once prerendering ends.
+        await TokenCapture.CaptureAsync();
+
+        bool shouldRedirect = false;
+        try
+        {
+            var currentPath = Nav.ToBaseRelativePath(Nav.Uri).Trim('/');
+            if (currentPath != "onboarding")
+            {
+                var authState = await AuthState;
+                if (authState.User.Identity?.IsAuthenticated == true && authState.User.IsInRole("admin"))
+                {
+                    var status = await ApiClient.GetCaStatusAsync();
+                    _caInitialized = status.IsInitialized;
+                    _pendingRootCaRequestId = status.PendingRootCaRequestId;
+                    shouldRedirect = !status.IsInitialized && !status.PendingRootCaRequestId.HasValue;
+                }
+            }
+        }
+        catch { /* API unreachable — don't block the UI */ }
+
+        if (shouldRedirect)
+            Nav.NavigateTo("/onboarding");
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Fallback for non-admin users (banner) and for cases where OnInitializedAsync
+        // did not set _caInitialized (API unreachable during both prerender and circuit init).
+        if (firstRender && _caInitialized is null)
+            await RefreshCaStatusAsync();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        var comingFromOnboarding = _lastPath == "onboarding";
+        _lastPath = Nav.ToBaseRelativePath(e.Location).Trim('/');
+        UpdateCrumb(e.Location);
+        if (comingFromOnboarding || _pendingRootCaRequestId.HasValue)
+            // Re-check so the banner clears after onboarding completes, or after
+            // the pending root CA request is approved/rejected.
+            _ = InvokeAsync(RefreshCaStatusAsync);
+        else
+            _ = InvokeAsync(StateHasChanged);
+    }
+
+    // Updates _caInitialized for banner state — never forces a redirect.
+    private async Task RefreshCaStatusAsync()
+    {
+        try
+        {
+            var authState = await AuthState;
+            if (authState.User.Identity?.IsAuthenticated != true) return;
+            var status = await ApiClient.GetCaStatusAsync();
+            _caInitialized = status.IsInitialized;
+            _pendingRootCaRequestId = status.PendingRootCaRequestId;
+        }
+        catch
+        {
+            _caInitialized = true;
+            _pendingRootCaRequestId = null;
+        }
+        StateHasChanged();
+    }
+
+    private void UpdateCrumb(string uri)
+    {
+        var rel = Nav.ToBaseRelativePath(uri).Trim('/');
+        currentCrumb = rel switch
+        {
+            "" => "Dashboard",
+            "certificate-requests" => "All Requests",
+            "new-certificate-request" => "New Request",
+            "denied" => "Denied Requests",
+            "certificates" => "Certificates",
+            "expired" => "Expired",
+            "revoked" => "Revoked",
+            "settings" => "Settings",
+            "onboarding" => "CA Setup",
+            var s when s.StartsWith("certificate-requests/") => "Request Detail",
+            var s when s.StartsWith("certificates/") => "Certificate Detail",
+            _ => null
+        };
+    }
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split(new[] { ' ', '.', '@', '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return "?";
+        if (parts.Length == 1) return parts[0][..1].ToUpperInvariant();
+        return string.Concat(parts[0][..1], parts[1][..1]).ToUpperInvariant();
+    }
+
+    // The API demanded a recent second-factor sign-in. Leave the circuit for one re-authentication and come back to this page.
+    // Queued, not inline: this runs inside the API call's stack, where a page's catch block could swallow a NavigationException.
+    private void OnStepUpRequired(StepUpChallenge challenge)
+    {
+        // Just back from a step-up and still refused: the identity provider cannot satisfy it (no second factor configured, or its
+        // claims are wrong). Stay on the page so the API's own explanation is shown, instead of bouncing the user again.
+        if (Auth.StepUpRedirect.CameBackRecently(Nav.Uri, Clock.GetUtcNow()))
+            return;
+
+        _ = InvokeAsync(() => Nav.NavigateTo(
+            Auth.StepUpRedirect.BuildUrl("/" + Nav.ToBaseRelativePath(Nav.Uri), challenge), forceLoad: true));
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+        StepUp.Required -= OnStepUpRequired;
+    }
+}

@@ -1,0 +1,92 @@
+@using Qertum.Services
+
+<div class="form-section" data-test="recovery-status">
+    <div class="form-section-title">
+        <span class="bi bi-archive form-section-icon green" aria-hidden="true"></span>
+        Backup &amp; recovery
+        <span class="settings-readonly-badge">Read-only</span>
+    </div>
+    <div class="form-section-body">
+        @if (Unavailable || Status is null)
+        {
+            <p class="form-help" data-test="recovery-unavailable">Backup status is unavailable right now. That is not the same as all clear.</p>
+        }
+        else
+        {
+            <div class="form-row cols-1">
+                <div class="form-field" data-test="recovery-backup">
+                    <div class="form-label">Last backup</div>
+                    <span class="badge @BadgeClass(Status.Backup)">@StateText(Status.Backup)</span>
+                    <p class="form-help">@Detail(Status.Backup, "No backup has been reported by the backup script.")</p>
+                </div>
+                <div class="form-field" data-test="recovery-restore">
+                    <div class="form-label">Last restore</div>
+                    <span class="badge @BadgeClass(Status.Restore)">@StateText(Status.Restore)</span>
+                    <p class="form-help">@Detail(Status.Restore, "No restore has been reported.")</p>
+                </div>
+            </div>
+            <p class="form-help" data-test="recovery-caption">Reported by the backup script on the host. Qertum has not verified these archives or that a restore works.</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public RecoveryStatus? Status { get; set; }
+
+    [Parameter] public bool Unavailable { get; set; }
+
+    private static string BadgeClass(RecoveryItem item) => item.State switch
+    {
+        RecoveryItemState.Fresh => "badge-success",
+        RecoveryItemState.Stale => "badge-warning",
+        RecoveryItemState.Unreadable => "badge-danger",
+        RecoveryItemState.Failed => "badge-danger",
+        _ => "badge-neutral"
+    };
+
+    private static string StateText(RecoveryItem item) => item.State switch
+    {
+        RecoveryItemState.Fresh => "Within limit",
+        RecoveryItemState.Stale => "Older than limit",
+        RecoveryItemState.Unreadable => "Unreadable",
+        RecoveryItemState.Failed => "Failed",
+        RecoveryItemState.NotJudged => item.Kind == "performed" ? "Performed, not verified" : "Reported",
+        _ => "Not reported"
+    };
+
+    private string Detail(RecoveryItem item, string notReported)
+    {
+        switch (item.State)
+        {
+            case RecoveryItemState.NotReported:
+                return notReported;
+            case RecoveryItemState.Unreadable:
+                return item.Problem ?? "The record cannot be read.";
+        }
+
+        var age = Status!.GeneratedAtUtc - item.CompletedAtUtc!.Value;
+        var parts = new List<string> { $"{FormatAge(age)} ago" };
+        if (!string.IsNullOrEmpty(item.ArchiveName))
+            parts.Add(item.ArchiveName);
+        if (item.Kind == "performed")
+            parts.Add("restored into the running container, not verified");
+        if (item.Kind == "usable")
+            parts.Add("verified and booted offline, not as a running stack");
+        if (item.State == RecoveryItemState.Failed)
+            parts.Add($"failed at {item.FailedCheck} ({item.Step} step)");
+        if (item.ThresholdHours is { } hours)
+            parts.Add($"limit {FormatHours(hours)}");
+        return string.Join(", ", parts);
+    }
+
+    private static string FormatHours(int hours) =>
+        hours % 24 == 0 ? $"{hours / 24} {(hours / 24 == 1 ? "day" : "days")}" : $"{hours} {(hours == 1 ? "hour" : "hours")}";
+
+    private static string FormatAge(TimeSpan age)
+    {
+        if (age.TotalHours >= 48)
+            return $"{(int)Math.Floor(age.TotalDays)} days";
+        var hours = Math.Max(0, (int)Math.Floor(age.TotalHours));
+        return $"{hours} {(hours == 1 ? "hour" : "hours")}";
+    }
+}

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <ProjectReference Include="..\Qertum.ServiceDefaults\Qertum.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\Qertum.Services\Qertum.Services.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets Qertum.Tests construct and exercise WebhookDeliveryService directly
+         instead of reimplementing its retry/signature logic in the test. -->
+    <InternalsVisibleTo Include="Qertum.Tests" />
+  </ItemGroup>
+
+</Project>

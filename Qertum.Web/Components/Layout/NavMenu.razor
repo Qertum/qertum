@@ -1,0 +1,177 @@
+@using Qertum.Services
+@inject IWebHostEnvironment Env
+
+<div class="sidebar-top">
+    <a class="navbar-brand" href="">
+        <span class="brand-lockup">
+            <span class="brand-name">Qer<span class="brand-name-accent">tum</span></span>
+            <span class="brand-sub">Certificate Authority</span>
+        </span>
+    </a>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-speedometer2" aria-hidden="true"></span> Dashboard
+            </NavLink>
+        </div>
+
+        <div class="nav-section-label px-3">Requests</div>
+
+        <div class="nav-item px-3">
+            <QueryNavLink class="nav-link" href="certificate-requests" StatusesLinkedElsewhere="LinkedStatuses">
+                <span class="bi bi-card-list" aria-hidden="true"></span> All Requests
+            </QueryNavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <QueryNavLink class="nav-link" href="certificate-requests?status=Pending">
+                <span class="bi bi-hourglass-split" aria-hidden="true"></span> Pending
+                <AuthorizeView Policy="@AppPermissions.CertificatesView">
+                    <Authorized><PendingRequestsBadge /></Authorized>
+                </AuthorizeView>
+            </QueryNavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="denied">
+                <span class="bi bi-x-circle" aria-hidden="true"></span> Denied
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="new-certificate-request">
+                <span class="bi bi-file-earmark-plus" aria-hidden="true"></span> New Request
+            </NavLink>
+        </div>
+
+        <div class="nav-section-label px-3">Certificates</div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="certificates">
+                <span class="bi bi-shield-lock-fill" aria-hidden="true"></span> All Certificates
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="expired">
+                <span class="bi bi-shield-fill-x" aria-hidden="true"></span> Expired
+            </NavLink>
+        </div>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="revoked">
+                <span class="bi bi-shield-fill-minus" aria-hidden="true"></span> Revoked
+            </NavLink>
+        </div>
+
+        <AuthorizeView Policy="@AppPermissions.CertificatesView">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="pqc-migration">
+                        <span class="bi bi-arrow-repeat" aria-hidden="true"></span> PQC migration
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="notices">
+                        <span class="bi bi-bell-fill" aria-hidden="true"></span> Notices
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="approvals">
+                        <span class="bi bi-person-check-fill" aria-hidden="true"></span> Approvals
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <div class="nav-section-label px-3">System</div>
+
+        <AuthorizeView Policy="@AppPermissions.SettingsEdit">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="settings" Match="NavLinkMatch.All">
+                        <span class="bi bi-gear-fill" aria-hidden="true"></span> Settings
+                    </NavLink>
+                </div>
+
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="certificate-templates">
+                        <span class="bi bi-file-earmark-code-fill" aria-hidden="true"></span> Templates
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="policies">
+                <span class="bi bi-shield-check" aria-hidden="true"></span> Policies
+            </NavLink>
+        </div>
+
+        <AuthorizeView Roles="admin">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="roles">
+                        <span class="bi bi-person-lock" aria-hidden="true"></span> Roles
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="pqc-exceptions">
+                        <span class="bi bi-shield-exclamation" aria-hidden="true"></span> PQC exceptions
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="issuers">
+                        <span class="bi bi-diagram-3" aria-hidden="true"></span> Issuers
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView Policy="@AppPermissions.SettingsEdit">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="webhooks">
+                        <span class="bi bi-broadcast" aria-hidden="true"></span> Webhooks
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="acme/orders">
+                        <span class="bi bi-robot" aria-hidden="true"></span> ACME orders
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="admin">
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="audit-log">
+                        <span class="bi bi-journal-text" aria-hidden="true"></span> Audit Log
+                    </NavLink>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </nav>
+
+    <div class="sidebar-footer">
+        <span class="version-dot" aria-hidden="true"></span>
+        <span class="env-label">@Env.EnvironmentName.ToUpperInvariant()</span>
+        <span class="env-version">v1.0</span>
+    </div>
+</div>
+
+@code {
+    // Statuses with a sidebar item of their own; "All Requests" highlights for every other chip.
+    private static readonly string[] LinkedStatuses = [nameof(CertificateRequestStatus.Pending)];
+}

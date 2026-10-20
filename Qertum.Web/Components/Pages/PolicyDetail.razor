@@ -1,0 +1,487 @@
+@page "/policies/{PolicyId:guid}"
+@attribute [Authorize]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+
+<PageTitle>@(policy?.Name ?? "Issuance policy") — Qertum</PageTitle>
+
+<Notification Message="@notification" Type="@notificationType" OnDismiss="@(() => notification = null)" />
+
+@if (policy is null)
+{
+    <LoadingState Text="Loading policy…" />
+}
+else
+{
+    <PageHeader>
+    <Heading>@policy.Name</Heading>
+    <Subtitle>
+                    @if (policy.Published is { } published)
+                    {
+                        <span>Enforcing v@(published.VersionNumber), published @published.PublishedAtUtc?.ToString("yyyy-MM-dd HH:mm") UTC by @published.PublishedBy.</span>
+                    }
+                    else
+                    {
+                        <span>Nothing published yet — this policy enforces nothing.</span>
+                    }
+                    @if (policy.LinkedTemplateTypeKeys.Count > 0)
+                    {
+                        <span> Governs: @string.Join(", ", policy.LinkedTemplateTypeKeys).</span>
+                    }
+                </Subtitle>
+    <Actions>            <a href="/policies" class="btn-outline-detail"><span class="bi bi-arrow-left me-1"></span> All policies</a>
+        </Actions>
+</PageHeader>
+
+    <div class="form-card animate-in">
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-shield-check form-section-icon purple"></span>
+                Published rules
+                <span class="settings-readonly-badge">Read-only</span>
+            </div>
+            <div class="form-section-body">
+                @if (policy.Published is { } current)
+                {
+                    <div class="form-row cols-2">
+                        <div class="form-field">
+                            <label class="form-label">Allowed DNS suffixes</label>
+                            <div class="form-help">@Describe(current.AllowedDnsSuffixes)</div>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Allowed IP ranges</label>
+                            <div class="form-help">@Describe(current.AllowedIpRanges)</div>
+                        </div>
+                    </div>
+                    <div class="form-row cols-2 mt-3">
+                        <div class="form-field">
+                            <label class="form-label">Allowed key algorithms</label>
+                            <div class="form-help">@Describe(current.AllowedKeyAlgorithms)</div>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Maximum validity</label>
+                            <div class="form-help">@(current.MaxValidityDays is int max ? $"{max} days" : "no ceiling")</div>
+                        </div>
+                    </div>
+                    <div class="form-row cols-1 mt-3">
+                        <div class="form-field">
+                            <label class="form-label">Requester roles</label>
+                            <div class="form-help">@DescribeRoles(current.AllowedRequesterRoles)</div>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Key custody</label>
+                            <div class="form-help">@DescribeCustody(current.KeyCustody)</div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-help">No published version. Save a draft below, then publish it.</div>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-pencil-square form-section-icon cyan"></span>
+                Draft
+            </div>
+            <div class="form-section-body">
+                <div class="form-row cols-1">
+                    <div class="form-field">
+                        <label class="form-label" for="dns-entry">Allowed DNS suffixes</label>
+                        @if (dnsSuffixes.Count == 0)
+                        {
+                            <div class="form-help mb-2">Empty — every name is allowed.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                @foreach (var suffix in dnsSuffixes)
+                                {
+                                    <span class="badge badge-chip">
+                                        @suffix
+                                        <button type="button" class="btn-close btn-close-white btn-close-sm ms-2"
+                                                aria-label="Remove" @onclick="() => dnsSuffixes.Remove(suffix)"></button>
+                                    </span>
+                                }
+                            </div>
+                        }
+                        <div class="d-flex gap-2">
+                            <input id="dns-entry" class="form-control" @bind="newDnsSuffix" placeholder="corp.example.com" />
+                            <button class="btn-outline-detail" type="button" @onclick="AddDnsSuffix">Add</button>
+                        </div>
+                        <div class="form-help mt-2">
+                            Matched on label boundaries: <code>corp.example.com</code> allows <code>a.corp.example.com</code>
+                            but not <code>evilcorp.example.com</code>. The common name is checked too.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-1 mt-4">
+                    <div class="form-field">
+                        <label class="form-label" for="ip-entry">Allowed IP ranges</label>
+                        @if (ipRanges.Count == 0)
+                        {
+                            <div class="form-help mb-2">Empty — every IP SAN is allowed.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                @foreach (var range in ipRanges)
+                                {
+                                    <span class="badge badge-chip">
+                                        @range
+                                        <button type="button" class="btn-close btn-close-white btn-close-sm ms-2"
+                                                aria-label="Remove" @onclick="() => ipRanges.Remove(range)"></button>
+                                    </span>
+                                }
+                            </div>
+                        }
+                        <div class="d-flex gap-2">
+                            <input id="ip-entry" class="form-control" @bind="newIpRange" placeholder="10.1.0.0/16" />
+                            <button class="btn-outline-detail" type="button" @onclick="AddIpRange">Add</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-1 mt-4">
+                    <div class="form-field">
+                        <label class="form-label" for="role-entry">Allowed requester roles</label>
+                        @if (requesterRoles.Count == 0)
+                        {
+                            <div class="form-help mb-2">Empty — any role may request. Admin always may; ACME, EST and renewals are not role-checked.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                @foreach (var role in requesterRoles)
+                                {
+                                    <span class="badge badge-chip">
+                                        @role
+                                        <button type="button" class="btn-close btn-close-white btn-close-sm ms-2"
+                                                aria-label="Remove" @onclick="() => requesterRoles.Remove(role)"></button>
+                                    </span>
+                                }
+                            </div>
+                        }
+                        <div class="d-flex gap-2">
+                            <input id="role-entry" class="form-control" @bind="newRequesterRole" placeholder="ops" />
+                            <button class="btn-outline-detail" type="button" @onclick="AddRequesterRole">Add</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-1 mt-4">
+                    <div class="form-field">
+                        <label class="form-label">Allowed key algorithms</label>
+                        <div class="d-flex flex-wrap gap-3">
+                            @foreach (var algorithm in AllAlgorithms)
+                            {
+                                var id = $"alg-{algorithm}";
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="@id"
+                                           checked="@algorithms.Contains(algorithm)"
+                                           @onchange="args => ToggleAlgorithm(algorithm, args.Value is bool b && b)" />
+                                    <label class="form-check-label" for="@id">@algorithm</label>
+                                </div>
+                            }
+                        </div>
+                        <div class="form-help mt-2">None selected means every algorithm is allowed.</div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-1 mt-4">
+                    <div class="form-field">
+                        <label class="form-label" for="key-custody">Key custody</label>
+                        <select id="key-custody" class="form-control" @bind="keyCustody">
+                            <option value="@nameof(KeyCustodyMode.Any)">CA may generate the key</option>
+                            <option value="@nameof(KeyCustodyMode.RequireClientGenerated)">Client-generated key required</option>
+                        </select>
+                        <div class="form-help">
+                            Requiring a client-generated key means the request must carry a CSR, so the CA never
+                            holds a private key for these certificates and has none to export. Only ACME and EST
+                            enrollment submit a CSR — requests from this site, the REST API and the CLI cannot, so
+                            templates linked to such a policy stop appearing in the enrollment wizard, and renewal
+                            is refused because a renewal always asks the CA to generate a fresh key.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-2 mt-4">
+                    <div class="form-field">
+                        <label class="form-label" for="max-validity">Maximum validity (days)</label>
+                        <input id="max-validity" type="number" class="form-control" @bind="maxValidityDays" placeholder="No ceiling" />
+                        <div class="form-help">
+                            A linked template's own default must fit under this, so lowering it below a linked
+                            template's default is refused.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn btn-primary" type="button" @onclick="SaveDraftAsync" disabled="@busy">Save draft</button>
+                    <button class="btn-outline-detail" type="button" @onclick="DiscardDraftAsync" disabled="@(busy || policy.Draft is null)">Discard draft</button>
+                    <button class="btn btn-primary" type="button" @onclick="PublishAsync" disabled="@(busy || policy.Draft is null)">
+                        <span class="bi bi-upload me-1"></span> Publish
+                    </button>
+                </div>
+                @if (policy.Draft is null)
+                {
+                    <div class="form-help mt-2">No draft exists yet. Save one to enable publishing.</div>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-clock-history form-section-icon cyan"></span>
+                Version history
+            </div>
+            <div class="form-section-body">
+                @if (versions.Count == 0)
+                {
+                    <div class="form-help">No versions yet.</div>
+                }
+                else
+                {
+                    <table class="table-dashboard">
+                        <thead>
+                            <tr class="row-divider">
+                                <th>Version</th>
+                                <th>Status</th>
+                                <th>Rules</th>
+                                <th>Published</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var version in versions)
+                            {
+                                <tr class="row-divider">
+                                    <td>v@(version.VersionNumber)</td>
+                                    <td>@version.Status</td>
+                                    <td class="text-xs text-soft">
+                                        DNS: @Describe(version.AllowedDnsSuffixes) · IP: @Describe(version.AllowedIpRanges) ·
+                                        Algorithms: @Describe(version.AllowedKeyAlgorithms) ·
+                                        Roles: @DescribeRoles(version.AllowedRequesterRoles) ·
+                                        Max validity: @(version.MaxValidityDays is int m ? $"{m} days" : "none")
+                                    </td>
+                                    <td class="text-xs text-soft">
+                                        @(version.PublishedAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "—")
+                                        @(version.PublishedBy is null ? string.Empty : $" by {version.PublishedBy}")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">
+                <span class="bi bi-archive form-section-icon orange"></span>
+                Lifecycle
+            </div>
+            <div class="form-section-body">
+                <div class="d-flex gap-2">
+                    @if (policy.IsArchived)
+                    {
+                        <button class="btn-outline-detail" type="button" @onclick="UnarchiveAsync" disabled="@busy">Unarchive</button>
+                    }
+                    else
+                    {
+                        <button class="btn-outline-detail" type="button" @onclick="ArchiveAsync" disabled="@busy">Archive</button>
+                    }
+                    <button class="btn btn-danger-soft"
+                            type="button" @onclick="DeleteAsync" disabled="@(busy || policy.LinkedTemplateTypeKeys.Count > 0)">
+                        <span class="bi bi-trash3-fill me-1"></span> Delete
+                    </button>
+                </div>
+                <div class="form-help mt-2">
+                    Archiving is refused while a template still links to the policy. Deleting is refused as well while
+                    any issued request still records one of its versions — archive it instead.
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] AllAlgorithms =
+        Enum.GetValues<CertificateKeyAlgorithm>().Select(a => a.ToCanonicalString()).ToArray();
+
+    [Parameter]
+    public Guid PolicyId { get; set; }
+
+    private IssuancePolicyResponse? policy;
+    private IReadOnlyList<IssuancePolicyVersionResponse> versions = [];
+    private List<string> dnsSuffixes = [];
+    private List<string> ipRanges = [];
+    private HashSet<string> algorithms = [];
+    private int? maxValidityDays;
+    private string? newDnsSuffix;
+    private string? newIpRange;
+    private List<string> requesterRoles = [];
+    private string keyCustody = nameof(KeyCustodyMode.Any);
+    private string? newRequesterRole;
+    private bool busy;
+    private string? notification;
+    private string notificationType = "success";
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            policy = await CertificateRequestsApiClient.GetIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
+            if (policy is null)
+            {
+                Notify("This policy no longer exists.", "danger");
+                return;
+            }
+
+            versions = await CertificateRequestsApiClient.GetIssuancePolicyVersionsAsync(new IssuancePolicyId(PolicyId));
+
+            // The editor starts from the draft when there is one, else from the published rules, so
+            // publishing an unchanged draft cannot silently loosen what is enforced today.
+            var source = policy.Draft ?? policy.Published;
+            dnsSuffixes = [.. source?.AllowedDnsSuffixes ?? []];
+            ipRanges = [.. source?.AllowedIpRanges ?? []];
+            algorithms = [.. source?.AllowedKeyAlgorithms ?? []];
+            requesterRoles = [.. source?.AllowedRequesterRoles ?? []];
+            maxValidityDays = source?.MaxValidityDays;
+            keyCustody = (source?.KeyCustody ?? KeyCustodyMode.Any).ToString();
+        }
+        catch (Exception ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Message), "danger");
+        }
+    }
+
+    private void AddDnsSuffix()
+    {
+        if (!string.IsNullOrWhiteSpace(newDnsSuffix) && !dnsSuffixes.Contains(newDnsSuffix.Trim()))
+            dnsSuffixes.Add(newDnsSuffix.Trim());
+        newDnsSuffix = null;
+    }
+
+    private void AddIpRange()
+    {
+        if (!string.IsNullOrWhiteSpace(newIpRange) && !ipRanges.Contains(newIpRange.Trim()))
+            ipRanges.Add(newIpRange.Trim());
+        newIpRange = null;
+    }
+
+    private void ToggleAlgorithm(string algorithm, bool selected)
+    {
+        if (selected) algorithms.Add(algorithm);
+        else algorithms.Remove(algorithm);
+    }
+
+    private async Task SaveDraftAsync() => await RunAsync(async () =>
+    {
+        policy = await CertificateRequestsApiClient.SaveIssuancePolicyDraftAsync(new IssuancePolicyId(PolicyId),
+            new SaveIssuancePolicyDraftRequest
+            {
+                AllowedDnsSuffixes = dnsSuffixes,
+                AllowedIpRanges = ipRanges,
+                AllowedRequesterRoles = requesterRoles,
+                AllowedKeyAlgorithms = [.. algorithms],
+                MaxValidityDays = maxValidityDays,
+                KeyCustody = Enum.Parse<KeyCustodyMode>(keyCustody)
+            });
+        Notify("Draft saved. It is not enforced until published.", "success");
+    });
+
+    private async Task DiscardDraftAsync() => await RunAsync(async () =>
+    {
+        await CertificateRequestsApiClient.DiscardIssuancePolicyDraftAsync(new IssuancePolicyId(PolicyId));
+        Notify("Draft discarded.", "success");
+    });
+
+    private async Task PublishAsync() => await RunAsync(async () =>
+    {
+        var draft = policy!.Draft!;
+        // The id and timestamp are the draft as this page rendered it: if someone edited it since,
+        // the API answers 409 rather than publishing rules nobody reviewed.
+        policy = await CertificateRequestsApiClient.PublishIssuancePolicyAsync(new IssuancePolicyId(PolicyId),
+            new PublishIssuancePolicyRequest { DraftVersionId = draft.Id, DraftUpdatedAtUtc = draft.UpdatedAtUtc });
+        Notify($"Published v{policy.Published?.VersionNumber}. It is enforced from now on.", "success");
+    });
+
+    private async Task ArchiveAsync() => await RunAsync(async () =>
+    {
+        await CertificateRequestsApiClient.ArchiveIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
+        Notify("Policy archived.", "success");
+    });
+
+    private async Task UnarchiveAsync() => await RunAsync(async () =>
+    {
+        await CertificateRequestsApiClient.UnarchiveIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
+        Notify("Policy unarchived.", "success");
+    });
+
+    private async Task DeleteAsync()
+    {
+        busy = true;
+        try
+        {
+            await CertificateRequestsApiClient.DeleteIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
+            NavigationManager.NavigateTo("/policies");
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Message), "danger");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        busy = true;
+        try
+        {
+            await action();
+            await LoadAsync();
+        }
+        catch (ApiProblemException ex)
+        {
+            Notify(ex.WithCorrelationId(ex.Message), "danger");
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void AddRequesterRole()
+    {
+        var role = newRequesterRole?.Trim();
+        if (!string.IsNullOrEmpty(role) && !requesterRoles.Contains(role, StringComparer.OrdinalIgnoreCase))
+            requesterRoles.Add(role);
+        newRequesterRole = null;
+    }
+
+    private static string DescribeCustody(KeyCustodyMode custody) => custody switch
+    {
+        KeyCustodyMode.RequireClientGenerated => "Client-generated key required — the request must carry a CSR, so only ACME or EST enrollment qualifies.",
+        _ => "CA may generate the key."
+    };
+
+    private static string DescribeRoles(IReadOnlyList<string> roles) =>
+        roles.Count == 0 ? "any role" : string.Join(", ", roles);
+
+    private static string Describe(IReadOnlyList<string> values) =>
+        values.Count == 0 ? "unrestricted" : string.Join(", ", values);
+
+    private void Notify(string message, string type)
+    {
+        notification = message;
+        notificationType = type;
+    }
+}

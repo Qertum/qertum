@@ -1,0 +1,47 @@
+@if (IsPreviewing)
+{
+    <div class="alert alert-secondary" role="status" data-preview="checking">
+        <span class="spinner-border spinner-border-sm me-2"></span> Checking issuance policy…
+    </div>
+}
+else if (!string.IsNullOrWhiteSpace(PreviewError))
+{
+    <div class="alert alert-warning" role="alert" data-preview="unavailable">
+        <span class="bi bi-question-circle me-2"></span>@PreviewError
+    </div>
+}
+else if (Preview is { Allowed: true })
+{
+    <div class="alert alert-success" role="status" data-preview="allowed">
+        <span class="bi bi-check-circle-fill me-2"></span>
+        Would be accepted — @Preview.EffectiveValidityDays days, @Preview.EffectiveKeyAlgorithm.
+        @if (Preview.PolicyName is not null)
+        {
+            <span>Governed by '@Preview.PolicyName' v@(Preview.PolicyVersionNumber).</span>
+        }
+        else
+        {
+            <span>No issuance policy governs this template.</span>
+        }
+    </div>
+}
+else if (Preview is not null)
+{
+    <div class="alert alert-danger" role="alert" data-preview="rejected">
+        <span class="bi bi-exclamation-triangle-fill me-2"></span>
+        Would be rejected@(Preview.PolicyName is null ? "" : $" by '{Preview.PolicyName}' v{Preview.PolicyVersionNumber}"):
+        <ul class="mt-2 mb-0">
+            @foreach (var violation in Preview.Violations)
+            {
+                <li>@violation.Message</li>
+            }
+        </ul>
+    </div>
+}
+
+@code {
+    // Advisory only: nothing here disables submit, and a failed check is a warning, not a block.
+    [Parameter] public bool IsPreviewing { get; set; }
+    [Parameter] public string? PreviewError { get; set; }
+    [Parameter] public CertificateRequestPreviewResponse? Preview { get; set; }
+}

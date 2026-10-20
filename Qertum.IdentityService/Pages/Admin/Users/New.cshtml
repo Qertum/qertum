@@ -1,0 +1,70 @@
+@page
+@model Qertum.IdentityService.Pages.Admin.Users.NewModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = "New user";
+}
+
+<div class="card wide">
+    <h1>New <em>user</em></h1>
+    <p class="card-sub">The account gets a one-time password and must change it at first sign-in.</p>
+
+    @if (Model.OneTimePassword is not null)
+    {
+        <div class="secret-panel" data-testid="one-time-password">
+            <div>One-time password for <strong>@Model.CreatedUsername</strong>. It is shown only this once.</div>
+            <div class="readonly mono">@Model.OneTimePassword</div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="error">
+            <span class="bi bi-exclamation-triangle-fill"></span>
+            <span>@Model.ErrorMessage</span>
+        </div>
+    }
+
+    <form method="post">
+        <div class="field">
+            <label asp-for="Input.Username">Username</label>
+            <input asp-for="Input.Username" required />
+            <span asp-validation-for="Input.Username" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.DisplayName">Display name</label>
+            <input asp-for="Input.DisplayName" />
+            <span asp-validation-for="Input.DisplayName" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.Email">Email</label>
+            <input asp-for="Input.Email" type="email" required />
+            <span asp-validation-for="Input.Email" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label>Roles</label>
+            <div class="checks">
+                @foreach (var role in Model.Catalog)
+                {
+                    <label class="check">
+                        <input type="checkbox" name="Input.Roles" value="@role.Name"
+                               checked="@Model.Input.Roles.Contains(role.Name, StringComparer.OrdinalIgnoreCase)" />
+                        <span>
+                            @role.Name
+                            <span class="hint-inline">@(string.IsNullOrEmpty(role.Description) ? "No description" : role.Description)</span>
+                        </span>
+                    </label>
+                }
+            </div>
+        </div>
+
+        <button type="submit">
+            <span class="bi bi-person-plus"></span> Create user
+        </button>
+    </form>
+
+    <a class="button secondary" href="/Admin/Users">Back to users</a>
+</div>

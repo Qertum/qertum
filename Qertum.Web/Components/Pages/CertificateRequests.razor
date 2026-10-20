@@ -1,0 +1,287 @@
+@page "/certificate-requests"
+@implements IDisposable
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+@inject NavigationManager NavigationManager
+@inject TimeProvider TimeProvider
+@inject TimeProvider Clock
+
+<PageTitle>Certificate Requests — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Certificate <em>Requests</em></Heading>
+    <Subtitle>Full lifecycle view of all requests and their outcomes.</Subtitle>
+    <Actions>        <a class="btn btn-primary" href="/new-certificate-request">
+            <span class="bi bi-plus-lg me-1"></span> New Request
+        </a>
+    </Actions>
+</PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(loadError))
+{
+    <div class="alert alert-danger" role="alert">@loadError</div>
+}
+else if (result is null)
+{
+    <LoadingState Text="Loading requests…" />
+}
+else if (IsEmptyOverall)
+{
+    <div class="recent-table-section">
+        <EmptyState Icon="bi-inbox" Title="No certificate requests yet" Message="Submit your first certificate request to get started.">            <a class="btn btn-primary" href="/new-certificate-request">
+                <span class="bi bi-plus-lg me-1"></span> New Request
+            </a>
+        
+</EmptyState>
+    </div>
+}
+else
+{
+    <div class="list-toolbar">
+        <div class="list-search">
+            <span class="bi bi-search" aria-hidden="true"></span>
+            <input type="search" placeholder="Search common name or requester…"
+                   value="@searchQuery" @oninput="OnSearchInput" data-test="search" />
+        </div>
+        <div class="filter-chips">
+            @foreach (var f in Filters)
+            {
+                <button type="button"
+                        class="filter-chip @(statusFilter == f.Key ? "active" : "")"
+                        data-test="chip-@f.Key"
+                        @onclick="() => SelectFilter(f.Key)">
+                    @f.Label
+                    <span class="filter-chip-count">@CountFor(f)</span>
+                </button>
+            }
+        </div>
+        <div class="list-toolbar-spacer"></div>
+        <Pager Page="@CurrentPage" PageSize="PageSize" TotalCount="@result.TotalCount" OnPageChange="GoToPage" />
+        <div class="list-count">@result.TotalCount matching</div>
+    </div>
+
+    @if (result.Items.Count == 0)
+    {
+        <div class="recent-table-section">
+            <EmptyState Icon="bi-search" Title="No matches" Message="Try adjusting your search or filters." />
+        </div>
+    }
+    else
+    {
+        <div class="recent-table-section animate-in">
+            <table class="table-dashboard" id="certificate-requests-table">
+                <thead>
+                    <tr>
+                        <th>Common Name</th>
+                        <th>Requested By</th>
+                        <th>Status</th>
+                        <th>Validity</th>
+                        <th>Created</th>
+                        <th>Updated</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in result.Items)
+                    {
+                        <tr class="clickable-row" @onclick="() => NavigateToDetail(r)">
+                            <td class="td-common-name">@r.CommonName</td>
+                            <td>@r.RequestedBy</td>
+                            <td>
+                                <span class="status-badge @GetStatusBadgeClass(r.Status)">
+                                    <span class="status-badge-dot"></span>
+                                    @GetStatusLabel(r.Status)
+                                </span>
+                            </td>
+                            <td>
+                                @if (r.Status == CertificateRequestStatus.Revoked)
+                                {
+                                    <span class="validity-badge revoked-badge">Revoked</span>
+                                }
+                                else if (r.Status == CertificateRequestStatus.Issued && r.ValidTo.HasValue)
+                                {
+                                    <span class="validity-badge @GetValidityBadgeClass(r.ValidTo.Value)">
+                                        @GetValidityLabel(r.ValidFrom, r.ValidTo.Value)
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="validity-badge na">—</span>
+                                }
+                            </td>
+                            <td>@r.CreatedAtUtc.ToLocalTime().ToString("g")</td>
+                            <td>@r.UpdatedAtUtc.ToLocalTime().ToString("g")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Approve]" />
+
+@code {
+    // Read through the injected clock so the page can be rendered at a fixed time in tests.
+    private DateTime Now => Clock.GetUtcNow().UtcDateTime;
+
+    /// <summary>Rows per request. Paging and filtering both run server-side, so this caps the
+    /// fetch without capping what the page can reach.</summary>
+    public const int PageSize = 50;
+
+    /// <summary>Search settles before a round trip, so typing does not fire one request per keystroke.</summary>
+    public static readonly TimeSpan SearchDebounce = TimeSpan.FromMilliseconds(300);
+
+    private PagedResult<CertificateRequest>? result;
+    private CertificateRequestStatusCounts counts = new();
+    private string? loadError;
+    private string statusFilter = AllFilter;
+    private string searchQuery = string.Empty;
+    private CancellationTokenSource? searchCts;
+
+    private const string AllFilter = "All";
+
+    // The filter and page live in the URL so a link (the sidebar's "Pending") can open the page
+    // pre-filtered, and so a page the operator is reading survives a refresh.
+    [SupplyParameterFromQuery(Name = "status")]
+    public string? Status { get; set; }
+
+    [SupplyParameterFromQuery(Name = "page")]
+    public int? PageNumber { get; set; }
+
+    private int CurrentPage => PageNumber is > 0 ? PageNumber.Value : 1;
+
+    // "Denied" is the operator-facing word for the Rejected status; everything else matches by name.
+    private sealed record StatusFilter(string Key, string Label, CertificateRequestStatus? Status);
+
+    private static readonly StatusFilter[] Filters =
+    [
+        new(AllFilter, "All", null),
+        new("Pending", "Pending", CertificateRequestStatus.Pending),
+        new("Approved", "Approved", CertificateRequestStatus.Approved),
+        new("Issued", "Issued", CertificateRequestStatus.Issued),
+        new("Denied", "Denied", CertificateRequestStatus.Rejected),
+        new("Revoked", "Revoked", CertificateRequestStatus.Revoked),
+    ];
+
+    // Only "no requests at all" earns the onboarding empty state; a filter that matches nothing is
+    // a different message, and with server-side paging an empty page no longer implies an empty DB.
+    private bool IsEmptyOverall =>
+        counts.Total == 0 && string.IsNullOrWhiteSpace(searchQuery) && statusFilter == AllFilter;
+
+    private void NavigateToDetail(CertificateRequest r)
+    {
+        var path = (r.Status == CertificateRequestStatus.Issued || r.Status == CertificateRequestStatus.Revoked)
+            ? $"certificates/{r.Id}" : $"certificate-requests/{r.Id}";
+        NavigationManager.NavigateTo(path);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Unknown values fall back to All rather than showing an empty list for a typo.
+        statusFilter = Filters.FirstOrDefault(f => string.Equals(f.Key, Status, StringComparison.OrdinalIgnoreCase))?.Key ?? AllFilter;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var status = Filters.First(f => f.Key == statusFilter).Status;
+        var search = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim();
+
+        try
+        {
+            loadError = null;
+            result = await CertificateRequestsApiClient.GetCertificateRequestsAsync(CurrentPage, PageSize, status, search);
+            counts = await CertificateRequestsApiClient.GetRequestStatusCountsAsync(search);
+        }
+        catch (Exception ex)
+        {
+            loadError = $"Failed to load certificate requests: {ex.Message}";
+        }
+    }
+
+    private void SelectFilter(string key) => NavigateWith(key == AllFilter ? null : key, page: null);
+
+    private void GoToPage(int page) => NavigateWith(statusFilter == AllFilter ? null : statusFilter, page);
+
+    private void NavigateWith(string? status, int? page)
+    {
+        var uri = NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["status"] = status,
+            ["page"] = page is > 1 ? page : null
+        });
+        NavigationManager.NavigateTo(uri);
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? string.Empty;
+
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        searchCts = cts;
+
+        try
+        {
+            await Task.Delay(SearchDebounce, TimeProvider, cts.Token);
+            if (!ReferenceEquals(searchCts, cts))
+                return;
+
+            // A new search re-pages from the start: page 4 of the previous result means nothing here.
+            if (CurrentPage > 1)
+            {
+                NavigateWith(statusFilter == AllFilter ? null : statusFilter, page: null);
+                return;
+            }
+
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+        {
+            // Superseded by newer input or by disposal.
+        }
+    }
+
+    private int CountFor(StatusFilter filter) =>
+        filter.Status is { } s ? counts.CountFor(s) : counts.Total;
+
+    public void Dispose()
+    {
+        searchCts?.Cancel();
+        searchCts?.Dispose();
+        searchCts = null;
+    }
+
+    private static string GetStatusBadgeClass(CertificateRequestStatus status) => status switch
+    {
+        CertificateRequestStatus.Pending => "pending",
+        CertificateRequestStatus.Approved => "approved",
+        CertificateRequestStatus.Rejected => "rejected",
+        CertificateRequestStatus.Issued => "issued",
+        CertificateRequestStatus.Revoked => "revoked",
+        _ => ""
+    };
+
+    private static string GetStatusLabel(CertificateRequestStatus status) => status switch
+    {
+        CertificateRequestStatus.Rejected => "Denied",
+        _ => status.ToString()
+    };
+
+    private string GetValidityBadgeClass(DateTime validTo)
+    {
+        var now = Now;
+        if (validTo <= now) return "expired";
+        if (validTo <= now.AddDays(30)) return "expiring-soon";
+        return "valid";
+    }
+
+    private string GetValidityLabel(DateTime? validFrom, DateTime validTo)
+    {
+        var now = Now;
+        if (validTo <= now) return "Expired";
+        if (validTo <= now.AddDays(30)) return $"{(int)(validTo - now).TotalDays}d remaining";
+        return validFrom.HasValue ? $"Valid until {validTo.ToLocalTime():d}" : "Valid";
+    }
+}

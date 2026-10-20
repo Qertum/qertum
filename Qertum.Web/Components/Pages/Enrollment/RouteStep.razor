@@ -1,0 +1,53 @@
+<div data-step="Route">
+    <h2 class="form-section-title">Who should hold the private key?</h2>
+
+    <div class="option-list">
+        <button type="button" class="option-card" data-route="web" @onclick="OnWeb">
+            <span class="bi bi-cloud-arrow-down-fill option-card-icon" aria-hidden="true"></span>
+            <div class="option-card-body">
+                <strong>Request here — Qertum generates the key</strong>
+                <span>Fill in the details now and download the certificate and key once issued.</span>
+            </div>
+            <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+        </button>
+
+        @if (Acme is not null)
+        {
+            <button type="button" class="option-card" data-route="acme" @onclick="() => OnProtocol.InvokeAsync(AcmeProtocol)">
+                <span class="bi bi-arrow-repeat option-card-icon" aria-hidden="true"></span>
+                <div class="option-card-body">
+                    <strong>ACME — your client keeps the key</strong>
+                    <span>certbot, cert-manager and other ACME clients request and renew automatically.</span>
+                </div>
+                <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+            </button>
+        }
+
+        @if (Est is not null)
+        {
+            <button type="button" class="option-card" data-route="est" @onclick="() => OnProtocol.InvokeAsync(EstProtocol)">
+                <span class="bi bi-cpu-fill option-card-icon" aria-hidden="true"></span>
+                <div class="option-card-body">
+                    <strong>EST — the device keeps the key</strong>
+                    <span>For devices and appliances with an EST enrollment client.</span>
+                </div>
+                <span class="bi bi-chevron-right option-card-arrow" aria-hidden="true"></span>
+            </button>
+        }
+    </div>
+
+    <div class="wizard-actions">
+        <button type="button" class="btn-outline-detail" data-action="back" @onclick="OnBack">Back</button>
+    </div>
+</div>
+
+@code {
+    public const string AcmeProtocol = "ACME";
+    public const string EstProtocol = "EST";
+
+    [Parameter] public AcmeEnrollmentRoute? Acme { get; set; }
+    [Parameter] public EstEnrollmentRoute? Est { get; set; }
+    [Parameter] public EventCallback OnWeb { get; set; }
+    [Parameter] public EventCallback<string> OnProtocol { get; set; }
+    [Parameter] public EventCallback OnBack { get; set; }
+}

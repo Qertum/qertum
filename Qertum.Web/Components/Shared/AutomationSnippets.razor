@@ -1,0 +1,52 @@
+@using Microsoft.Extensions.Options
+@using Qertum.Web.Auth
+@* Folded automation examples for the operation a page offers: the same thing from a pipeline. Closed by default so
+   it never competes with the page's own action; the pipeline setup is always the first example. *@
+@inject IJSRuntime JS
+@inject IOptions<AutomationOptions> Options
+@inject IdentityAuthority Identity
+
+<details class="automation-snippets" data-test="automation-snippets">
+    <summary><span class="bi bi-terminal me-1" aria-hidden="true"></span>Automation snippets</summary>
+
+    <p class="client-setup-hint">
+        Repeat this from a CI/CD pipeline or any script. Replace every <code>&lt;value&gt;</code> with your own;
+        credentials are never filled in here, and tokens are short-lived by design, so fetch one per job.
+    </p>
+
+    @foreach (var snippet in Snippets)
+    {
+        <section class="automation-snippet" data-snippet="@snippet.Id">
+            <h4 class="client-setup-title">@snippet.Title</h4>
+            <p class="client-setup-hint">@snippet.Description</p>
+            <pre class="client-setup-code" data-test="automation-command"><code>@snippet.Command</code></pre>
+            <button type="button" class="btn-outline-detail btn-sm" @onclick="() => CopyAsync(snippet.Command)">
+                <span class="bi bi-clipboard me-1" aria-hidden="true"></span>Copy
+            </button>
+        </section>
+    }
+</details>
+
+@code {
+    /// <summary>What the page lets the operator do, in the order the examples appear after the setup.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<AutomationOperation> Operations { get; set; } = [];
+
+    /// <summary>The certificate or request the page shows, when it shows one.</summary>
+    [Parameter] public Guid? TargetId { get; set; }
+
+    private IEnumerable<AutomationSnippet> Snippets =>
+        new[] { AutomationOperation.Setup }.Concat(Operations)
+            .SelectMany(op => AutomationSnippetCatalog.For(op, Options.Value.ApiUrl, Identity.Url, TargetId));
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("copyText", text);
+        }
+        catch (JSException)
+        {
+            // Clipboard access can be refused outright; the command is on screen to select by hand.
+        }
+    }
+}

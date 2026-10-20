@@ -1,0 +1,397 @@
+@page "/webhooks"
+@using Qertum.Services
+@using System.Text.Json
+@attribute [Authorize(Policy = AppPermissions.SettingsEdit)]
+@inject CertificateRequestsApiClient CertificateRequestsApiClient
+
+<PageTitle>Webhooks — Qertum</PageTitle>
+
+<PageHeader>
+    <Heading>Web<em>hooks</em></Heading>
+    <Subtitle>Push certificate, settings, template, policy and key-access events to external systems via HTTP POST.</Subtitle>
+    <Actions>        <button class="btn btn-primary" @onclick="OpenCreate">
+            <span class="bi bi-plus-lg me-1"></span> New Webhook
+        </button>
+    </Actions>
+</PageHeader>
+
+<Notification Message="@notification" Type="@notificationType" OnDismiss="@(() => notification = null)" />
+
+@if (webhooks is null)
+{
+    <LoadingState Text="Loading webhooks…" />
+}
+else if (webhooks.Count == 0)
+{
+    <EmptyState Icon="bi-broadcast" Title="No webhooks configured" Message="Create a webhook to receive push notifications for certificate lifecycle events.">        <button class="btn btn-primary mt-3" @onclick="OpenCreate">
+            <span class="bi bi-plus-lg me-1"></span> New Webhook
+        </button>
+    
+</EmptyState>
+}
+else
+{
+    <div class="form-card form-card-full table-card animate-in">
+        <table class="table-dashboard">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>URL</th>
+                    <th>Family</th>
+                    <th>Events</th>
+                    <th>Enabled</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var w in webhooks)
+                {
+                    <tr>
+                        <td>
+                            <div class="cell-title">@w.Name</div>
+                        </td>
+                        <td class="cell-clip">
+                            <span title="@w.Url" class="cell-detail">
+                                @Truncate(w.Url, 50)
+                            </span>
+                        </td>
+                        <td>
+                            @w.Family
+                        </td>
+                        <td>
+                            @FormatEvents(w.EventsJson)
+                        </td>
+                        <td>
+                            @if (w.IsEnabled)
+                            {
+                                <span class="badge badge-success badge-sm">enabled</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-neutral badge-sm">disabled</span>
+                            }
+                        </td>
+                        <td class="cell-actions">
+                            <button class="btn-outline-detail me-2" @onclick="() => OpenEdit(w)">
+                                <span class="bi bi-pencil-fill me-1"></span> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger-soft"
+                                    @onclick="() => ConfirmDelete(w)" disabled="@(deleting == w.Id)">
+                                @if (deleting == w.Id)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-1"></span>
+                                }
+                                else
+                                {
+                                    <span class="bi bi-trash3-fill me-1"></span>
+                                }
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (showForm)
+{
+    <ConfirmDialog Title="@(editingId.HasValue ? "Edit Webhook" : "New Webhook")" Icon="bi-broadcast"
+                   ConfirmLabel="@(editingId.HasValue ? "Save Changes" : "Create Webhook")"
+                   MaxWidthPx="520" AlignTop="true" Busy="saving" OnConfirm="SaveAsync" OnCancel="CloseForm">
+        @if (!string.IsNullOrWhiteSpace(formError))
+        {
+            <div class="alert alert-danger text-sm">
+                <span class="bi bi-exclamation-triangle-fill me-2"></span>@formError
+            </div>
+        }
+
+        <div class="mb-3">
+            <label class="form-label section-label">Name</label>
+            <input type="text" class="form-control form-control-glass" placeholder="e.g. SIEM Alerts" maxlength="200"
+                   @bind="formName" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label section-label">URL</label>
+            <input type="text" class="form-control form-control-glass" placeholder="https://example.com/webhook?e={event}" maxlength="2000"
+                   @bind="formUrl" />
+            <div class="form-help mt-2">
+                Optional placeholders, substituted per delivery:
+                <code>@string.Join(", ", FamilyPlaceholders.Select(placeholder => "{" + placeholder + "}"))</code>.
+                Query parameters are not covered by the <code>X-Webhook-Signature</code> HMAC, which signs the
+                request body — treat them as informational only.
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label section-label">Event family</label>
+            <select class="form-select form-control-glass" value="@formFamily" @onchange="OnFamilyChanged"
+                   >
+                @foreach (var family in Families)
+                {
+                    <option value="@family">@family</option>
+                }
+            </select>
+            <div class="form-help mt-2">
+                A webhook receives one family. Narrow it below, or leave every event unselected to receive all of them.
+            </div>
+        </div>
+
+        @if (FamilyEvents.Count > 1)
+        {
+        <div class="mb-3">
+            <label class="form-label section-label">Events</label>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                @foreach (var ev in FamilyEvents)
+                {
+                    var selected = formEvents.Contains(ev);
+                    <button type="button" class="chip @(selected ? "chip-selected" : null)" @onclick="() => ToggleEvent(ev)">
+                        @ev
+                    </button>
+                }
+            </div>
+            <div class="form-help mt-2">None selected means every event in this family.</div>
+        </div>
+        }
+
+        <div class="mb-3">
+            <label class="form-label section-label">
+                Signing Secret
+                @if (editingId.HasValue)
+                {
+                    <span class="label-hint"> (leave blank to keep existing, clear to remove)</span>
+                }
+            </label>
+            <input type="password" class="form-control form-control-glass" placeholder="@(editingId.HasValue ? "••••••••" : "Optional HMAC-SHA256 signing secret")"
+                   @bind="formSecret" />
+            @if (!string.IsNullOrEmpty(formSecret) || !editingId.HasValue)
+            {
+                <div class="form-help mt-1">Adds <code>X-Webhook-Signature: sha256=&lt;hmac&gt;</code> to each delivery.</div>
+            }
+        </div>
+
+        <div class="mb-4">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <label class="form-label mb-0 section-label">Enabled</label>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" @bind="formEnabled"
+                           style="cursor: pointer;" />
+                </div>
+            </div>
+        </div>
+    </ConfirmDialog>
+}
+
+@if (confirmDeleteWebhook is not null)
+{
+    <ConfirmDialog Tone="ConfirmDialogTone.Danger" Title="Delete Webhook" MaxWidthPx="440"
+                   ConfirmLabel="Delete" ConfirmIcon="bi-trash3-fill"
+                   OnConfirm="DeleteConfirmedAsync" OnCancel="@(() => confirmDeleteWebhook = null)">
+        <p>
+            Delete <strong class="confirm-dialog-emphasis">@confirmDeleteWebhook.Name</strong>? Any pending deliveries for this webhook will be discarded.
+        </p>
+    </ConfirmDialog>
+}
+
+<AutomationSnippets Operations="[AutomationOperation.Webhooks]" />
+
+@code {
+    private static readonly WebhookEventFamily[] Families = Enum.GetValues<WebhookEventFamily>();
+
+    private WebhookEventFamily formFamily = WebhookEventFamily.CertificateRequest;
+
+    /// <summary>The chosen family's events, straight from the server-side catalog.</summary>
+    private IReadOnlyList<string> FamilyEvents =>
+        [.. WellKnownWebhookEvents.EventsFor(formFamily).OrderBy(e => e, StringComparer.Ordinal)];
+
+    /// <summary>Placeholders the chosen family's URL may use.</summary>
+    private IEnumerable<string> FamilyPlaceholders =>
+        WebhookEventFields.All(formFamily).OrderBy(f => f, StringComparer.Ordinal);
+
+    private List<Webhook>? webhooks;
+    private string? notification;
+    private string notificationType = "success";
+    private WebhookId? deleting;
+    private Webhook? confirmDeleteWebhook;
+
+    private bool showForm;
+    private bool saving;
+    private string? formError;
+    private WebhookId? editingId;
+    private string formName = string.Empty;
+    private string formUrl = string.Empty;
+    private string? formSecret;
+    private bool formEnabled = true;
+    private HashSet<string> formEvents = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            webhooks = (await CertificateRequestsApiClient.GetWebhooksAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            notification = $"Failed to load webhooks: {ex.Message}";
+            notificationType = "danger";
+        }
+    }
+
+    private void OpenCreate()
+    {
+        editingId = null;
+        formName = string.Empty;
+        formUrl = string.Empty;
+        formSecret = null;
+        formEnabled = true;
+        formFamily = WebhookEventFamily.CertificateRequest;
+        formEvents = [];
+        formError = null;
+        showForm = true;
+    }
+
+    private void OpenEdit(Webhook w)
+    {
+        editingId = w.Id;
+        formName = w.Name;
+        formUrl = w.Url;
+        formSecret = null;
+        formEnabled = w.IsEnabled;
+        formFamily = w.Family;
+        formEvents = ParseEvents(w.EventsJson);
+        formError = null;
+        showForm = true;
+    }
+
+    private void CloseForm()
+    {
+        showForm = false;
+        formError = null;
+    }
+
+    private void ToggleEvent(string ev)
+    {
+        if (!formEvents.Remove(ev))
+            formEvents.Add(ev);
+    }
+
+    private void OnFamilyChanged(ChangeEventArgs args)
+    {
+        formFamily = Enum.Parse<WebhookEventFamily>(
+            args.Value?.ToString() ?? nameof(WebhookEventFamily.CertificateRequest));
+
+        // A narrowing subset from the previous family would never match — clear it rather than
+        // silently keeping events this family does not own.
+        formEvents.Clear();
+    }
+
+    private async Task SaveAsync()
+    {
+        formError = null;
+        if (string.IsNullOrWhiteSpace(formName)) { formError = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(formUrl)) { formError = "URL is required."; return; }
+
+        // An empty selection is the whole family, not an error: a family that later gains an event
+        // then reaches this webhook without anyone editing it.
+        var eventsJson = JsonSerializer.Serialize(
+            formEvents.OrderBy(e => e, StringComparer.Ordinal).ToArray());
+
+        var request = new SaveWebhookRequest
+        {
+            Name = formName.Trim(),
+            Url = formUrl.Trim(),
+            Family = formFamily,
+            Secret = formSecret,
+            EventsJson = eventsJson,
+            IsEnabled = formEnabled
+        };
+
+        saving = true;
+        try
+        {
+            if (editingId.HasValue)
+            {
+                await CertificateRequestsApiClient.UpdateWebhookAsync(editingId.Value, request);
+                notification = $"Webhook '{request.Name}' updated.";
+            }
+            else
+            {
+                await CertificateRequestsApiClient.CreateWebhookAsync(request);
+                notification = $"Webhook '{request.Name}' created.";
+            }
+            notificationType = "success";
+            showForm = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            formError = ex.Message;
+        }
+        finally
+        {
+            saving = false;
+        }
+    }
+
+    private void ConfirmDelete(Webhook w)
+    {
+        confirmDeleteWebhook = w;
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (confirmDeleteWebhook is null) return;
+        var target = confirmDeleteWebhook;
+        confirmDeleteWebhook = null;
+        deleting = target.Id;
+        try
+        {
+            await CertificateRequestsApiClient.DeleteWebhookAsync(target.Id);
+            notification = $"Webhook '{target.Name}' deleted.";
+            notificationType = "success";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            notification = $"Failed to delete: {ex.Message}";
+            notificationType = "danger";
+        }
+        finally
+        {
+            deleting = null;
+        }
+    }
+
+    /// <summary>The stored narrowing subset. Empty means every event in the family.</summary>
+    private static HashSet<string> ParseEvents(string? eventsJson)
+    {
+        if (string.IsNullOrEmpty(eventsJson)) return [];
+        try
+        {
+            return [.. JsonSerializer.Deserialize<string[]>(eventsJson) ?? []];
+        }
+        catch { return []; }
+    }
+
+    private static string FormatEvents(string? eventsJson)
+    {
+        if (string.IsNullOrEmpty(eventsJson)) return "all";
+        try
+        {
+            var arr = JsonSerializer.Deserialize<string[]>(eventsJson) ?? [];
+            // An empty subset is the whole family, not "no events".
+            return arr.Length == 0 ? "all" : string.Join(", ", arr);
+        }
+        catch { return "all"; }
+    }
+
+    private static string Truncate(string? s, int max) =>
+        s is null ? "—" : s.Length <= max ? s : s[..(max - 1)] + "…";
+}

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="coverlet.collector">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="bunit" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <!-- Force the patched MessagePack version: Aspire.Hosting -> StreamJsonRpc pulls an older
+         MessagePack with a high-severity LZ4 decompression vulnerability
+         (GHSA-hv8m-jj95-wg3x). Pin to the latest 2.5.x patch — StreamJsonRpc still targets the
+         2.5.x line (2.5.302), so we stay on it rather than the incompatible 3.x major. -->
+    <PackageReference Include="MessagePack" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qertum.AppHost\Qertum.AppHost.csproj" />
+    <ProjectReference Include="..\Qertum.Services\Qertum.Services.csproj" />
+    <ProjectReference Include="..\Qertum.AcmeService\Qertum.AcmeService.csproj" />
+    <ProjectReference Include="..\Qertum.ApiService\Qertum.ApiService.csproj" />
+    <ProjectReference Include="..\Qertum.EstService\Qertum.EstService.csproj" />
+    <ProjectReference Include="..\Qertum.IdentityService\Qertum.IdentityService.csproj" />
+    <ProjectReference Include="..\Qertum.QueueConsumer\Qertum.QueueConsumer.csproj" />
+    <ProjectReference Include="..\Qertum.Cli\Qertum.Cli.csproj" />
+    <ProjectReference Include="..\Qertum.Web\Qertum.Web.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Aspire.Hosting.ApplicationModel" />
+    <Using Include="Aspire.Hosting.Testing" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Composite ML-DSA test vectors from draft-ietf-lamps-pq-composite-sigs (see CompositeTestVectors). -->
+    <None Update="Crypto\TestData\composite-sigs-testvectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

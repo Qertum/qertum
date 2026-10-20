@@ -1,0 +1,125 @@
+@* Copy-paste setup for the enrollment client the requester picked. The trust step comes first
+   deliberately: every client below fails its TLS handshake until the root is installed, and an
+   operator who hits that failure first reaches for an insecure flag instead. *@
+@inject IJSRuntime JS
+
+<div class="client-setup" data-test="client-setup">
+    <section class="client-setup-section">
+        <h3 class="client-setup-title">1. Trust this CA</h3>
+        <p class="client-setup-hint">
+            Download the root certificate, then install it wherever the client runs. Without this the
+            client cannot verify the server and enrollment fails at the TLS handshake.
+        </p>
+
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-test="download-root"
+                @onclick="OnDownloadRoot">
+            <span class="bi bi-download me-1" aria-hidden="true"></span>
+            Download @ClientSetupSnippets.RootCertificateFileName
+        </button>
+
+        @if (!string.IsNullOrWhiteSpace(DownloadError))
+        {
+            <div class="alert alert-danger" role="alert" data-test="root-download-error">@DownloadError</div>
+        }
+
+        <div class="client-setup-tabs" role="tablist" aria-label="Platform">
+            @foreach (var step in TrustSteps)
+            {
+                <button type="button" role="tab" data-platform="@step.Id"
+                        class="client-setup-tab @(platform == step.Id ? "active" : "")"
+                        aria-selected="@(platform == step.Id ? "true" : "false")"
+                        @onclick="() => platform = step.Id">@step.Title</button>
+            }
+        </div>
+
+        @if (SelectedTrustStep is { } trust)
+        {
+            <p class="client-setup-hint">@trust.Description</p>
+            <pre class="client-setup-code" data-test="trust-command"><code>@trust.Command</code></pre>
+            <button type="button" class="btn-outline-detail btn-sm" @onclick="() => CopyAsync(trust.Command)">
+                <span class="bi bi-clipboard me-1" aria-hidden="true"></span>Copy
+            </button>
+        }
+    </section>
+
+    <section class="client-setup-section">
+        <h3 class="client-setup-title">2. Enroll</h3>
+
+        <div class="client-setup-tabs" role="tablist" aria-label="Client">
+            @foreach (var snippet in Snippets)
+            {
+                <button type="button" role="tab" data-client="@snippet.Id"
+                        class="client-setup-tab @(SelectedId == snippet.Id ? "active" : "")"
+                        aria-selected="@(SelectedId == snippet.Id ? "true" : "false")"
+                        @onclick="() => client = snippet.Id">@snippet.Title</button>
+            }
+        </div>
+
+        @if (Selected is { } selected)
+        {
+            <p class="client-setup-hint">@selected.Description</p>
+            <pre class="client-setup-code" data-language="@selected.Language"
+                 data-test="client-command"><code>@selected.Command</code></pre>
+            <button type="button" class="btn-outline-detail btn-sm" @onclick="() => CopyAsync(selected.Command)">
+                <span class="bi bi-clipboard me-1" aria-hidden="true"></span>Copy
+            </button>
+        }
+
+        <p class="client-setup-hint">
+            Replace every <code>&lt;value&gt;</code> with your own. Credentials are never filled in here:
+            an ACME external account key is shown only once, when an administrator creates it, and EST
+            enrollment passwords are issued to you separately.
+        </p>
+    </section>
+</div>
+
+@code {
+    /// <summary>Which protocol the requester chose, from <see cref="RouteStep"/>.</summary>
+    [Parameter, EditorRequired] public string Protocol { get; set; } = string.Empty;
+
+    /// <summary>The ACME route, when that is the chosen protocol.</summary>
+    [Parameter] public AcmeEnrollmentRoute? Acme { get; set; }
+
+    /// <summary>The EST route, when that is the chosen protocol.</summary>
+    [Parameter] public EstEnrollmentRoute? Est { get; set; }
+
+    /// <summary>Raised when the operator asks for the root certificate; the page performs the download.</summary>
+    [Parameter] public EventCallback OnDownloadRoot { get; set; }
+
+    /// <summary>Why the last root-certificate download failed, if it did. A silent failure would
+    /// leave the operator installing nothing and blaming the client.</summary>
+    [Parameter] public string? DownloadError { get; set; }
+
+    private string? client;
+    private string platform = "linux";
+
+    private static IReadOnlyList<ClientSetupSnippet> TrustSteps => ClientSetupSnippets.TrustBootstrap();
+
+    private ClientSetupSnippet? SelectedTrustStep => TrustSteps.FirstOrDefault(s => s.Id == platform);
+
+    private IReadOnlyList<ClientSetupSnippet> Snippets =>
+        (Protocol, Acme, Est) switch
+        {
+            (RouteStep.AcmeProtocol, { } acme, _) => ClientSetupSnippets.ForAcme(acme),
+            (RouteStep.EstProtocol, _, { } est) => ClientSetupSnippets.ForEst(est),
+            _ => []
+        };
+
+    // Defaults to the first client rather than storing a selection up front, so the panel is correct
+    // on the first render and after a protocol change without an explicit reset.
+    private string? SelectedId => Snippets.Any(s => s.Id == client) ? client : Snippets.FirstOrDefault()?.Id;
+
+    private ClientSetupSnippet? Selected => Snippets.FirstOrDefault(s => s.Id == SelectedId);
+
+    private async Task CopyAsync(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("copyText", text);
+        }
+        catch (JSException)
+        {
+            // Clipboard access can be refused outright; the command is on screen to select by hand.
+        }
+    }
+}

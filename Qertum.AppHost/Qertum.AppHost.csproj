@@ -1,0 +1,29 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.0">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UserSecretsId>48fa0761-12d7-448c-b7d7-e2cfe42e0e2f</UserSecretsId>
+    <!-- DCP and the dashboard come from the Aspire CLI bundle, and `dotnet run` launches through the
+         CLI. Building this project therefore needs the aspire CLI (13.6 or later) on PATH — CI
+         installs it as a pinned global tool. -->
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Qertum.AcmeService\Qertum.AcmeService.csproj" />
+    <ProjectReference Include="..\Qertum.ApiService\Qertum.ApiService.csproj" />
+    <ProjectReference Include="..\Qertum.EstService\Qertum.EstService.csproj" />
+    <ProjectReference Include="..\Qertum.IdentityService\Qertum.IdentityService.csproj" />
+    <ProjectReference Include="..\Qertum.QueueConsumer\Qertum.QueueConsumer.csproj" />
+    <ProjectReference Include="..\Qertum.Web\Qertum.Web.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Force the patched MessagePack version: Aspire.Hosting -> StreamJsonRpc pulls an older
+         MessagePack with a high-severity LZ4 decompression vulnerability
+         (GHSA-hv8m-jj95-wg3x). Pin to the latest 2.5.x patch — StreamJsonRpc still targets the
+         2.5.x line (2.5.302), so we stay on it rather than the incompatible 3.x major. -->
+    <PackageReference Include="Aspire.Hosting.Redis" />
+    <PackageReference Include="MessagePack" />
+  </ItemGroup>
+
+</Project>

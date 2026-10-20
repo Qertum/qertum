@@ -1,0 +1,105 @@
+@page "/Admin/Users/{id:guid}"
+@model Qertum.IdentityService.Pages.Admin.Users.DetailModel
+@{
+    Layout = "/Pages/Shared/_AccountLayout.cshtml";
+    ViewData["Title"] = Model.Target?.Username ?? "User";
+}
+
+<div class="card wide">
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="error">
+            <span class="bi bi-exclamation-triangle-fill"></span>
+            <span>@Model.ErrorMessage</span>
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="success">
+            <span class="bi bi-check-circle-fill"></span>
+            <span>@Model.StatusMessage</span>
+        </div>
+    }
+
+    @if (Model.Target is { } u)
+    {
+        <h1>@u.Username</h1>
+        <p class="card-sub">@u.DisplayName · @u.Email · @IndexModel.StatusOf(u)</p>
+
+        @if (Model.OneTimePassword is not null)
+        {
+            <div class="secret-panel" data-testid="one-time-password">
+                <div>New one-time password for <strong>@u.Username</strong>. It is shown only this once.</div>
+                <div class="readonly mono">@Model.OneTimePassword</div>
+            </div>
+        }
+
+        @if (Model.IsSelf)
+        {
+            <p class="hint">This is your account. Disable, reset and delete are unavailable, and your admin role cannot be removed here. Use Change password for your own password.</p>
+        }
+
+        <form method="post" asp-page-handler="Roles">
+            <div class="field">
+                <label>Roles</label>
+                <div class="checks">
+                    @foreach (var role in Model.Catalog)
+                    {
+                        <label class="check">
+                            <input type="checkbox" name="Roles" value="@role.Name"
+                                   checked="@u.Roles.Contains(role.Name, StringComparer.OrdinalIgnoreCase)" />
+                            <span>
+                                @role.Name
+                                <span class="hint-inline">@(string.IsNullOrEmpty(role.Description) ? "No description" : role.Description)</span>
+                            </span>
+                        </label>
+                    }
+                </div>
+            </div>
+
+            @if (Model.RolesMissingFromCatalog.Count > 0)
+            {
+                <div class="error">
+                    <span class="bi bi-exclamation-triangle-fill"></span>
+                    <span>Not in the role catalog: @string.Join(", ", Model.RolesMissingFromCatalog). Saving removes these unless they are added under Roles first.</span>
+                </div>
+            }
+
+            <button type="submit"><span class="bi bi-check2"></span> Save roles</button>
+        </form>
+
+        <section class="admin-section">
+            <label>Account</label>
+            <form method="post" asp-page-handler="@(u.IsDisabled ? "Enable" : "Disable")">
+                <button type="submit" class="button secondary" disabled="@Model.IsSelf">
+                    @(u.IsDisabled ? "Enable account" : "Disable account")
+                </button>
+            </form>
+            <form method="post" asp-page-handler="ResetPassword">
+                <button type="submit" class="button secondary" disabled="@Model.IsSelf">
+                    <span class="bi bi-key"></span> Reset password
+                </button>
+            </form>
+            @if (Model.ConfirmingDelete)
+            {
+                <div class="error">
+                    <span class="bi bi-exclamation-triangle-fill"></span>
+                    <span>Delete @u.Username permanently? Their stored grants are revoked. This cannot be undone.</span>
+                </div>
+                <form method="post" asp-page-handler="Delete">
+                    <button type="submit" class="button danger" disabled="@Model.IsSelf">Delete permanently</button>
+                </form>
+            }
+            else
+            {
+                <form method="post" asp-page-handler="ConfirmDelete">
+                    <button type="submit" class="button danger" disabled="@Model.IsSelf">
+                        <span class="bi bi-trash"></span> Delete user
+                    </button>
+                </form>
+            }
+        </section>
+    }
+
+    <a class="button secondary" href="/Admin/Users">Back to users</a>
+</div>
