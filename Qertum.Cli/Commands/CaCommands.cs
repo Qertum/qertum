@@ -17,6 +17,7 @@ internal static class CaCommands
         caCommand.Subcommands.Add(BuildInfo(apiUrlOption, identityUrlOption, tokenOption, outputOption));
         caCommand.Subcommands.Add(BuildCrl(apiUrlOption, identityUrlOption, tokenOption, outputOption));
         caCommand.Subcommands.Add(BuildApproval(apiUrlOption, identityUrlOption, tokenOption, outputOption));
+        caCommand.Subcommands.Add(BuildStrength(apiUrlOption, identityUrlOption, tokenOption, outputOption));
         return caCommand;
     }
 
@@ -86,6 +87,72 @@ internal static class CaCommands
         approval.Subcommands.Add(set);
         return approval;
     }
+
+    internal static IssuerStrengthMode? ParseStrength(string? text) =>
+        Enum.TryParse<IssuerStrengthMode>(text, ignoreCase: true, out var mode) && Enum.IsDefined(mode) && !int.TryParse(text, out _)
+            ? mode
+            : null;
+
+    private static Command BuildStrength(
+        Option<string?> apiUrlOption, Option<string?> identityUrlOption, Option<string?> tokenOption, Option<string> outputOption)
+    {
+        var strength = new Command("strength",
+            "What happens when a certificate's post-quantum key claims a higher NIST security level than the CA key that signs it.");
+
+        var show = new Command("show", StrengthShowHelp);
+        show.SetAction(async (result, ct) =>
+        {
+            var session = await SessionResolver.ResolveAsync(result, tokenOption, apiUrlOption, identityUrlOption, ct);
+            if (session is null) return 1;
+            return await CliApi.RunAsync(async () =>
+            {
+                var settings = await CliApi.CreateClient(session).GetSettingsAsync(ct);
+                if (result.GetValue(outputOption) == "json") return CliApi.PrintJson(new { issuerStrength = settings.IssuerStrengthMode });
+                Console.WriteLine(settings.IssuerStrengthMode);
+                return 0;
+            }, "reading CA settings needs settings.edit");
+        });
+        strength.Subcommands.Add(show);
+
+        var modeArg = new Argument<string>("mode") { Description = $"New mode, case-insensitive: {string.Join(", ", Enum.GetNames<IssuerStrengthMode>())}." };
+        var set = new Command("set", StrengthSetHelp);
+        set.Arguments.Add(modeArg);
+        set.SetAction(async (result, ct) =>
+        {
+            if (ParseStrength(result.GetValue(modeArg)) is not { } mode)
+            {
+                await Console.Error.WriteLineAsync($"error: unknown mode '{result.GetValue(modeArg)}'; use one of {string.Join(", ", Enum.GetNames<IssuerStrengthMode>())}.");
+                return 1;
+            }
+            var session = await SessionResolver.ResolveAsync(result, tokenOption, apiUrlOption, identityUrlOption, ct);
+            if (session is null) return 1;
+            return await CliApi.RunAsync(async () =>
+            {
+                var updated = await CliApi.CreateClient(session).SetIssuerStrengthAsync(mode, ct);
+                if (result.GetValue(outputOption) == "json") return CliApi.PrintJson(new { issuerStrength = updated.IssuerStrengthMode });
+                Console.WriteLine($"Issuer strength is now {updated.IssuerStrengthMode}");
+                return 0;
+            }, "changing issuer strength needs the admin role");
+        });
+        strength.Subcommands.Add(set);
+        return strength;
+    }
+
+    private const string StrengthShowHelp =
+        "Show the issuer-strength mode.\n\n" +
+        "Prints Off, Warn or Enforce. The rule compares the NIST security level of a certificate's post-quantum key (ML-DSA, SLH-DSA, ML-KEM, or the ML-DSA half of a composite or hybrid) with the level of the CA key that signs it. Changes nothing.\n" +
+        "Needs: settings.edit or the admin role.\n" +
+        "Exit codes: 0 shown; 1 not signed in or the call failed (403 when you lack the permission).\n" +
+        "Output: --output json prints {\"issuerStrength\":\"<Mode>\"}.\n" +
+        "Example: qca ca strength show";
+
+    private const string StrengthSetHelp =
+        "Set the issuer-strength mode.\n\n" +
+        "Off skips the comparison. Warn (the default) allows a certificate whose key claims a higher level than its issuer's and attaches a warning. Enforce refuses it as an issuance policy violation, and refuses creating an intermediate CA whose key claims more than its parent's. A classical (RSA or ECDSA) issuer is exempt, so a P-384 root can still sign an ML-DSA-87 CA. Changes the CA setting for new, renewed and approved requests and for requests already queued; when the mode actually changes it writes an audit entry (IssuerStrengthChanged) and raises a webhook (setting the current mode again does neither). It does not ask for confirmation.\n" +
+        "Needs: the admin role (not a grantable permission).\n" +
+        "Exit codes: 0 set; 1 unknown mode, not signed in, or the call failed (403 means you are not admin).\n" +
+        "Output: --output json prints {\"issuerStrength\":\"<Mode>\"}.\n" +
+        "Example: qca ca strength set Enforce";
 
     private const string ShowHelp =
         "Show whether a CA-certificate request must be approved by someone other than its requester.\n\n" +

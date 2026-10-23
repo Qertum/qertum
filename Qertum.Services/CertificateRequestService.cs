@@ -35,10 +35,13 @@ public sealed class CertificateRequestService(
         return verdict;
     }
 
-    private static void AttachWarning(CertificateRequest request, PqcVerdict verdict) =>
-        request.Warnings = verdict.Outcome == PqcOutcome.AllowedWithWarning && verdict.Reason is not null
-            ? [verdict.Reason]
-            : null;
+    private static void AttachWarnings(CertificateRequest request, PqcVerdict verdict, PolicyDecision decision)
+    {
+        var warnings = new List<string>();
+        if (verdict.Outcome == PqcOutcome.AllowedWithWarning && verdict.Reason is not null) warnings.Add(verdict.Reason);
+        warnings.AddRange(decision.Warnings);
+        request.Warnings = warnings.Count == 0 ? null : warnings;
+    }
 
     // Time is read through TimeProvider so expiry and scheduling can be tested with a fake clock;
     // optional so code that constructs this directly keeps compiling.
@@ -624,7 +627,7 @@ public sealed class CertificateRequestService(
         }
 
         _pqcStage.Record(pqcVerdict, (Guid)entry.Id, performedBy);
-        AttachWarning(entry, pqcVerdict);
+        AttachWarnings(entry, pqcVerdict, policyDecision);
 
         await auditLog.LogAsync("Created", performedBy, (Guid)entry.Id, entry.CommonName,
             RequesterRoleAuditDetail(policyDecision), cancellationToken);
@@ -844,7 +847,7 @@ public sealed class CertificateRequestService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         _pqcStage.Record(pqcVerdict, (Guid)renewal.Id, performedBy);
-        AttachWarning(renewal, pqcVerdict);
+        AttachWarnings(renewal, pqcVerdict, policyDecision);
 
         await auditLog.LogAsync("Renewed", performedBy, (Guid)renewal.Id, renewal.CommonName,
             $"Renewed from {existing.Id}",
@@ -953,7 +956,7 @@ public sealed class CertificateRequestService(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         _pqcStage.Record(pqcVerdict, (Guid)id, performedBy);
-        AttachWarning(existingRequest, pqcVerdict);
+        AttachWarnings(existingRequest, pqcVerdict, policyDecision);
 
         await auditLog.LogAsync("Updated", performedBy, (Guid)id, existingRequest.CommonName,
             cancellationToken: cancellationToken);
@@ -1152,6 +1155,27 @@ public sealed class CertificateRequestService(
         return existing;
     }
 
+    public async Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, string performedBy, CancellationToken cancellationToken = default)
+    {
+        var existing = await GetSettingsAsync(cancellationToken);
+        var previous = existing.IssuerStrengthMode;
+        if (previous == mode) return existing;
+
+        existing.IssuerStrengthMode = mode;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await auditLog.LogAsync(WellKnownWebhookEvents.IssuerStrengthChanged, performedBy,
+            detail: $"Issuer strength: {previous} -> {mode}", cancellationToken: cancellationToken);
+        await webhookService.EnqueueEventAsync(new WebhookEvent(
+            WellKnownWebhookEvents.IssuerStrengthChanged, PerformedBy: performedBy,
+            Fields: new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["previousMode"] = previous.ToString(),
+                ["mode"] = mode.ToString()
+            }), cancellationToken);
+        return existing;
+    }
+
     public async Task<CaSettings> SetCaApprovalRuleAsync(bool requireIndependent, string performedBy, CancellationToken cancellationToken = default)
     {
         var existing = await GetSettingsAsync(cancellationToken);
@@ -1203,6 +1227,7 @@ public sealed class CertificateRequestService(
             settings.Id = 1;
             settings.RequireIndependentCaApproval = true;
             settings.RequireTwoPersonApproval = false; // owned by PUT /v1/settings/two-person-approval (admin only)
+            settings.IssuerStrengthMode = IssuerStrengthMode.Warn; // owned by PUT /v1/settings/issuer-strength (admin only)
             dbContext.Settings.Add(settings);
         }
         else
@@ -1222,6 +1247,7 @@ public sealed class CertificateRequestService(
             settings.PqcStage = existing.PqcStage;
             settings.RequireIndependentCaApproval = existing.RequireIndependentCaApproval; // owned by PUT /v1/settings/ca-approval (admin only)
             settings.RequireTwoPersonApproval = existing.RequireTwoPersonApproval; // owned by PUT /v1/settings/two-person-approval (admin only)
+            settings.IssuerStrengthMode = existing.IssuerStrengthMode; // owned by PUT /v1/settings/issuer-strength (admin only)
             dbContext.Entry(existing).CurrentValues.SetValues(settings);
         }
 

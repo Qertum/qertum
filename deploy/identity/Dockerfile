@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 # Build stage
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
 WORKDIR /src
 
 # Copy the whole repo. Qertum.IdentityService references Qertum.ServiceDefaults, and
@@ -19,7 +19,7 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:86ddb370c95d79ec988f94e7d66193b20d02a1df859aa3f5e56451141528f053 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:535673eb0bf091deebbfefe0ab17dae903f86e49c9687df06448823435ccbc3c AS runtime
 WORKDIR /app
 
 # The aspnet base image ships no HTTP client, and the app's /health endpoint is

@@ -36,6 +36,9 @@ public static class PolicyRules
     /// <summary>Not an operator rule — the issuing CA's own certificate forbids it: a name outside a CA's NameConstraints.</summary>
     public const string IssuerNameConstraints = "issuerNameConstraints";
 
+    /// <summary>Not an operator rule — the issuing CA's key backs a lower NIST level than the key it is asked to certify (<see cref="CaSettings.IssuerStrengthMode"/>).</summary>
+    public const string IssuerStrength = "issuerStrength";
+
     /// <summary>The caller lacks <c>certificates.ca</c> for a template that issues a CA certificate (KeyCertSign).</summary>
     public const string CaPermission = "caPermission";
 
@@ -56,6 +59,9 @@ public sealed record PolicyDecision(
 {
     /// <summary>Allowed, with no policy governing the request.</summary>
     public static PolicyDecision Unrestricted { get; } = new(true, null, null, null, []);
+
+    /// <summary>Notes that do not refuse the request (the issuer-strength rule under <see cref="IssuerStrengthMode.Warn"/>); empty when none.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 
     /// <summary>The listed requester role the submitting caller matched; null when not checked or admin.</summary>
     public string? MatchedRequesterRole { get; init; }

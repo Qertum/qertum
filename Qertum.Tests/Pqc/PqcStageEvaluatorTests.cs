@@ -9,6 +9,7 @@ public sealed class PqcStageEvaluatorTests
 
     private static readonly CertificateKeyAlgorithm[] Compliant =
         [CertificateKeyAlgorithm.MlDsa65, CertificateKeyAlgorithm.SlhDsaSha2128s,
+         CertificateKeyAlgorithm.SlhDsaSha2192f, CertificateKeyAlgorithm.SlhDsaSha2256s,
          CertificateKeyAlgorithm.HybridEcdsaP256, CertificateKeyAlgorithm.MlKem768,
          CertificateKeyAlgorithm.PairMlDsa65MlKem768];
 

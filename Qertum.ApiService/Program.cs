@@ -81,6 +81,14 @@ using (var scope = app.Services.CreateScope())
             db.Database.EnsureCreated();
         else
             db.Database.Migrate();
+        var missingTables = DatabaseSchemaCheck.MissingTables(db);
+        if (missingTables.Count > 0)
+        {
+            startupLogger.LogCritical(
+                "The database migration history is current but the tables {MissingTables} are missing, so this database was made by an older build whose first migration had the same id. Delete the database file and restart (local development: scripts/reset-dev-environment.sh); a database holding data worth keeping needs a restore from a backup of a current image. Path: {DbPath}",
+                missingTables, db.Database.GetConnectionString());
+            Environment.Exit(1);
+        }
         var policy = scope.ServiceProvider.GetRequiredService<IWebhookDestinationPolicyService>();
         var policyOptions = scope.ServiceProvider.GetRequiredService<IOptions<WebhookDestinationPolicyOptions>>().Value;
         policy.ReconcileAsync(policyOptions).GetAwaiter().GetResult();

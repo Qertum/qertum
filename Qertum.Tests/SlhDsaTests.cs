@@ -12,13 +12,17 @@ using Qertum.Services.Crypto;
 namespace Qertum.Tests;
 
 /// <summary>
-/// SLH-DSA (FIPS 205), SHA2-128S and SHA2-128F. Driven through the canonical-string API so the
+/// SLH-DSA (FIPS 205), the SHA2 sets at levels 1, 3 and 5 (128, 192, 256; S and F). Driven through the canonical-string API so the
 /// suite compiles against the pre-change code and fails at runtime.
 /// </summary>
 public sealed class SlhDsaTests
 {
     private const string Sha2128S = "SLH-DSA-SHA2-128S";
     private const string Sha2128F = "SLH-DSA-SHA2-128F";
+    private const string Sha2192S = "SLH-DSA-SHA2-192S";
+    private const string Sha2192F = "SLH-DSA-SHA2-192F";
+    private const string Sha2256S = "SLH-DSA-SHA2-256S";
+    private const string Sha2256F = "SLH-DSA-SHA2-256F";
 
     private static CertificateKeyAlgorithm Algorithm(string canonical) =>
         CertificateKeyAlgorithmExtensions.Parse(canonical)
@@ -27,6 +31,10 @@ public sealed class SlhDsaTests
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
     public void Parse_RoundTripsEachSetThroughItsCanonicalString(string canonical)
     {
         Assert.Equal(canonical, Algorithm(canonical).ToCanonicalString());
@@ -35,6 +43,10 @@ public sealed class SlhDsaTests
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
     public void SlhDsa_BelongsToThePqcFamily(string canonical)
     {
         Assert.Equal(AlgorithmFamily.Pqc, Algorithm(canonical).GetFamily());
@@ -51,6 +63,20 @@ public sealed class SlhDsaTests
         Assert.Equal(SlhDsaParameters.slh_dsa_sha2_128s, publicKey.Parameters);
     }
 
+    // Every set must come back as exactly its own BouncyCastle parameter set, in both directions.
+    [Theory]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
+    public void GenerateLeafKeyPair_UsesTheMatchingParameterSet(string canonical)
+    {
+        var keyPair = AlgorithmStrategyFactory.Create(Algorithm(canonical)).GenerateLeafKeyPair(new SecureRandom());
+
+        var publicKey = Assert.IsType<SlhDsaPublicKeyParameters>(keyPair.Public);
+        Assert.Equal(canonical, publicKey.Parameters.Name.ToUpperInvariant().Replace("_", "-"));
+    }
+
     [Fact]
     public void GenerateLeafKeyPair_Uses128fParametersFor128f()
     {
@@ -63,6 +89,10 @@ public sealed class SlhDsaTests
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
     public void CaSignatureAlgorithm_NamesTheSetItActuallyUses(string canonical)
     {
         Assert.Equal(canonical, AlgorithmStrategyFactory.CreateIssuer(Algorithm(canonical)).CaSignatureAlgorithm);
@@ -71,6 +101,10 @@ public sealed class SlhDsaTests
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
     public void CreateFromPrivateKey_KeepsTheOriginalParameterSet(string canonical)
     {
         var keyPair = AlgorithmStrategyFactory.Create(Algorithm(canonical)).GenerateLeafKeyPair(new SecureRandom());
@@ -78,12 +112,16 @@ public sealed class SlhDsaTests
         Assert.Equal(canonical, AlgorithmStrategyFactory.CreateFromPrivateKey(keyPair.Private).CaSignatureAlgorithm);
     }
 
-    // The near-miss that matters here: the two sets are indistinguishable by key size, so
+    // The near-miss that matters here: sets of one level are indistinguishable by key size, so
     // detection has only the algorithm OID to go on.
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
-    public void DetectAlgorithmFromCsr_DistinguishesTheTwoParameterSets(string canonical)
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
+    public void DetectAlgorithmFromCsr_DistinguishesEveryParameterSet(string canonical)
     {
         var expected = Algorithm(canonical);
         var strategy = AlgorithmStrategyFactory.CreateIssuer(expected);
@@ -141,6 +179,10 @@ public sealed class SlhDsaTests
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
     public void CliRequestsCreate_AcceptsEachSetAsAKeyAlgorithm(string canonical)
     {
         var command = Qertum.Cli.Commands.RequestsCommands.Build(
@@ -155,6 +197,10 @@ public sealed class SlhDsaTests
     [Theory]
     [InlineData(Sha2128S)]
     [InlineData(Sha2128F)]
+    [InlineData(Sha2192S)]
+    [InlineData(Sha2192F)]
+    [InlineData(Sha2256S)]
+    [InlineData(Sha2256F)]
     public void EnrollmentWizard_OffersEachSetAsAPqcChoice(string canonical)
     {
         var choice = Assert.Single(

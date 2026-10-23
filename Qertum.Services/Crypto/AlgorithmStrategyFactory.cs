@@ -39,8 +39,9 @@ public static class AlgorithmStrategyFactory
             CertificateKeyAlgorithm.EcdsaP256 or CertificateKeyAlgorithm.EcdsaP384 => new EcAlgorithmStrategy(algorithm),
             CertificateKeyAlgorithm.MlDsa44   or CertificateKeyAlgorithm.MlDsa65
                                               or CertificateKeyAlgorithm.MlDsa87   => new MlDsaAlgorithmStrategy(algorithm),
-            CertificateKeyAlgorithm.SlhDsaSha2128s
-                or CertificateKeyAlgorithm.SlhDsaSha2128f                          => new SlhDsaAlgorithmStrategy(algorithm),
+            CertificateKeyAlgorithm.SlhDsaSha2128s or CertificateKeyAlgorithm.SlhDsaSha2128f
+                or CertificateKeyAlgorithm.SlhDsaSha2192s or CertificateKeyAlgorithm.SlhDsaSha2192f
+                or CertificateKeyAlgorithm.SlhDsaSha2256s or CertificateKeyAlgorithm.SlhDsaSha2256f => new SlhDsaAlgorithmStrategy(algorithm),
             // Makes all 18 composite algorithms root-eligible, deliberately.
             _ when algorithm.GetFamily() == AlgorithmFamily.Composite            => new CompositeAlgorithmStrategy(CompositeAlgorithms.For(algorithm)),
             _ when algorithm.GetFamily() == AlgorithmFamily.Kem => throw new NotSupportedException(

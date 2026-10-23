@@ -95,6 +95,7 @@ public static class AuditActionSubjects
         WellKnownWebhookEvents.RolePermissionsUpdated, WellKnownWebhookEvents.RolePermissionsRenamed,
         "WebhookDestinationModeUpdated", WellKnownWebhookEvents.PqcStageChanged,
         WellKnownWebhookEvents.CaApprovalRuleChanged, WellKnownWebhookEvents.TwoPersonApprovalChanged,
+        WellKnownWebhookEvents.IssuerStrengthChanged,
     };
 
     /// <summary>The subject type for <paramref name="action"/>, or null when it names no resource.</summary>

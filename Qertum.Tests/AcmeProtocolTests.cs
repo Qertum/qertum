@@ -89,10 +89,10 @@ public sealed class AcmeProtocolTests
         var header = JsonSerializer.Serialize(new { alg = "ES256", nonce, url = "http://localhost/acme/new-account", jwk });
         var protectedB64 = JwkConverter.Base64UrlEncode(Encoding.UTF8.GetBytes(header));
         var payloadB64 = part == "payload"
-            ? JwkConverter.Base64UrlEncode(Encoding.UTF8.GetBytes(new string('A', 65_537)))
+            ? JwkConverter.Base64UrlEncode(Encoding.UTF8.GetBytes(new string('A', EnrollmentPayloadLimits.DecodedPayloadBytes + 1)))
             : "";
         var body = part == "body"
-            ? new string(' ', 131_073)
+            ? new string(' ', EnrollmentPayloadLimits.AcmeBodyBytes + 1)
             : JsonSerializer.Serialize(new { @protected = protectedB64, payload = payloadB64, signature = "AA" });
 
         var response = await client.PostAsync("/acme/new-account",

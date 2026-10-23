@@ -184,6 +184,8 @@ public sealed class CertificateRequestDbContext(
         caSettings.HasKey(s => s.Id);
         caSettings.Property(s => s.PqcStage).HasConversion<string>().HasMaxLength(20)
             .HasDefaultValue(PqcStage.Enforce).HasSentinel((PqcStage)(-1)); // Off is a real value; only "unset" takes the column default
+        caSettings.Property(s => s.IssuerStrengthMode).HasConversion<string>().HasMaxLength(20)
+            .HasDefaultValue(IssuerStrengthMode.Warn).HasSentinel((IssuerStrengthMode)(-1)); // same sentinel: Off is a real value
 
         var rolePermission = modelBuilder.Entity<RolePermission>();
         rolePermission.HasKey(rp => rp.Id);

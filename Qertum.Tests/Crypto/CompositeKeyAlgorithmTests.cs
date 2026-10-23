@@ -54,6 +54,9 @@ public sealed class CompositeKeyAlgorithmTests
         Assert.Equal(9, (int)CertificateKeyAlgorithm.SlhDsaSha2128f);
         Assert.Equal(10, (int)CertificateKeyAlgorithm.MlDsa44Rsa2048PssSha256);
         Assert.Equal(27, (int)CertificateKeyAlgorithm.MlDsa87EcdsaP521Sha512);
+        Assert.Equal(33, (int)CertificateKeyAlgorithm.PairMlDsa87MlKem1024);
+        Assert.Equal(34, (int)CertificateKeyAlgorithm.SlhDsaSha2192s);
+        Assert.Equal(37, (int)CertificateKeyAlgorithm.SlhDsaSha2256f);
     }
 
     [Fact]

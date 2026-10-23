@@ -99,6 +99,7 @@ public sealed class CliHelpCoverageTests
     [InlineData("qca requests approve", "certificates.ca", "selfApproval")]
     [InlineData("qca requests create", "certificates.ca", "caPermission")]
     [InlineData("qca ca approval set", "admin", "waived")]
+    [InlineData("qca ca strength set", "admin", "IssuerStrengthChanged")]
     public void TheFeatureCommandsExplainTheirCaRules(string path, params string[] mustMention)
     {
         var command = Walk(CliRoot.Build(), "qca").Single(w => w.Path == path).Command;

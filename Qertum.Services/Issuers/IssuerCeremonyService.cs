@@ -54,6 +54,16 @@ public sealed class IssuerCeremonyService(
                     $"Parent issuer '{parent.Issuer.Name}' has path length 0 and cannot sign another CA.");
         }
 
+        // The parent vouches for the new CA's key, so it must back the level that key claims.
+        string? strengthNote = null;
+        if (parent is not null && settings.IssuerStrengthMode != IssuerStrengthMode.Off &&
+            IssuerStrength.Mismatch(algorithm, parent.Issuer.KeyAlgorithm, parent.Issuer.Name) is { } mismatch)
+        {
+            if (settings.IssuerStrengthMode == IssuerStrengthMode.Enforce)
+                return IssuerOutcome<CreateIntermediateResponse>.Invalid(mismatch);
+            strengthNote = $" Warning: {mismatch}";
+        }
+
         var profile = new SubordinateCaProfile(request.PathLength,
             Normalize(request.PermittedDnsSuffixes), Normalize(request.ExcludedDnsSuffixes),
             NormalizeIp(request.PermittedIpRanges), NormalizeIp(request.ExcludedIpRanges));
@@ -107,7 +117,7 @@ public sealed class IssuerCeremonyService(
         var detail = issuer.Status == IssuerStatus.Active
             ? $"Intermediate signed by '{parent!.Issuer.Name}'. {IssuerCeremonyText.Describe(profile)}"
             : $"Intermediate pending; request file issued. {IssuerCeremonyText.Describe(profile)}";
-        await audit.LogAsync("IssuerCreated", performedBy, (Guid)issuer.Id, issuer.Name, detail, ct);
+        await audit.LogAsync("IssuerCreated", performedBy, (Guid)issuer.Id, issuer.Name, detail + strengthNote, ct);
         await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerCreated, issuer, performedBy), ct);
         await issuers.InvalidateAsync(ct);
 

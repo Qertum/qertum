@@ -243,6 +243,10 @@ else if (_step == Step.Generate)
                                 <option value="ML-DSA-87">ML-DSA-87 (Dilithium5) — 2592-byte key</option>
                                 <option value="SLH-DSA-SHA2-128S">SLH-DSA-SHA2-128S (hash-based) — 32-byte key, ~8 KB signatures</option>
                                 <option value="SLH-DSA-SHA2-128F">SLH-DSA-SHA2-128F (hash-based) — 32-byte key, faster signing, ~17 KB signatures</option>
+                                <option value="SLH-DSA-SHA2-192S">SLH-DSA-SHA2-192S (hash-based) — 48-byte key, ~16 KB signatures</option>
+                                <option value="SLH-DSA-SHA2-192F">SLH-DSA-SHA2-192F (hash-based) — 48-byte key, faster signing, ~36 KB signatures</option>
+                                <option value="SLH-DSA-SHA2-256S">SLH-DSA-SHA2-256S (hash-based) — 64-byte key, ~30 KB signatures</option>
+                                <option value="SLH-DSA-SHA2-256F">SLH-DSA-SHA2-256F (hash-based) — 64-byte key, faster signing, ~50 KB signatures</option>
                             </optgroup>
                             @foreach (var group in AlgorithmChoices.Composite.GroupBy(c => c.Featured ? "Composite ML-DSA + classical" : $"Composite ML-DSA + {c.Group}")
                                           .OrderBy(g => g.Key == "Composite ML-DSA + classical" ? -1 : AlgorithmChoices.CompositeGroupOrder(g.First().Group)))

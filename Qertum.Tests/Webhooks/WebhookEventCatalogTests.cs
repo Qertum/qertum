@@ -55,7 +55,7 @@ public sealed class WebhookEventCatalogTests
     public void CatalogCountsAreExplicit()
     {
         Assert.Equal(8, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.CertificateRequest).Count);
-        Assert.Equal(8, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Settings).Count);
+        Assert.Equal(9, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Settings).Count);
         Assert.Equal(6, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Template).Count);
         Assert.Equal(6, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Policy).Count);
         Assert.Equal(4, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.KeyAccess).Count);
@@ -64,6 +64,6 @@ public sealed class WebhookEventCatalogTests
         Assert.Equal(3, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Notice).Count);
         Assert.Single(WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Audit));
         Assert.Equal(5, WellKnownWebhookEvents.EventsFor(WebhookEventFamily.Approval).Count);
-        Assert.Equal(51, WellKnownWebhookEvents.All.Count);
+        Assert.Equal(52, WellKnownWebhookEvents.All.Count);
     }
 }

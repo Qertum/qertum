@@ -261,6 +261,31 @@ else
                         </div>
                         <div class="form-row cols-1">
                             <div class="form-field">
+                                <label class="form-label" for="issuer-strength">Issuer strength (post-quantum security level)</label>
+                                <select class="form-select" id="issuer-strength" disabled="@(!isAdmin)"
+                                        @key="issuerStrengthSelectKey" @onchange="OnIssuerStrengthChangedAsync">
+                                    @foreach (var mode in Enum.GetValues<IssuerStrengthMode>())
+                                    {
+                                        <option value="@mode" selected="@(mode == settings.IssuerStrengthMode)">@mode</option>
+                                    }
+                                </select>
+                                @if (!isAdmin)
+                                {
+                                    <div class="form-help mt-2">Only an administrator can change this.</div>
+                                }
+                                <div class="form-help mt-2" data-test="issuer-strength-help">
+                                    @(settings.IssuerStrengthMode switch
+                                    {
+                                        IssuerStrengthMode.Off => "Off: a CA may certify a post-quantum key of a higher NIST security level than its own.",
+                                        IssuerStrengthMode.Enforce => "Enforce: a certificate, or an intermediate CA, whose post-quantum key claims a higher NIST level than the CA key signing it is refused.",
+                                        _ => "Warn: such a certificate is issued with a warning naming both levels."
+                                    })
+                                    A classical (RSA or ECDSA) issuer is exempt, so a P-384 root can still sign an ML-DSA-87 CA.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
                                 <label class="form-label" for="two-person-approval">Two-person approval of sensitive operations</label>
                                 <select class="form-select" id="two-person-approval" disabled="@(!isAdmin)"
                                         @key="twoPersonSelectKey" @onchange="OnTwoPersonApprovalChangedAsync">
@@ -974,6 +999,14 @@ else
         </ConfirmDialog>
     }
 
+    @if (pendingIssuerStrength is { } looserStrength)
+    {
+        <ConfirmDialog TestId="issuer-strength" Tone="ConfirmDialogTone.Danger" Title="Loosen the issuer-strength rule?"
+                       ConfirmLabel="Loosen" OnConfirm="ConfirmIssuerStrengthChangeAsync" OnCancel="CancelIssuerStrengthChange">
+            <p>This moves the rule from <strong>@settings!.IssuerStrengthMode</strong> to <strong>@looserStrength</strong>. A CA will be able to certify a key that claims a higher NIST security level than its own. Continue?</p>
+        </ConfirmDialog>
+    }
+
     @if (pendingCaApprovalWaive)
     {
         <ConfirmDialog TestId="ca-approval" Tone="ConfirmDialogTone.Danger" Title="Waive independent approval?"
@@ -991,6 +1024,8 @@ else
     // The stage a loosening is waiting on; the select re-keys on cancel so it snaps back to the stored stage.
     private PqcStage? pendingPqcStage;
     private bool pendingCaApprovalWaive;
+    private IssuerStrengthMode? pendingIssuerStrength;
+    private int issuerStrengthSelectKey;
     private bool pendingTwoPersonApproval;
     private int twoPersonSelectKey;
     private int caApprovalSelectKey;
@@ -1079,6 +1114,50 @@ else
         {
             pqcStageSelectKey++;
             ShowNotification($"Failed to change the PQC stage: {ex.Message}", "danger");
+        }
+    }
+
+    private async Task OnIssuerStrengthChangedAsync(ChangeEventArgs args)
+    {
+        if (settings is null || !isAdmin) return;
+        if (!Enum.TryParse<IssuerStrengthMode>(args.Value?.ToString(), out var chosen) || !Enum.IsDefined(chosen)) return;
+        if (chosen == settings.IssuerStrengthMode) return;
+
+        // Loosening is the dangerous direction, so it asks first; tightening applies at once.
+        if (chosen < settings.IssuerStrengthMode)
+        {
+            pendingIssuerStrength = chosen;
+            return;
+        }
+        await ApplyIssuerStrengthAsync(chosen);
+    }
+
+    private void CancelIssuerStrengthChange()
+    {
+        pendingIssuerStrength = null;
+        issuerStrengthSelectKey++;
+    }
+
+    private async Task ConfirmIssuerStrengthChangeAsync()
+    {
+        if (pendingIssuerStrength is not { } mode) return;
+        pendingIssuerStrength = null;
+        await ApplyIssuerStrengthAsync(mode);
+    }
+
+    // The mode has its own admin-only endpoint; the general Save deliberately cannot change it.
+    private async Task ApplyIssuerStrengthAsync(IssuerStrengthMode mode)
+    {
+        try
+        {
+            var updated = await CertificateRequestsApiClient.SetIssuerStrengthAsync(mode);
+            if (settings is not null) settings.IssuerStrengthMode = updated.IssuerStrengthMode;
+            ShowNotification($"Issuer strength is now {updated.IssuerStrengthMode}.", "success");
+        }
+        catch (Exception ex)
+        {
+            issuerStrengthSelectKey++;
+            ShowNotification($"Failed to change the issuer-strength rule: {ex.Message}", "danger");
         }
     }
 

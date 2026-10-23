@@ -76,9 +76,9 @@ internal sealed class CertificateRequestPreviewService(
             violations.Add(new IssuancePolicyViolation(PolicyRules.PqcOnly,
                 effectiveAlgorithm.ToCanonicalString(), pqcVerdict.Reason!));
         }
-        var warnings = pqcVerdict.Outcome == PqcOutcome.AllowedWithWarning && pqcVerdict.Reason is not null
-            ? new[] { pqcVerdict.Reason }
-            : [];
+        var warnings = new List<string>();
+        if (pqcVerdict.Outcome == PqcOutcome.AllowedWithWarning && pqcVerdict.Reason is not null) warnings.Add(pqcVerdict.Reason);
+        warnings.AddRange(decision.Warnings);
 
         if (ActiveCommonNameRule.Applies(candidate) &&
             await ActiveCommonNameRule.IsTakenAsync(db, candidate.CommonName, cancellationToken))

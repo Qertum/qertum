@@ -43,7 +43,7 @@ public sealed class WebhookEventFieldsTests
     [Fact]
     public void SettingsExposesRolePermissionFieldsOnly()
         => Assert.Equal(
-            new[] { "approvalMode", "expiresAtUtc", "family", "grantedPermissions", "namePattern", "previousApprovalMode", "previousRole", "previousStage", "revokedPermissions", "role", "stage", "twoPersonApproval", "typeKey" },
+            new[] { "approvalMode", "expiresAtUtc", "family", "grantedPermissions", "mode", "namePattern", "previousApprovalMode", "previousMode", "previousRole", "previousStage", "revokedPermissions", "role", "stage", "twoPersonApproval", "typeKey" },
             WebhookEventFields.For(WebhookEventFamily.Settings).OrderBy(f => f, StringComparer.Ordinal));
 
     [Fact]

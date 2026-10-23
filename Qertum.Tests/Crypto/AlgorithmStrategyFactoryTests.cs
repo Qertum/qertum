@@ -22,6 +22,10 @@ public sealed class AlgorithmStrategyFactoryTests
         CertificateKeyAlgorithm.MlDsa87,
         CertificateKeyAlgorithm.SlhDsaSha2128s,
         CertificateKeyAlgorithm.SlhDsaSha2128f,
+        CertificateKeyAlgorithm.SlhDsaSha2192s,
+        CertificateKeyAlgorithm.SlhDsaSha2192f,
+        CertificateKeyAlgorithm.SlhDsaSha2256s,
+        CertificateKeyAlgorithm.SlhDsaSha2256f,
     ];
 
     private static bool IsIssuer(CertificateKeyAlgorithm algorithm)

@@ -336,6 +336,13 @@ public sealed class SetCaApprovalRequest
     public bool? RequireIndependentApproval { get; init; }
 }
 
+/// <summary>Body of <c>PUT /v1/settings/issuer-strength</c> (admin only).</summary>
+public sealed class SetIssuerStrengthRequest
+{
+    /// <summary><c>Off</c>, <c>Warn</c> or <c>Enforce</c>. Required.</summary>
+    public IssuerStrengthMode? Mode { get; init; }
+}
+
 /// <summary>Body of <c>PUT /v1/settings/two-person-approval</c> (admin only).</summary>
 public sealed class SetTwoPersonApprovalRequest
 {

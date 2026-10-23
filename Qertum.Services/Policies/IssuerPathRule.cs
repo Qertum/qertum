@@ -12,9 +12,19 @@ namespace Qertum.Services.Policies;
 internal static class IssuerPathRule
 {
     public static void Check(CertificateRequest request, CertificateTemplate template, CertificateProperties properties,
-        IReadOnlyList<Issuer> path, List<IssuancePolicyViolation> violations)
+        IReadOnlyList<Issuer> path, CaSettings settings, List<IssuancePolicyViolation> violations, List<string> warnings)
     {
         if (path.Count == 0) return;
+
+        // Only the signing CA backs the subject's key; each CA above it was judged when it was created.
+        if (settings.IssuerStrengthMode != IssuerStrengthMode.Off &&
+            IssuerStrength.Mismatch(request.KeyAlgorithm ?? CertificateKeyAlgorithm.Rsa, path[0].KeyAlgorithm, path[0].Name) is { } mismatch)
+        {
+            if (settings.IssuerStrengthMode == IssuerStrengthMode.Enforce)
+                violations.Add(new IssuancePolicyViolation(PolicyRules.IssuerStrength, path[0].Name, mismatch));
+            else
+                warnings.Add(mismatch);
+        }
 
         if (CaCapableTemplate.IsCaCapable(template))
         {

@@ -38,4 +38,28 @@ public sealed class EnrollmentPayloadLimitsTests
         Assert.Throws<EnrollmentPayloadTooLargeException>(() =>
             EnrollmentPayloadLimits.DecodeBase64(Convert.ToBase64String(new byte[65]), 64));
     }
+
+    // The CSR of an SLH-DSA-SHA2-256F key (a 49,999-byte signature) is the largest the CA issues from: about 50,000 bytes.
+    private const int LargestCsrBytes = 50_000;
+
+    private static int Base64Length(int bytes) => (bytes + 2) / 3 * 4;
+
+    [Fact]
+    public void AcmeLimits_AdmitTheLargestCsrInAFinalizeRequest()
+    {
+        const int envelope = 9; // {"csr":""}
+        Assert.True(LargestCsrBytes <= EnrollmentPayloadLimits.CsrBytes);
+        Assert.True(Base64Length(EnrollmentPayloadLimits.CsrBytes) + envelope <= EnrollmentPayloadLimits.DecodedPayloadBytes,
+            "a CsrBytes-sized CSR in base64url must fit the decoded payload limit");
+        Assert.True(Base64Length(EnrollmentPayloadLimits.DecodedPayloadBytes) + 4096 <= EnrollmentPayloadLimits.AcmeBodyBytes,
+            "a payload at its limit, base64url-encoded again, plus header and signature must fit the body limit");
+    }
+
+    [Fact]
+    public void EstLimit_AdmitsTheLargestCsrAsFoldedBase64()
+    {
+        // RFC 2045 folding adds a line break per 76 characters.
+        var folded = Base64Length(EnrollmentPayloadLimits.CsrBytes) * 78 / 76;
+        Assert.True(folded <= EnrollmentPayloadLimits.EstBodyBytes);
+    }
 }

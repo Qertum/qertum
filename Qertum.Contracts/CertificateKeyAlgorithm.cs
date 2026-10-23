@@ -127,7 +127,22 @@ public enum CertificateKeyAlgorithm
     PairMlDsa65MlKem768,
 
     /// <summary>Paired issuance: an ML-DSA-87 signing certificate and an ML-KEM-1024 encryption certificate from one request.</summary>
-    PairMlDsa87MlKem1024
+    PairMlDsa87MlKem1024,
+
+    /// <summary>
+    /// SLH-DSA-SHA2-192S (FIPS 205). Security level 3, "small" variant: ~16 KB signatures, slow signing.
+    /// Appended after every existing member so no ordinal moves.
+    /// </summary>
+    SlhDsaSha2192s,
+
+    /// <summary>SLH-DSA-SHA2-192F (FIPS 205). Security level 3, "fast" variant: ~36 KB signatures.</summary>
+    SlhDsaSha2192f,
+
+    /// <summary>SLH-DSA-SHA2-256S (FIPS 205). Security level 5, "small" variant: ~30 KB signatures, slow signing.</summary>
+    SlhDsaSha2256s,
+
+    /// <summary>SLH-DSA-SHA2-256F (FIPS 205). Security level 5, "fast" variant: ~50 KB signatures.</summary>
+    SlhDsaSha2256f
 }
 
 /// <summary>Broad classification of a <see cref="CertificateKeyAlgorithm"/> value.</summary>
@@ -234,6 +249,10 @@ public static class CertificateKeyAlgorithmExtensions
         CertificateKeyAlgorithm.PairMlDsa44MlKem512 => "PAIR-ML-DSA-44-ML-KEM-512",
         CertificateKeyAlgorithm.PairMlDsa65MlKem768 => "PAIR-ML-DSA-65-ML-KEM-768",
         CertificateKeyAlgorithm.PairMlDsa87MlKem1024 => "PAIR-ML-DSA-87-ML-KEM-1024",
+        CertificateKeyAlgorithm.SlhDsaSha2192s => "SLH-DSA-SHA2-192S",
+        CertificateKeyAlgorithm.SlhDsaSha2192f => "SLH-DSA-SHA2-192F",
+        CertificateKeyAlgorithm.SlhDsaSha2256s => "SLH-DSA-SHA2-256S",
+        CertificateKeyAlgorithm.SlhDsaSha2256f => "SLH-DSA-SHA2-256F",
         _ => throw new ArgumentOutOfRangeException(nameof(algorithm), algorithm, null)
     };
 
@@ -277,6 +296,10 @@ public static class CertificateKeyAlgorithmExtensions
         "PAIR-ML-DSA-44-ML-KEM-512" => CertificateKeyAlgorithm.PairMlDsa44MlKem512,
         "PAIR-ML-DSA-65-ML-KEM-768" => CertificateKeyAlgorithm.PairMlDsa65MlKem768,
         "PAIR-ML-DSA-87-ML-KEM-1024" => CertificateKeyAlgorithm.PairMlDsa87MlKem1024,
+        "SLH-DSA-SHA2-192S" => CertificateKeyAlgorithm.SlhDsaSha2192s,
+        "SLH-DSA-SHA2-192F" => CertificateKeyAlgorithm.SlhDsaSha2192f,
+        "SLH-DSA-SHA2-256S" => CertificateKeyAlgorithm.SlhDsaSha2256s,
+        "SLH-DSA-SHA2-256F" => CertificateKeyAlgorithm.SlhDsaSha2256f,
         _ => null
     };
 
@@ -286,7 +309,9 @@ public static class CertificateKeyAlgorithmExtensions
         CertificateKeyAlgorithm.Rsa => AlgorithmFamily.Rsa,
         CertificateKeyAlgorithm.EcdsaP256 or CertificateKeyAlgorithm.EcdsaP384 => AlgorithmFamily.Ecdsa,
         CertificateKeyAlgorithm.MlDsa44 or CertificateKeyAlgorithm.MlDsa65 or CertificateKeyAlgorithm.MlDsa87
-            or CertificateKeyAlgorithm.SlhDsaSha2128s or CertificateKeyAlgorithm.SlhDsaSha2128f => AlgorithmFamily.Pqc,
+            or CertificateKeyAlgorithm.SlhDsaSha2128s or CertificateKeyAlgorithm.SlhDsaSha2128f
+            or CertificateKeyAlgorithm.SlhDsaSha2192s or CertificateKeyAlgorithm.SlhDsaSha2192f
+            or CertificateKeyAlgorithm.SlhDsaSha2256s or CertificateKeyAlgorithm.SlhDsaSha2256f => AlgorithmFamily.Pqc,
         CertificateKeyAlgorithm.HybridEcdsaP256 or CertificateKeyAlgorithm.HybridEcdsaP384 => AlgorithmFamily.Hybrid,
         CertificateKeyAlgorithm.MlDsa44Rsa2048PssSha256 or CertificateKeyAlgorithm.MlDsa44Rsa2048Pkcs15Sha256
             or CertificateKeyAlgorithm.MlDsa44Ed25519Sha512 or CertificateKeyAlgorithm.MlDsa44EcdsaP256Sha256

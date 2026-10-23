@@ -3,6 +3,7 @@
        A .csproj names the package only. Read the note on a pin marked below before changing it. -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
 
   <!-- Aspire -->
@@ -21,6 +22,10 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.13" />
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <!-- Transitive pins (OpenIddict resolves DataProtection at 10.0.11, which pulls Xml 10.0.11, GHSA-7hqp-7c5m-4vq6,
+         GHSA-c399-9853-6jmj, GHSA-r955-8q5j-3h83, fixed in 10.0.13). Keep in step with the servicing version above. -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="10.0.13" />
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.13" />
   </ItemGroup>
 
   <!-- Microsoft.Extensions (one version) -->
@@ -78,9 +83,9 @@
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 
-  <!-- Pinned transitive: StreamJsonRpc (via Aspire.Hosting) needs exactly MessagePack 2.5.302, the
-       patched version for GHSA-hv8m-jj95-wg3x. Do not bulk-upgrade to 3.x. -->
+  <!-- Pinned transitive: StreamJsonRpc (via Aspire.Hosting) needs MessagePack 2.5.x (a minimum, not exact); 2.5.307 is
+       past the fixes for GHSA-hv8m-jj95-wg3x and GHSA-qhrr-8q5h-9q3h (2.5.303). Stay on 2.5.x: 3.x is a major. -->
   <ItemGroup>
-    <PackageVersion Include="MessagePack" Version="2.5.302" />
+    <PackageVersion Include="MessagePack" Version="2.5.307" />
   </ItemGroup>
 </Project>

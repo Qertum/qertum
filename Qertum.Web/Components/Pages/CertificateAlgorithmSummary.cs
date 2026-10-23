@@ -118,7 +118,9 @@ public static class CertificateAlgorithmSummary
     public static string? PqcSchemeName(CertificateKeyAlgorithm? algorithm) => algorithm switch
     {
         CertificateKeyAlgorithm.MlDsa44 or CertificateKeyAlgorithm.MlDsa65 or CertificateKeyAlgorithm.MlDsa87 => "ML-DSA",
-        CertificateKeyAlgorithm.SlhDsaSha2128s or CertificateKeyAlgorithm.SlhDsaSha2128f => "SLH-DSA",
+        CertificateKeyAlgorithm.SlhDsaSha2128s or CertificateKeyAlgorithm.SlhDsaSha2128f
+            or CertificateKeyAlgorithm.SlhDsaSha2192s or CertificateKeyAlgorithm.SlhDsaSha2192f
+            or CertificateKeyAlgorithm.SlhDsaSha2256s or CertificateKeyAlgorithm.SlhDsaSha2256f => "SLH-DSA",
         CertificateKeyAlgorithm.MlKem512 or CertificateKeyAlgorithm.MlKem768 or CertificateKeyAlgorithm.MlKem1024 => "ML-KEM",
         _ => null
     };

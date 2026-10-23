@@ -655,6 +655,15 @@ public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProv
         return (await response.Content.ReadFromJsonAsync<CaSettings>(cancellationToken))!;
     }
 
+    /// <summary>Sets what happens when a certificate's key claims a higher NIST level than its issuer's. Admin only.</summary>
+    public async Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PutAsJsonAsync("v1/settings/issuer-strength",
+            new SetIssuerStrengthRequest { Mode = mode }, cancellationToken);
+        await response.EnsureSuccessOrThrowAsync(cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<CaSettings>(cancellationToken))!;
+    }
+
     /// <summary>Sets whether a CA-capable request needs a different approver than its requester. Admin only.</summary>
     public async Task<CaSettings> SetCaApprovalRuleAsync(bool requireIndependent, CancellationToken cancellationToken = default)
     {

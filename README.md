@@ -4,7 +4,7 @@ A self-hosted certificate authority with post-quantum support. Issue, track, ren
 certificates through a web UI, a REST API, a command line, or standard ACME and EST clients. Storage is
 SQLite: no external database, message broker or cloud service is needed.
 
-> **Alpha release.** Expect rough edges, pin an exact image tag, and do not use it in production yet.
+> **Release candidate (1.0.0-rc1).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ docker run -d --name qertum \
   -p 8080:8080 -p 8081:8081 -p 8082:8082 -p 8083:8083 \
   -v qertum-data:/data \
   --restart unless-stopped \
-  qertum/qertum:alpha-02
+  qertum/qertum:1.0.0-rc1
 ```
 
 Open `http://<host-name-or-ip>:8080`, sign in as `admin` and follow the onboarding to create or import your
@@ -69,6 +69,9 @@ The [wiki](https://github.com/Qertum/qertum/wiki) covers installing, configuring
 - [Identity Providers](https://github.com/Qertum/qertum/wiki/Identity-Providers) and
   [Issuer Compromise Recovery](https://github.com/Qertum/qertum/wiki/Issuer-Compromise-Recovery)
 
+What a version number promises, which releases get security fixes and where to ask for help is in the
+[support and compatibility policy](SUPPORT.md).
+
 Each deployment also has its own guide next to its compose files:
 [`deploy/single-container/`](deploy/single-container/README.md),
 [`deploy/multi-container/`](deploy/multi-container/README.md) and
@@ -85,6 +88,8 @@ dotnet test Qertum.sln
 
 To run the whole stack locally, see [Local Development](https://github.com/Qertum/qertum/wiki/Local-Development).
 
-## License
+## Security, contributing and license
 
-MIT, see [LICENSE](LICENSE).
+- Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md).
+- MIT, see [LICENSE](LICENSE).

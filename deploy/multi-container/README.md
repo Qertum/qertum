@@ -81,7 +81,7 @@ TPM_DEVICE=/dev/tpmrm0 TPM_GROUP=105 docker compose \
   --env-file deploy/multi-container/.env up -d
 ```
 
-Run once on real hardware, 2026-10-20: one x86_64 TPM 2.0 (`/dev/tpmrm0`), Ubuntu 26.04, Docker 29 (see "Manual verification"). Other TPMs, firmware TPMs, arm64 and a cleared or replaced TPM have not been tried.
+Run once on real hardware, 2026-10-20: one x86_64 TPM 2.0 (`/dev/tpmrm0`), Ubuntu 26.04, Docker 29 (see "Manual verification"). The single-container image was run on the same machine on 2026-10-23 (see its README). Other TPMs, firmware TPMs, arm64 and a cleared or replaced TPM have not been tried.
 
 ## Backup and restore
 
@@ -127,7 +127,8 @@ TPM override, run 2026-10-20 on one x86_64 TPM 2.0 (Ubuntu 26.04 host, Docker 29
 - The API, identity and queue consumer processes keep the TPM group (`Groups: 987 1654` in `/proc/<pid>/status`) and the status endpoint reports `tpmAvailable: true`. Before the entrypoint kept the groups it dropped them and reported `false`.
 - A CA onboarded on the file key, then `POST /v1/secret-storage/migrate` to `LocalTpm` and a restart of every container, plus `IdentityService__SecretStorageProvider=LocalTpm` for identity: both write `secret-storage/tpm-sealed.blob`. The certificate issued before the migration still yields its private key, a new one is issued, the CRL is served.
 - `backup.sh` then `restore-test.sh` exits 2 ("could not test": the archive matches its manifest but the data cannot be opened without the TPM). `Qertum.RestoreCheck` on a copy of `/data` with the device and group passed passes all four checks, and without the device cannot open it. `restore-test.sh` passes no device, so it cannot test a TPM-sealed backup.
-- Not run: leaving TPM storage again (migrate back to the file key), a cleared or replaced TPM, the single-container image with a TPM, the `.ps1` wrappers, and an
+- 2026-10-23, same machine, single-container image `alpha-02` with `--device /dev/tpmrm0 --group-add <group>`: `tpmAvailable: true` as non-root; a CA on the file key, migrate to `LocalTpm`, restart (keys issued before and after migration downloadable, CRL served), migrate back to `LocalFileKey`, restart (still readable, a new certificate issued; `tpm-sealed.blob` stays, as documented). Data left on `LocalTpm` and started without the device exits with `'tpm2_createprimary ...' ... Failed to open specified TCTI device file /dev/tpmrm0`; started again with the device it recovers. Data on the file key starts without a device.
+- Not run: a cleared or replaced TPM, other hardware, the `.ps1` wrappers, and an
   EST `/simplereenroll` with a client certificate.
 
 ## Two-person approval

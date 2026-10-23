@@ -28,7 +28,7 @@ public static class WebhookEventFields
         [WebhookEventFamily.Settings] = new HashSet<string>(StringComparer.Ordinal)
         {
             "role", "grantedPermissions", "revokedPermissions", "previousRole", "previousStage", "stage",
-            "typeKey", "namePattern", "family", "expiresAtUtc", "approvalMode", "previousApprovalMode", "twoPersonApproval"
+            "typeKey", "namePattern", "family", "expiresAtUtc", "approvalMode", "previousApprovalMode", "twoPersonApproval", "previousMode", "mode"
         },
         [WebhookEventFamily.Template] = new HashSet<string>(StringComparer.Ordinal)
         {

@@ -148,6 +148,12 @@ public interface ICertificateRequestService
     Task<CaSettings> SetPqcStageAsync(PqcStage stage, string performedBy, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Sets what happens when a certificate's key claims a higher NIST level than its issuer's. Audited as
+    /// <c>IssuerStrengthChanged</c>; a no-op writes nothing. Callers must have checked the admin role.
+    /// </summary>
+    Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, string performedBy, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Sets whether CA-capable requests need a different approver than their requester. Audited as
     /// <c>CaApprovalRuleChanged</c>; a no-op writes nothing. Callers must have checked the admin role.
     /// </summary>

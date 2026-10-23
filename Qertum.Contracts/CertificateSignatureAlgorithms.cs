@@ -11,7 +11,11 @@ public static class CertificateSignatureAlgorithms
             ["2.16.840.1.101.3.4.3.18"] = "ML-DSA-65",
             ["2.16.840.1.101.3.4.3.19"] = "ML-DSA-87",
             ["2.16.840.1.101.3.4.3.20"] = "SLH-DSA-SHA2-128S",
-            ["2.16.840.1.101.3.4.3.21"] = "SLH-DSA-SHA2-128F"
+            ["2.16.840.1.101.3.4.3.21"] = "SLH-DSA-SHA2-128F",
+            ["2.16.840.1.101.3.4.3.22"] = "SLH-DSA-SHA2-192S",
+            ["2.16.840.1.101.3.4.3.23"] = "SLH-DSA-SHA2-192F",
+            ["2.16.840.1.101.3.4.3.24"] = "SLH-DSA-SHA2-256S",
+            ["2.16.840.1.101.3.4.3.25"] = "SLH-DSA-SHA2-256F"
         }
         .Concat(CertificateKeyAlgorithmExtensions.CompositeAlgorithmsByOid
             .Select(pair => KeyValuePair.Create(pair.Key, pair.Value.ToCanonicalString())))

@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 # Build stage: restore + publish each runtime service into its own /app folder.
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
 WORKDIR /src
 
 # Copy the whole repo. (The projects share many references; a partial copy buys
@@ -29,12 +29,12 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
 # redis-server package is 7.0). No third-party apt repository is added to the runtime image.
 # See "Bumping the base image" in the README.
 # ---------------------------------------------------------------------------
-FROM redis:8.6@sha256:192fab3335680aa420049026a18dc6baa30a69406cd29af35145bca0523d781a AS redis
+FROM redis:8.6@sha256:e6dae84f7db289dde3384fdb18d182556784e5a681df3a3f54d1289952364ce8 AS redis
 
 # ---------------------------------------------------------------------------
 # Runtime stage: ASP.NET runtime + runit running Redis and the five processes.
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:86ddb370c95d79ec988f94e7d66193b20d02a1df859aa3f5e56451141528f053 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:535673eb0bf091deebbfefe0ab17dae903f86e49c9687df06448823435ccbc3c AS runtime
 
 # runit supervises Redis and the five .NET processes (it pulls in no Python, unlike the
 # supervisord it replaced); tini is PID 1 and reaps orphans; tpm2-tools is for the LocalTpm

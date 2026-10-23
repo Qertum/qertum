@@ -21,7 +21,7 @@
     <!-- Force the patched MessagePack version: Aspire.Hosting -> StreamJsonRpc pulls an older
          MessagePack with a high-severity LZ4 decompression vulnerability
          (GHSA-hv8m-jj95-wg3x). Pin to the latest 2.5.x patch — StreamJsonRpc still targets the
-         2.5.x line (2.5.302), so we stay on it rather than the incompatible 3.x major. -->
+         2.5.x line (2.5.307 satisfies its minimum), so we stay on it rather than the incompatible 3.x major. -->
     <PackageReference Include="MessagePack" />
   </ItemGroup>
 

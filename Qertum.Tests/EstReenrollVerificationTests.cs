@@ -62,6 +62,7 @@ internal sealed class FakeRevocationStatusService(IReadOnlyDictionary<string, Oc
     public Task<CaSettings> GetSettingsAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<CaSettings> SetPqcStageAsync(PqcStage stage, string performedBy, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<CaSettings> SetCaApprovalRuleAsync(bool requireIndependent, string performedBy, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    public Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, string performedBy, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<CaSettings> SetTwoPersonApprovalAsync(bool enabled, string performedBy, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<CaSettings> SetupOrUpdateSettingsAsync(CaSettings settings, string performedBy, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<long> ClaimNextCrlNumberAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();

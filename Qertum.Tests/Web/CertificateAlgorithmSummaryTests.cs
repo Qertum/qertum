@@ -60,6 +60,10 @@ public sealed class CertificateAlgorithmSummaryTests
     [InlineData("ML-DSA-87")]
     [InlineData("SLH-DSA-SHA2-128S")]
     [InlineData("SLH-DSA-SHA2-128F")]
+    [InlineData("SLH-DSA-SHA2-192S")]
+    [InlineData("SLH-DSA-SHA2-192F")]
+    [InlineData("SLH-DSA-SHA2-256S")]
+    [InlineData("SLH-DSA-SHA2-256F")]
     public void IssuerSignatureLabel_NamesThePqcAlgorithmARealCertificateWasSignedWith(string canonical)
     {
         var (oid, friendlyName) = SignatureAlgorithmOfALeafIssuedBy(canonical);

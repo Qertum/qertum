@@ -627,6 +627,21 @@ public static class ApiEndpointMappings
             return Results.Ok(result);
         }).RequireAuthorization("admin-role");
 
+        // Loosening the strength comparison lets a CA vouch for a key stronger than its own, so like the PQC stage it
+        // is admin-only and never a grantable permission.
+        settingsGroup.MapPut("/issuer-strength", async (
+            SetIssuerStrengthRequest request,
+            CertificateRequestApiService service,
+            HttpContext httpContext, IIdentityClaimsMapper claimsMapper,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.Mode is not { } mode || !Enum.IsDefined(mode))
+                return ApiProblem.BadRequest($"mode must be one of {string.Join(", ", Enum.GetNames<IssuerStrengthMode>())}.");
+
+            var result = await service.SetIssuerStrengthAsync(mode, claimsMapper.GetName(httpContext.User), cancellationToken);
+            return Results.Ok(result);
+        }).RequireAuthorization("admin-role");
+
         // Waiving independent approval lets one person issue a CA end to end, so like the PQC stage it
         // is admin-only and never a grantable permission.
         settingsGroup.MapPut("/ca-approval", async (
@@ -1655,6 +1670,9 @@ public sealed class CertificateRequestApiService(
 
     public Task<CaSettings> SetPqcStageAsync(PqcStage stage, string performedBy, CancellationToken cancellationToken = default)
         => certificateRequestService.SetPqcStageAsync(stage, performedBy, cancellationToken);
+
+    public Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, string performedBy, CancellationToken cancellationToken = default)
+        => certificateRequestService.SetIssuerStrengthAsync(mode, performedBy, cancellationToken);
 
     public Task<CaSettings> SetCaApprovalRuleAsync(bool requireIndependent, string performedBy, CancellationToken cancellationToken = default)
         => certificateRequestService.SetCaApprovalRuleAsync(requireIndependent, performedBy, cancellationToken);

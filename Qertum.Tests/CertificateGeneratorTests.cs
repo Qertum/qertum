@@ -125,6 +125,10 @@ public sealed class CertificateGeneratorTests : IDisposable
     [Theory]
     [InlineData("SLH-DSA-SHA2-128S")]
     [InlineData("SLH-DSA-SHA2-128F")]
+    [InlineData("SLH-DSA-SHA2-192S")]
+    [InlineData("SLH-DSA-SHA2-192F")]
+    [InlineData("SLH-DSA-SHA2-256S")]
+    [InlineData("SLH-DSA-SHA2-256F")]
     public void GenerateCertificate_SlhDsaAlgorithms_IssueALeafCarryingThatExactParameterSet(string canonical)
     {
         var algorithm = CertificateKeyAlgorithmExtensions.Parse(canonical)!.Value;
@@ -139,7 +143,7 @@ public sealed class CertificateGeneratorTests : IDisposable
 
         var bcCert = ReadCertificate(certData.CertificatePem);
         Assert.IsType<Org.BouncyCastle.Crypto.Parameters.SlhDsaPublicKeyParameters>(bcCert.GetPublicKey());
-        // The two SLH-DSA sets share a 32-byte public key, so only the detected algorithm
+        // The SLH-DSA sets of one level share a public key size, so only the detected algorithm
         // separates them — asserting on the key alone would pass for either.
         Assert.Equal(algorithm, CertificateGenerator.DetectAlgorithmFromCertificatePem(certData.CertificatePem));
         Assert.NotEmpty(certData.PrivateKeyPem);

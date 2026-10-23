@@ -6,12 +6,19 @@ namespace Qertum.Services;
 /// <summary>Byte limits for ACME and EST enrollment input.</summary>
 public static class EnrollmentPayloadLimits
 {
-    /// <summary>Maximum raw ACME JWS body size.</summary>
-    public const int AcmeBodyBytes = 128 * 1024;
+    /// <summary>
+    /// Maximum raw ACME JWS body size: the base64url of a <see cref="DecodedPayloadBytes"/> payload plus the protected
+    /// header and signature.
+    /// </summary>
+    public const int AcmeBodyBytes = 192 * 1024;
     /// <summary>Maximum raw EST enrollment body size.</summary>
     public const int EstBodyBytes = 96 * 1024;
-    /// <summary>Maximum decoded JWS payload size.</summary>
-    public const int DecodedPayloadBytes = 64 * 1024;
+    /// <summary>
+    /// Maximum decoded JWS payload size. A finalize payload is <c>{"csr":"..."}</c> with the CSR in base64url, a third
+    /// larger than the CSR, so this must hold the base64url of a <see cref="CsrBytes"/> CSR. The CSR of an
+    /// SLH-DSA-SHA2-256F key is about 50 KB (a 64 KB payload limit refused it).
+    /// </summary>
+    public const int DecodedPayloadBytes = 96 * 1024;
     /// <summary>Maximum decoded PKCS#10 CSR size.</summary>
     public const int CsrBytes = 64 * 1024;
     /// <summary>Maximum decoded JWS protected-header size.</summary>

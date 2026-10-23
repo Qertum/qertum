@@ -566,6 +566,13 @@ namespace Qertum.Services.Migrations
                     b.Property<int>("ExpiringSoonDays")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("IssuerStrengthMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("Warn");
+
                     b.Property<string>("Locality")
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");

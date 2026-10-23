@@ -53,11 +53,14 @@ public sealed class IssuancePolicyEvaluator : IIssuancePolicyEvaluator
             // template/global default takes a policy that explicitly allows it. And no template,
             // governed or not, may put a key that cannot sign into a certificate that must.
             var ungoverned = new List<IssuancePolicyViolation>();
+            var notes = new List<string>();
             CheckKeyCapability(request, template, ungoverned);
             CheckCaPermission(template, caller, ungoverned);
-            if (issuerPath is not null) IssuerPathRule.Check(request, template, ReadProperties(request.PropertiesJson), issuerPath, ungoverned);
+            if (issuerPath is not null) IssuerPathRule.Check(request, template, ReadProperties(request.PropertiesJson), issuerPath, settings, ungoverned, notes);
             CheckValidity(request, template, settings, publishedVersion: null, ungoverned);
-            return ungoverned.Count == 0 ? PolicyDecision.Unrestricted : new PolicyDecision(false, null, null, null, ungoverned);
+            return ungoverned.Count == 0
+                ? notes.Count == 0 ? PolicyDecision.Unrestricted : PolicyDecision.Unrestricted with { Warnings = notes }
+                : new PolicyDecision(false, null, null, null, ungoverned) { Warnings = notes };
         }
 
         // Link validation prevents this; if it happens anyway, fail closed rather than open.
@@ -66,6 +69,7 @@ public sealed class IssuancePolicyEvaluator : IIssuancePolicyEvaluator
                 $"Template '{template.TypeKey}' is linked to a policy with no published version."));
 
         var violations = new List<IssuancePolicyViolation>();
+        var warnings = new List<string>();
         var properties = ReadProperties(request.PropertiesJson);
 
         CheckDnsSuffixes(request, properties, publishedVersion, violations);
@@ -75,7 +79,7 @@ public sealed class IssuancePolicyEvaluator : IIssuancePolicyEvaluator
         CheckCaPermission(template, caller, violations);
         CheckKeyCustody(request, policy, publishedVersion, violations);
         CheckValidity(request, template, settings, publishedVersion, violations);
-        if (issuerPath is not null) IssuerPathRule.Check(request, template, properties, issuerPath, violations);
+        if (issuerPath is not null) IssuerPathRule.Check(request, template, properties, issuerPath, settings, violations, warnings);
 
         var rolesListed = RequesterRoleRule.Allowed(publishedVersion).Count > 0;
         string? matchedRole = null;
@@ -93,7 +97,8 @@ public sealed class IssuancePolicyEvaluator : IIssuancePolicyEvaluator
         {
             MatchedRequesterRole = matchedRole,
             RequesterIsAdmin = rolesListed && requester?.IsAdmin == true,
-            RequesterRolesListed = rolesListed
+            RequesterRolesListed = rolesListed,
+            Warnings = warnings
         };
     }
 

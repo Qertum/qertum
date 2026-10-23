@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Qertum.Services;
 
 namespace Qertum.Tests.Migrations;
@@ -24,7 +26,7 @@ public sealed class LegacyMigrationHistoryTests
             new EphemeralDataProtectionProvider());
 
     [Fact]
-    public async Task DatabaseWithTheReleasedMigrationHistory_UpgradesInPlace_AsANoOp()
+    public async Task DatabaseWithTheReleasedMigrationHistory_UpgradesInPlace_ApplyingOnlyLaterMigrations()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -32,7 +34,8 @@ public sealed class LegacyMigrationHistoryTests
 
         await using (var creating = NewContext(connection))
         {
-            await creating.Database.MigrateAsync(ct);
+            // The schema the alpha images shipped: the baseline only, none of the migrations added since.
+            await creating.GetService<IMigrator>().MigrateAsync(ReleasedMigrationIds[0], ct);
             creating.RolePermissions.Add(new RolePermission { Role = "keep-me", Permission = AppPermissions.CertificatesView });
             await creating.SaveChangesAsync(ct);
         }
@@ -46,7 +49,7 @@ public sealed class LegacyMigrationHistoryTests
         }
 
         await using var upgrading = NewContext(connection);
-        Assert.Empty(await upgrading.Database.GetPendingMigrationsAsync(ct));
+        Assert.Equal(["20261022163742_AddIssuerStrength"], await upgrading.Database.GetPendingMigrationsAsync(ct));
         await upgrading.Database.MigrateAsync(ct);
 
         Assert.Equal("keep-me", (await upgrading.RolePermissions.SingleAsync(ct)).Role);

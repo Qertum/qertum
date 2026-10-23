@@ -233,4 +233,11 @@ public sealed class CaSettings
     /// save carries the stored value across.
     /// </summary>
     public PqcStage PqcStage { get; set; } = PqcStage.Enforce;
+
+    /// <summary>
+    /// What happens when a certificate's post-quantum key claims a higher NIST level than the CA key that
+    /// signs it. Defaults to <see cref="IssuerStrengthMode.Warn"/>. A classical issuer is exempt. Changed only
+    /// through <c>PUT /v1/settings/issuer-strength</c> (admin role); a general settings save carries the stored value.
+    /// </summary>
+    public IssuerStrengthMode IssuerStrengthMode { get; set; } = IssuerStrengthMode.Warn;
 }

@@ -324,7 +324,7 @@ recovered. The ways forward, best first:
   out; users, clients and roles are untouched.
 
 **Rehearse it before you rely on it.** Do step 2 and step 3 on a spare instance, then restore its new
-backup somewhere else. Moving onto the TPM (the section above) was run on one x86_64 TPM 2.0 with the multi-container image on 2026-10-20 (see its README); the steps for leaving the TPM, and the single-container image with a TPM, were checked against the code, not run on TPM hardware.
+backup somewhere else. Moving onto the TPM (the section above) was run on one x86_64 TPM 2.0 with the multi-container image on 2026-10-20 (see its README), and on 2026-10-23 with this single-container image (`alpha-02`, same machine): migrating to the TPM, restarting, and migrating back to the local file key all worked, and certificate keys issued before, during and after stayed readable. Starting the TPM-sealed data without the device failed with the `tpm2_*` error under Troubleshooting, and passing the device again recovered it. A cleared or replaced TPM was not run.
 
 ## Backup & restore
 
@@ -457,5 +457,5 @@ Optional and off by default: an administrator switches it on in Settings → Iss
 ## Image tags
 
 `docker-compose.yml` reads the registry from `QERTUM_REGISTRY` and the tag from `QERTUM_IMAGE_TAG`
-(default `latest`). Pin an exact tag, for example `QERTUM_IMAGE_TAG=alpha-02`, so you decide when to
+(default `latest`). Pin an exact tag, for example `QERTUM_IMAGE_TAG=1.0.0-rc1`, so you decide when to
 upgrade and can roll back; for Docker Hub set `QERTUM_REGISTRY=docker.io/qertum`.

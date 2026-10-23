@@ -4,7 +4,7 @@
 # Used by deploy/multi-container/docker-compose.yml: one container per service. The
 # single-container image (deploy/single-container) stays for homelab setups.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
 WORKDIR /src
 
 # Copy the whole repo: the projects share many references and a partial copy is brittle.
@@ -18,7 +18,7 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
     dotnet publish Qertum.QueueConsumer/Qertum.QueueConsumer.csproj   -c Release -o /app/queueconsumer && \
     dotnet publish Qertum.RestoreCheck/Qertum.RestoreCheck.csproj     -c Release -o /app/restorecheck
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:86ddb370c95d79ec988f94e7d66193b20d02a1df859aa3f5e56451141528f053 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:535673eb0bf091deebbfefe0ab17dae903f86e49c9687df06448823435ccbc3c AS runtime
 
 # tpm2-tools: LocalTpm key custody. Redis is its own container, not part of this image.
 # The resolute base ships /usr/bin/pebble (a Go service manager) that nothing here runs; it only adds

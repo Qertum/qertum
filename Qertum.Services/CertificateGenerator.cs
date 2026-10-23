@@ -862,6 +862,10 @@ public sealed class CertificateGenerator(
             SlhDsaPublicKeyParameters slhDsaKey =>
                 slhDsaKey.Parameters == SlhDsaParameters.slh_dsa_sha2_128s ? CertificateKeyAlgorithm.SlhDsaSha2128s
                 : slhDsaKey.Parameters == SlhDsaParameters.slh_dsa_sha2_128f ? CertificateKeyAlgorithm.SlhDsaSha2128f
+                : slhDsaKey.Parameters == SlhDsaParameters.slh_dsa_sha2_192s ? CertificateKeyAlgorithm.SlhDsaSha2192s
+                : slhDsaKey.Parameters == SlhDsaParameters.slh_dsa_sha2_192f ? CertificateKeyAlgorithm.SlhDsaSha2192f
+                : slhDsaKey.Parameters == SlhDsaParameters.slh_dsa_sha2_256s ? CertificateKeyAlgorithm.SlhDsaSha2256s
+                : slhDsaKey.Parameters == SlhDsaParameters.slh_dsa_sha2_256f ? CertificateKeyAlgorithm.SlhDsaSha2256f
                 : null,
             MLKemPublicKeyParameters mlKemKey =>
                 mlKemKey.Parameters == MLKemParameters.ml_kem_512 ? CertificateKeyAlgorithm.MlKem512
@@ -904,7 +908,7 @@ public sealed class CertificateGenerator(
         GetAlgorithmFromPublicKey(key)
         ?? throw new NotSupportedException(
             $"The key type '{key.GetType().Name}' is not an algorithm this CA can issue for. " +
-            "Supported: RSA, ECDSA-P256, ECDSA-P384, ML-DSA, SLH-DSA-SHA2-128S/128F, composite ML-DSA and ML-KEM.");
+            "Supported: RSA, ECDSA-P256, ECDSA-P384, ML-DSA, SLH-DSA-SHA2 (128, 192, 256; S/F), composite ML-DSA and ML-KEM.");
 
     /// <summary>
     /// Parses a PKCS#10 CSR (base64url DER, as ACME clients send it) and returns the

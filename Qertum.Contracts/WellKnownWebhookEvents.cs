@@ -66,6 +66,9 @@ public static class WellKnownWebhookEvents
     public const string ApprovalUsed = "ApprovalUsed";
     /// <summary>The <c>ApprovalExpired</c> event (audit action of the same name): a request or an approved grant ran out of time.</summary>
     public const string ApprovalExpired = "ApprovalExpired";
+    /// <summary>The <c>IssuerStrengthChanged</c> event: the issuer-strength mode was changed.</summary>
+    public const string IssuerStrengthChanged = "IssuerStrengthChanged";
+
     /// <summary>The <c>TwoPersonApprovalChanged</c> event: the two-person approval switch was turned on or off.</summary>
     public const string TwoPersonApprovalChanged = "TwoPersonApprovalChanged";
 
@@ -138,7 +141,7 @@ public static class WellKnownWebhookEvents
         [WebhookEventFamily.Settings] = new HashSet<string>(StringComparer.Ordinal)
         {
             SettingsUpdated, RolePermissionsUpdated, RolePermissionsRenamed, PqcStageChanged,
-            PqcExceptionCreated, PqcExceptionRevoked, CaApprovalRuleChanged, TwoPersonApprovalChanged
+            PqcExceptionCreated, PqcExceptionRevoked, CaApprovalRuleChanged, TwoPersonApprovalChanged, IssuerStrengthChanged
         },
         [WebhookEventFamily.Template] = new HashSet<string>(StringComparer.Ordinal)
         {
