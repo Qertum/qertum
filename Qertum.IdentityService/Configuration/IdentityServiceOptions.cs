@@ -55,6 +55,13 @@ public sealed class IdentityServiceOptions
     public string? SeedAdminPassword { get; set; }
 
     /// <summary>
+    /// Flags the seeded <c>admin</c> user to change <see cref="SeedAdminPassword"/> at first login, as
+    /// the well-known default always is. For a password someone else generated and handed over.
+    /// Read only during seeding, like <see cref="SeedAdminPassword"/>.
+    /// </summary>
+    public bool SeedAdminPasswordMustChange { get; set; }
+
+    /// <summary>
     /// Seed the integration-test clients (<c>qertum-test-m2m</c>, <c>qertum-test-viewer</c>), whose
     /// secrets are committed to this repository. Only the Aspire integration fixture sets it; every start
     /// without it also removes those clients.

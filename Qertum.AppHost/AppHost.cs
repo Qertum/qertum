@@ -61,7 +61,7 @@ var acmeService = builder.AddProject<Projects.Qertum_AcmeService>("acmeservice")
     .WaitFor(cache)
     .WaitFor(apiService)
     .WithHttpHealthCheck("/health");
-acmeService.WithEnvironment("Acme__BaseUrl", acmeService.GetEndpoint("http"));
+acmeService.WithEnvironment("Acme__BaseUrl", acmeService.GetEndpoint("https"));
 
 // EST server (RFC 7030) — shares the same SQLite database; independent tier like acmeService,
 // not waited-on by the Aspire integration fixture.
@@ -77,7 +77,7 @@ var estService = builder.AddProject<Projects.Qertum_EstService>("estservice")
 // startup dependency: acmeservice and estservice already wait for apiservice.
 apiService
     .WithEnvironment("Enrollment__AcmeDirectoryUrl",
-        ReferenceExpression.Create($"{acmeService.GetEndpoint("http")}/acme/directory"))
+        ReferenceExpression.Create($"{acmeService.GetEndpoint("https")}/acme/directory"))
     .WithEnvironment("Enrollment__EstBaseUrl",
         ReferenceExpression.Create($"{estService.GetEndpoint("https")}/.well-known/est"));
 

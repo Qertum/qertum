@@ -642,6 +642,21 @@ public static class ApiEndpointMappings
             return Results.Ok(result);
         }).RequireAuthorization("admin-role");
 
+        // Choosing Retire leaves the rest of a hierarchy issuing under a revoked ancestor, so like the PQC stage
+        // it is admin-only and never a grantable permission.
+        settingsGroup.MapPut("/revoked-issuer", async (
+            SetRevokedIssuerModeRequest request,
+            CertificateRequestApiService service,
+            HttpContext httpContext, IIdentityClaimsMapper claimsMapper,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.Mode is not { } mode || !Enum.IsDefined(mode))
+                return ApiProblem.BadRequest($"mode must be one of {string.Join(", ", Enum.GetNames<RevokedIssuerMode>())}.");
+
+            var result = await service.SetRevokedIssuerModeAsync(mode, claimsMapper.GetName(httpContext.User), cancellationToken);
+            return Results.Ok(result);
+        }).RequireAuthorization("admin-role");
+
         // Waiving independent approval lets one person issue a CA end to end, so like the PQC stage it
         // is admin-only and never a grantable permission.
         settingsGroup.MapPut("/ca-approval", async (
@@ -795,6 +810,7 @@ public static class ApiEndpointMappings
             IValidator<GenerateCaRequest> validator,
             IIssuerRegistry issuers,
             IAuthorizationService authorization,
+            CertificateRequestDbContext db,
             CertificateRequestApiService service,
             IAuditLogService auditLog,
             HttpContext httpContext, IIdentityClaimsMapper claimsMapper,
@@ -843,7 +859,8 @@ public static class ApiEndpointMappings
                 State = request.State,
                 Locality = request.Locality,
                 ValidityDays = request.ValidityDays > 0 ? request.ValidityDays : 3650,
-                ReplaceIssuerId = current?.RecordedIssuerId
+                ReplaceIssuerId = current?.RecordedIssuerId,
+                AfterRevokedIssuer = current is null && await IssuerQueries.AnyRevokedAsync(db, cancellationToken)
             });
 
             var certRequest = await service.CreateRootCaRequestAsync(
@@ -887,12 +904,18 @@ public static class ApiEndpointMappings
 
             var current = await issuers.GetDefaultAsync(cancellationToken);
             var performedBy = claimsMapper.GetName(httpContext.User);
-            if (current is not null)
+            // No default because a revoked certificate took every issuer out of service: the legacy files still
+            // hold the revoked key, so the new root goes into its own directory like a replacement does.
+            var afterRevoked = current is null && await IssuerQueries.AnyRevokedAsync(db, cancellationToken);
+            if (current is not null || afterRevoked)
             {
-                if (force != true)
-                    return ApiProblem.Conflict("A CA certificate already exists on this server.");
-                var refusal = await ForceGuardAsync(authorization, httpContext, current, request.Confirm);
-                if (refusal is not null) return refusal;
+                if (current is not null)
+                {
+                    if (force != true)
+                        return ApiProblem.Conflict("A CA certificate already exists on this server.");
+                    var refusal = await ForceGuardAsync(authorization, httpContext, current, request.Confirm);
+                    if (refusal is not null) return refusal;
+                }
 
                 // The replacement is imported into its own directory first; the old CA is only
                 // destroyed once the import (parsing, cA=true, key match) has succeeded.
@@ -918,7 +941,10 @@ public static class ApiEndpointMappings
                 replacement.Name = await IssuerNames.UniqueAsync(db, IssuerBootstrap.NameFrom(facts.SubjectDn), cancellationToken);
                 replacement.Kind = facts.IsSelfSigned ? IssuerKind.Root : IssuerKind.Intermediate;
                 replacement.CertificatePem = generator.GetCaCertificatePem();
-                await lifecycle.ReplaceDefaultAsync(current.Issuer, replacement, performedBy, cancellationToken);
+                if (current is not null)
+                    await lifecycle.ReplaceDefaultAsync(current.Issuer, replacement, performedBy, cancellationToken);
+                else
+                    await lifecycle.RegisterDefaultAsync(replacement, performedBy, cancellationToken);
             }
             else
             {
@@ -1670,6 +1696,9 @@ public sealed class CertificateRequestApiService(
 
     public Task<CaSettings> SetPqcStageAsync(PqcStage stage, string performedBy, CancellationToken cancellationToken = default)
         => certificateRequestService.SetPqcStageAsync(stage, performedBy, cancellationToken);
+
+    public Task<CaSettings> SetRevokedIssuerModeAsync(RevokedIssuerMode mode, string performedBy, CancellationToken cancellationToken = default)
+        => certificateRequestService.SetRevokedIssuerModeAsync(mode, performedBy, cancellationToken);
 
     public Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, string performedBy, CancellationToken cancellationToken = default)
         => certificateRequestService.SetIssuerStrengthAsync(mode, performedBy, cancellationToken);

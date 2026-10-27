@@ -154,6 +154,12 @@ public interface ICertificateRequestService
     Task<CaSettings> SetIssuerStrengthAsync(IssuerStrengthMode mode, string performedBy, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Sets what happens when an issuer's own certificate is revoked. Audited as
+    /// <c>RevokedIssuerModeChanged</c>; a no-op writes nothing. Callers must have checked the admin role.
+    /// </summary>
+    Task<CaSettings> SetRevokedIssuerModeAsync(RevokedIssuerMode mode, string performedBy, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Sets whether CA-capable requests need a different approver than their requester. Audited as
     /// <c>CaApprovalRuleChanged</c>; a no-op writes nothing. Callers must have checked the admin role.
     /// </summary>

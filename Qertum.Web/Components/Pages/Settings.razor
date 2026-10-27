@@ -286,6 +286,30 @@ else
                         </div>
                         <div class="form-row cols-1">
                             <div class="form-field">
+                                <label class="form-label" for="revoked-issuer">When a CA certificate is revoked</label>
+                                <select class="form-select" id="revoked-issuer" disabled="@(!isAdmin)"
+                                        @key="revokedIssuerSelectKey" @onchange="OnRevokedIssuerChangedAsync">
+                                    @foreach (var mode in Enum.GetValues<RevokedIssuerMode>())
+                                    {
+                                        <option value="@mode" selected="@(mode == settings.RevokedIssuerMode)">@mode</option>
+                                    }
+                                </select>
+                                @if (!isAdmin)
+                                {
+                                    <div class="form-help mt-2">Only an administrator can change this.</div>
+                                }
+                                <div class="form-help mt-2" data-test="revoked-issuer-help">
+                                    @(settings.RevokedIssuerMode switch
+                                    {
+                                        RevokedIssuerMode.Retire => "Retire: the revoked CA stops issuing and stops being the default. Other active CAs are left as they are and one of them can be made the default.",
+                                        _ => "HardStop: the revoked CA and every CA below it stop issuing. With no CA left that can sign, nothing is issued until an administrator creates or imports a new root in onboarding."
+                                    })
+                                    Either way the revoked CA keeps answering CRL and OCSP for what it signed.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-row cols-1">
+                            <div class="form-field">
                                 <label class="form-label" for="two-person-approval">Two-person approval of sensitive operations</label>
                                 <select class="form-select" id="two-person-approval" disabled="@(!isAdmin)"
                                         @key="twoPersonSelectKey" @onchange="OnTwoPersonApprovalChangedAsync">
@@ -1007,6 +1031,14 @@ else
         </ConfirmDialog>
     }
 
+    @if (pendingRevokedIssuer is { } looserRevoked)
+    {
+        <ConfirmDialog TestId="revoked-issuer" Tone="ConfirmDialogTone.Danger" Title="Loosen what a revoked CA certificate does?"
+                       ConfirmLabel="Loosen" OnConfirm="ConfirmRevokedIssuerChangeAsync" OnCancel="CancelRevokedIssuerChange">
+            <p>This moves the rule from <strong>@settings!.RevokedIssuerMode</strong> to <strong>@looserRevoked</strong>. When a CA certificate is revoked, the CAs below it will keep issuing. Continue?</p>
+        </ConfirmDialog>
+    }
+
     @if (pendingCaApprovalWaive)
     {
         <ConfirmDialog TestId="ca-approval" Tone="ConfirmDialogTone.Danger" Title="Waive independent approval?"
@@ -1114,6 +1146,52 @@ else
         {
             pqcStageSelectKey++;
             ShowNotification($"Failed to change the PQC stage: {ex.Message}", "danger");
+        }
+    }
+
+    private RevokedIssuerMode? pendingRevokedIssuer;
+    private int revokedIssuerSelectKey;
+    private async Task OnRevokedIssuerChangedAsync(ChangeEventArgs args)
+    {
+        if (settings is null || !isAdmin) return;
+        if (!Enum.TryParse<RevokedIssuerMode>(args.Value?.ToString(), out var chosen) || !Enum.IsDefined(chosen)) return;
+        if (chosen == settings.RevokedIssuerMode) return;
+
+        // Retire is the looser mode (HardStop is the zero value), so moving to it asks first.
+        if (chosen > settings.RevokedIssuerMode)
+        {
+            pendingRevokedIssuer = chosen;
+            return;
+        }
+        await ApplyRevokedIssuerAsync(chosen);
+    }
+
+    private void CancelRevokedIssuerChange()
+    {
+        pendingRevokedIssuer = null;
+        revokedIssuerSelectKey++;
+    }
+
+    private async Task ConfirmRevokedIssuerChangeAsync()
+    {
+        if (pendingRevokedIssuer is not { } mode) return;
+        pendingRevokedIssuer = null;
+        await ApplyRevokedIssuerAsync(mode);
+    }
+
+    // Own admin-only endpoint; the general Save deliberately cannot change it.
+    private async Task ApplyRevokedIssuerAsync(RevokedIssuerMode mode)
+    {
+        try
+        {
+            var updated = await CertificateRequestsApiClient.SetRevokedIssuerModeAsync(mode);
+            if (settings is not null) settings.RevokedIssuerMode = updated.RevokedIssuerMode;
+            ShowNotification($"A revoked CA certificate now triggers {updated.RevokedIssuerMode}.", "success");
+        }
+        catch (Exception ex)
+        {
+            revokedIssuerSelectKey++;
+            ShowNotification($"Failed to change what a revoked CA certificate does: {ex.Message}", "danger");
         }
     }
 

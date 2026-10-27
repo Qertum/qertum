@@ -44,6 +44,8 @@ public sealed class IssuanceSigner(
             : JsonSerializer.Deserialize<RootCaProperties>(request.PropertiesJson);
         if (props?.ReplaceIssuerId is { } replaceId)
             return await ReplaceRootAsync(request, props, replaceId, ct);
+        if (props?.AfterRevokedIssuer == true)
+            return await ReplaceRootAsync(request, props, replaceId: null, ct);
 
         GeneratedCertificate generated;
         if (legacy.IsInitialized)
@@ -78,7 +80,7 @@ public sealed class IssuanceSigner(
         return generated;
     }
 
-    private async Task<GeneratedCertificate> ReplaceRootAsync(CertificateRequest request, RootCaProperties props, IssuerId replaceId, CancellationToken ct)
+    private async Task<GeneratedCertificate> ReplaceRootAsync(CertificateRequest request, RootCaProperties props, IssuerId? replaceId, CancellationToken ct)
     {
         // Deterministic id: a retry after a failed DB write finds the files it already wrote.
         var replacement = new Issuer
@@ -92,8 +94,9 @@ public sealed class IssuanceSigner(
 
         // A stale request must never destroy a CA that changed after it was filed; the consumer
         // retries this and then rejects the request.
+        // The after-revocation form has no CA to replace: it is stale as soon as any default exists.
         var current = await issuers.GetDefaultAsync(ct);
-        if (current is null || current.Issuer.Id != replaceId)
+        if (replaceId is null ? current is not null : current is null || current.Issuer.Id != replaceId)
             throw new InvalidOperationException("The CA this request was filed to replace is no longer the default; file a new request.");
 
         var generator = new CertificateGenerator(dataProtection, storage.OptionsFor(replacement),
@@ -115,7 +118,10 @@ public sealed class IssuanceSigner(
         IssuerCertificateFacts.Read(pem).ApplyTo(replacement);
         replacement.Name = await IssuerNames.UniqueAsync(db, request.CommonName, ct);
         replacement.CertificatePem = pem;
-        await lifecycle.ReplaceDefaultAsync(current.Issuer, replacement, "queue-consumer", ct);
+        if (current is null)
+            await lifecycle.RegisterDefaultAsync(replacement, "queue-consumer", ct);
+        else
+            await lifecycle.ReplaceDefaultAsync(current.Issuer, replacement, "queue-consumer", ct);
         return Result(pem, replacement.Id);
 
         static GeneratedCertificate Result(string certificatePem, IssuerId id)

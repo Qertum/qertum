@@ -18,6 +18,7 @@ internal static class CaCommands
         caCommand.Subcommands.Add(BuildCrl(apiUrlOption, identityUrlOption, tokenOption, outputOption));
         caCommand.Subcommands.Add(BuildApproval(apiUrlOption, identityUrlOption, tokenOption, outputOption));
         caCommand.Subcommands.Add(BuildStrength(apiUrlOption, identityUrlOption, tokenOption, outputOption));
+        caCommand.Subcommands.Add(BuildRevokedIssuer(apiUrlOption, identityUrlOption, tokenOption, outputOption));
         return caCommand;
     }
 
@@ -87,6 +88,72 @@ internal static class CaCommands
         approval.Subcommands.Add(set);
         return approval;
     }
+
+    internal static RevokedIssuerMode? ParseRevokedIssuer(string? text) =>
+        Enum.TryParse<RevokedIssuerMode>(text, ignoreCase: true, out var mode) && Enum.IsDefined(mode) && !int.TryParse(text, out _)
+            ? mode
+            : null;
+
+    private static Command BuildRevokedIssuer(
+        Option<string?> apiUrlOption, Option<string?> identityUrlOption, Option<string?> tokenOption, Option<string> outputOption)
+    {
+        var revoked = new Command("revoked-issuer",
+            "What happens when the certificate of one of the CA's own issuers (a root or an installed intermediate) is revoked.");
+
+        var show = new Command("show", RevokedIssuerShowHelp);
+        show.SetAction(async (result, ct) =>
+        {
+            var session = await SessionResolver.ResolveAsync(result, tokenOption, apiUrlOption, identityUrlOption, ct);
+            if (session is null) return 1;
+            return await CliApi.RunAsync(async () =>
+            {
+                var settings = await CliApi.CreateClient(session).GetSettingsAsync(ct);
+                if (result.GetValue(outputOption) == "json") return CliApi.PrintJson(new { revokedIssuer = settings.RevokedIssuerMode });
+                Console.WriteLine(settings.RevokedIssuerMode);
+                return 0;
+            }, "reading CA settings needs settings.edit");
+        });
+        revoked.Subcommands.Add(show);
+
+        var modeArg = new Argument<string>("mode") { Description = $"New mode, case-insensitive: {string.Join(", ", Enum.GetNames<RevokedIssuerMode>())}." };
+        var set = new Command("set", RevokedIssuerSetHelp);
+        set.Arguments.Add(modeArg);
+        set.SetAction(async (result, ct) =>
+        {
+            if (ParseRevokedIssuer(result.GetValue(modeArg)) is not { } mode)
+            {
+                await Console.Error.WriteLineAsync($"error: unknown mode '{result.GetValue(modeArg)}'; use one of {string.Join(", ", Enum.GetNames<RevokedIssuerMode>())}.");
+                return 1;
+            }
+            var session = await SessionResolver.ResolveAsync(result, tokenOption, apiUrlOption, identityUrlOption, ct);
+            if (session is null) return 1;
+            return await CliApi.RunAsync(async () =>
+            {
+                var updated = await CliApi.CreateClient(session).SetRevokedIssuerModeAsync(mode, ct);
+                if (result.GetValue(outputOption) == "json") return CliApi.PrintJson(new { revokedIssuer = updated.RevokedIssuerMode });
+                Console.WriteLine($"A revoked CA certificate now triggers {updated.RevokedIssuerMode}");
+                return 0;
+            }, "changing this setting needs the admin role");
+        });
+        revoked.Subcommands.Add(set);
+        return revoked;
+    }
+
+    private const string RevokedIssuerShowHelp =
+        "Show what a revoked CA certificate does.\n\n" +
+        "Prints HardStop or Retire. Changes nothing.\n" +
+        "Needs: settings.edit or the admin role.\n" +
+        "Exit codes: 0 shown; 1 not signed in or the call failed (403 when you lack the permission).\n" +
+        "Output: --output json prints {\"revokedIssuer\":\"<Mode>\"}.\n" +
+        "Example: qca ca revoked-issuer show";
+
+    private const string RevokedIssuerSetHelp =
+        "Set what a revoked CA certificate does.\n\n" +
+        "When the certificate of a root, or of an intermediate installed under a parent, is revoked, that issuer stops issuing at once, stops being the default and keeps answering CRL and OCSP for what it signed. HardStop (the default) also retires every issuer below it, so with no issuer left that can sign the CA reports itself not initialized, every issuance path answers 409, and onboarding (qca ca generate or import) creates a new root without the force-replace confirmation. Retire only retires the revoked issuer; another active issuer can be made the default. Changes the CA setting for every revocation from then on, and does not touch an issuer that is already retired; when the mode actually changes it writes an audit entry (RevokedIssuerModeChanged) and raises a webhook (setting the current mode again does neither). It does not ask for confirmation.\n" +
+        "Needs: the admin role (not a grantable permission).\n" +
+        "Exit codes: 0 set; 1 unknown mode, not signed in, or the call failed (403 means you are not admin).\n" +
+        "Output: --output json prints {\"revokedIssuer\":\"<Mode>\"}.\n" +
+        "Example: qca ca revoked-issuer set HardStop";
 
     internal static IssuerStrengthMode? ParseStrength(string? text) =>
         Enum.TryParse<IssuerStrengthMode>(text, ignoreCase: true, out var mode) && Enum.IsDefined(mode) && !int.TryParse(text, out _)

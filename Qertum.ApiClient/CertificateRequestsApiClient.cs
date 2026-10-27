@@ -664,6 +664,15 @@ public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProv
         return (await response.Content.ReadFromJsonAsync<CaSettings>(cancellationToken))!;
     }
 
+    /// <summary>Sets what happens when an issuer's own certificate is revoked. Admin only.</summary>
+    public async Task<CaSettings> SetRevokedIssuerModeAsync(RevokedIssuerMode mode, CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PutAsJsonAsync("v1/settings/revoked-issuer",
+            new SetRevokedIssuerModeRequest { Mode = mode }, cancellationToken);
+        await response.EnsureSuccessOrThrowAsync(cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<CaSettings>(cancellationToken))!;
+    }
+
     /// <summary>Sets whether a CA-capable request needs a different approver than its requester. Admin only.</summary>
     public async Task<CaSettings> SetCaApprovalRuleAsync(bool requireIndependent, CancellationToken cancellationToken = default)
     {

@@ -67,6 +67,19 @@ public sealed class IdentityServiceTests
     }
 
     [Fact]
+    public async Task JsonUserStore_ConfiguredSeedPassword_FlaggedWhenMustChangeRequested()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var dir = TempDir();
+
+        var store = new JsonUserStore(NullLogger<JsonUserStore>.Instance, dir, "Generated-Seed-1!", seedAdminPasswordMustChange: true);
+
+        var admin = await store.ValidateCredentialsAsync("admin", "Generated-Seed-1!", ct);
+        Assert.NotNull(admin);
+        Assert.True(admin!.MustChangePassword);
+    }
+
+    [Fact]
     public async Task JsonUserStore_ExistingUsersFile_SeedPasswordNotReapplied()
     {
         var ct = TestContext.Current.CancellationToken;

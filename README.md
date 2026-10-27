@@ -4,7 +4,7 @@ A self-hosted certificate authority with post-quantum support. Issue, track, ren
 certificates through a web UI, a REST API, a command line, or standard ACME and EST clients. Storage is
 SQLite: no external database, message broker or cloud service is needed.
 
-> **Release candidate (1.0.0-rc1).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
+> **Release candidate (1.0.0-rc1.1).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
 
 ## Quick start
 
@@ -15,12 +15,12 @@ docker run -d --name qertum \
   -p 8080:8080 -p 8081:8081 -p 8082:8082 -p 8083:8083 \
   -v qertum-data:/data \
   --restart unless-stopped \
-  qertum/qertum:1.0.0-rc1
+  qertum/qertum:1.0.0-rc1.1
 ```
 
 Open `http://<host-name-or-ip>:8080`, sign in as `admin` and follow the onboarding to create or import your
 root CA. The ACME directory is at `http://<host-name-or-ip>:8083/acme/directory`. Published host ports must
-equal the container ports, and `QERTUM_HOST` must be the name or IP your clients use to reach the host.
+equal the container ports, and `QERTUM_HOST` must be the name or IP your clients use to reach the host. Browse to Qertum with exactly the text you gave as `QERTUM_HOST`: `localhost`, `127.0.0.1` and the machine's LAN IP are different values, and a browser address that differs from it fails sign-in with `The specified 'redirect_uri' is not valid for this client application` (ID2043).
 
 The single container has no EST endpoint. For EST, or to expose only ACME and EST, use the multi-container
 layout in [`deploy/multi-container/`](deploy/multi-container/README.md).

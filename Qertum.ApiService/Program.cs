@@ -180,6 +180,10 @@ app.UseExceptionHandler(exHandler =>
             CaNotInitializedException          => (409, "CA Not Initialized"),
             IssuancePolicyConflictException    => (409, "Issuance Policy Conflict"),
             IssuancePolicyInvariantException   => (422, "Issuance Policy Invariant Violation"),
+            // A body the framework could not read (broken JSON, an enum name that does not exist) carries its own
+            // 4xx; without this it fell through to 500 and looked like a server fault.
+            Microsoft.AspNetCore.Http.BadHttpRequestException bad
+                                               => (bad.StatusCode, bad.StatusCode == 400 ? "Bad Request" : "Request Rejected"),
             _                                  => (500, "Internal Server Error")
         };
         await ctx.Response.WriteAsJsonAsync(new { title, detail = ex?.Message, traceId = Qertum.Services.CorrelationIds.For(ctx) });

@@ -65,6 +65,7 @@ public static class AuditActionSubjects
         ["IssuerCrlUploaded"] = LifecycleSubjectTypes.Issuer,
         ["IssuerMadeDefault"] = LifecycleSubjectTypes.Issuer,
         ["IssuerRetired"] = LifecycleSubjectTypes.Issuer,
+        ["IssuerRevokedByCertificate"] = LifecycleSubjectTypes.Issuer,
         ["IssuerArchived"] = LifecycleSubjectTypes.Issuer,
         ["IssuerDeleted"] = LifecycleSubjectTypes.Issuer,
         ["IssuerDestroyed"] = LifecycleSubjectTypes.Issuer,
@@ -95,7 +96,7 @@ public static class AuditActionSubjects
         WellKnownWebhookEvents.RolePermissionsUpdated, WellKnownWebhookEvents.RolePermissionsRenamed,
         "WebhookDestinationModeUpdated", WellKnownWebhookEvents.PqcStageChanged,
         WellKnownWebhookEvents.CaApprovalRuleChanged, WellKnownWebhookEvents.TwoPersonApprovalChanged,
-        WellKnownWebhookEvents.IssuerStrengthChanged,
+        WellKnownWebhookEvents.IssuerStrengthChanged, WellKnownWebhookEvents.RevokedIssuerModeChanged,
     };
 
     /// <summary>The subject type for <paramref name="action"/>, or null when it names no resource.</summary>

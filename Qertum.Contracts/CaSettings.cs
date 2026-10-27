@@ -240,4 +240,11 @@ public sealed class CaSettings
     /// through <c>PUT /v1/settings/issuer-strength</c> (admin role); a general settings save carries the stored value.
     /// </summary>
     public IssuerStrengthMode IssuerStrengthMode { get; set; } = IssuerStrengthMode.Warn;
+
+    /// <summary>
+    /// What happens when an issuer's own certificate is revoked: <see cref="RevokedIssuerMode.HardStop"/> (default)
+    /// retires it and everything below it, <see cref="RevokedIssuerMode.Retire"/> only the issuer itself. Changed only
+    /// through <c>PUT /v1/settings/revoked-issuer</c> (admin role); a general settings save carries the stored value.
+    /// </summary>
+    public RevokedIssuerMode RevokedIssuerMode { get; set; } = RevokedIssuerMode.HardStop;
 }

@@ -16,7 +16,7 @@ namespace Qertum.Services.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
 
             modelBuilder.Entity("Qertum.Services.Acme.AcmeAccount", b =>
                 {
@@ -605,6 +605,13 @@ namespace Qertum.Services.Migrations
                     b.Property<bool>("RequireTwoPersonApproval")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("RevokedIssuerMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("HardStop");
+
                     b.Property<string>("State")
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
@@ -1160,6 +1167,9 @@ namespace Qertum.Services.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("RetiredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RevokedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("SerialNumber")

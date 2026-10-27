@@ -220,6 +220,13 @@ public sealed class RootCaProperties
     /// <c>/ca/generate?force=true</c>, never taken from a client.
     /// </summary>
     public IssuerId? ReplaceIssuerId { get; init; }
+
+    /// <summary>
+    /// True when this root is the first one after every default issuer was taken out of service by a revoked
+    /// certificate. It is created in its own issuer directory and registered as the new default; the revoked
+    /// issuers are left as they are so they keep answering CRL and OCSP. Set only by <c>/ca/generate</c>.
+    /// </summary>
+    public bool AfterRevokedIssuer { get; init; }
 }
 
 /// <summary>Request body for creating or updating a webhook subscription.</summary>
@@ -341,6 +348,13 @@ public sealed class SetIssuerStrengthRequest
 {
     /// <summary><c>Off</c>, <c>Warn</c> or <c>Enforce</c>. Required.</summary>
     public IssuerStrengthMode? Mode { get; init; }
+}
+
+/// <summary>Body of <c>PUT /v1/settings/revoked-issuer</c> (admin only).</summary>
+public sealed class SetRevokedIssuerModeRequest
+{
+    /// <summary><c>HardStop</c> or <c>Retire</c>. Required.</summary>
+    public RevokedIssuerMode? Mode { get; init; }
 }
 
 /// <summary>Body of <c>PUT /v1/settings/two-person-approval</c> (admin only).</summary>

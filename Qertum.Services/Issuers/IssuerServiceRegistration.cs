@@ -29,6 +29,7 @@ public static class IssuerServiceRegistration
         services.TryAddScoped<IssuerCrlState>();
         services.TryAddScoped<IssuerCeremonyService>();
         services.TryAddScoped<IssuerLifecycleService>();
+        services.TryAddScoped<IssuerRevocationService>();
         services.TryAddSingleton<IssuerKeyExporter>();
         services.TryAddSingleton<FluentValidation.IValidator<CreateIntermediateRequest>, Validators.CreateIntermediateRequestValidator>();
         return services;

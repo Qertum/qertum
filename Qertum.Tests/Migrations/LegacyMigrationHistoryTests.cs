@@ -49,7 +49,7 @@ public sealed class LegacyMigrationHistoryTests
         }
 
         await using var upgrading = NewContext(connection);
-        Assert.Equal(["20261022163742_AddIssuerStrength"], await upgrading.Database.GetPendingMigrationsAsync(ct));
+        Assert.Equal(["20261022163742_AddIssuerStrength", "20261027173855_AddRevokedIssuerMode"], await upgrading.Database.GetPendingMigrationsAsync(ct));
         await upgrading.Database.MigrateAsync(ct);
 
         Assert.Equal("keep-me", (await upgrading.RolePermissions.SingleAsync(ct)).Role);

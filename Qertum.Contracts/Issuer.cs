@@ -166,4 +166,10 @@ public sealed class Issuer
 
     /// <summary>When the issuer was destroyed by a force replace (UTC).</summary>
     public DateTime? DestroyedAtUtc { get; set; }
+
+    /// <summary>
+    /// When the issuer's own certificate was revoked (UTC), or when a revoked ancestor took it out of service.
+    /// Set together with the retirement; null for an issuer retired by hand.
+    /// </summary>
+    public DateTime? RevokedAtUtc { get; set; }
 }

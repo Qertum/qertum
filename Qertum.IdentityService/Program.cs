@@ -52,7 +52,8 @@ builder.Services.AddSingleton<IPasswordAttemptLimiter, PasswordAttemptLimiter>()
 builder.Services.TryAddSingleton(TimeProvider.System);
 
 builder.Services.AddSingleton(sp => new JsonUserStore(
-    sp.GetRequiredService<ILogger<JsonUserStore>>(), dataPath, identityOptions.SeedAdminPassword));
+    sp.GetRequiredService<ILogger<JsonUserStore>>(), dataPath, identityOptions.SeedAdminPassword,
+    identityOptions.SeedAdminPasswordMustChange));
 builder.Services.AddSingleton(new JsonRoleStore(dataPath));
 // The audit file sits under the data path so a mounted volume keeps it; Enabled=false writes nothing.
 var auditLogPath = identityOptions.AuditLog.Enabled ? identityOptions.ResolveAuditLogPath() : null;

@@ -137,6 +137,25 @@ public sealed class IssuerLifecycleService(
         return affected;
     }
 
+    /// <summary>
+    /// Registers <paramref name="newDefault"/> as the active default issuer when none exists (every earlier one was
+    /// taken out of service by a revoked certificate). Nothing is destroyed: the revoked issuers keep their rows
+    /// and files so CRL and OCSP keep answering for what they signed.
+    /// </summary>
+    public async Task RegisterDefaultAsync(Issuer newDefault, string performedBy, CancellationToken ct)
+    {
+        newDefault.IsDefault = true;
+        newDefault.Status = IssuerStatus.Active;
+        newDefault.ActivatedAtUtc = _clock.GetUtcNow().UtcDateTime;
+        db.Issuers.Add(newDefault);
+        await db.SaveChangesAsync(ct);
+
+        await audit.LogAsync("IssuerRegistered", performedBy, (Guid)newDefault.Id, newDefault.Name,
+            "Registered as the new default after the previous issuers were taken out of service by a revoked certificate.", ct);
+        await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerRegistered, newDefault, performedBy), ct);
+        await issuers.InvalidateAsync(ct);
+    }
+
     /// <summary>Unexpired certificates this issuer signed (Issued, PendingRevocation or Revoked, incl. paired PQC legs via the row) plus unexpired child CAs.</summary>
     public Task<int> UnexpiredCountAsync(Issuer issuer, CancellationToken ct) =>
         IssuerQueries.UnexpiredCountAsync(db, issuer, _clock.GetUtcNow().UtcDateTime, ct);

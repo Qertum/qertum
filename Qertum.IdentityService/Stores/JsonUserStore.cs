@@ -25,6 +25,7 @@ public sealed class JsonUserStore
 
     private readonly string _filePath;
     private readonly string? _seedAdminPassword;
+    private readonly bool _seedAdminPasswordMustChange;
     private readonly PasswordHasher<StoredUser> _hasher = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly ILogger<JsonUserStore> _logger;
@@ -32,10 +33,12 @@ public sealed class JsonUserStore
     public JsonUserStore(
         ILogger<JsonUserStore> logger,
         string? directory = null,
-        string? seedAdminPassword = null)
+        string? seedAdminPassword = null,
+        bool seedAdminPasswordMustChange = false)
     {
         _logger = logger;
         _seedAdminPassword = string.IsNullOrWhiteSpace(seedAdminPassword) ? null : seedAdminPassword;
+        _seedAdminPasswordMustChange = seedAdminPasswordMustChange;
         _filePath = Path.Combine(directory ?? AppContext.BaseDirectory, "users.json");
         SeedIfMissing();
     }
@@ -359,8 +362,10 @@ public sealed class JsonUserStore
 
         // A configured password is the operator's deliberate secret, so it is not treated as
         // compromised. Falling back to the well-known default is, hence the forced change.
+        // A provisioner that hands the password to someone else sets SeedAdminPasswordMustChange
+        // so the first login replaces it with one only the new owner knows.
         var seedPassword = _seedAdminPassword ?? DefaultAdminPassword;
-        admin.MustChangePassword = _seedAdminPassword is null;
+        admin.MustChangePassword = _seedAdminPassword is null || _seedAdminPasswordMustChange;
         admin.PasswordHash = _hasher.HashPassword(admin, seedPassword);
 
         WriteUnlocked(new List<StoredUser> { admin });

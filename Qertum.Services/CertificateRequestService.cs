@@ -19,7 +19,9 @@ public sealed class CertificateRequestService(
     ICertificateGenerator? certificateGenerator = null,
     Issuers.IIssuerRegistry? issuerRegistry = null,
     IPqcStageService? pqcStage = null,
-    TimeProvider? timeProvider = null) : ICertificateRequestService
+    TimeProvider? timeProvider = null,
+    // Takes an issuer out of service when its own certificate is revoked. Optional like the registry above.
+    Issuers.IssuerRevocationService? issuerRevocation = null) : ICertificateRequestService
 {
     // Optional like the generator: tests that construct this directly keep compiling, and get the
     // same stage rules a host would.
@@ -732,6 +734,10 @@ public sealed class CertificateRequestService(
             string.IsNullOrWhiteSpace(reason) ? null : $"Reason: {reason}",
             cancellationToken);
 
+        // Stops a revoked root or CA from signing now, not when the consumer gets to the row.
+        if (issuerRevocation is not null)
+            await issuerRevocation.OnCertificateRevokedAsync(existing, performedBy, cancellationToken);
+
         return existing;
     }
 
@@ -771,6 +777,10 @@ public sealed class CertificateRequestService(
         await webhookService.EnqueueEventAsync(
             RequestEvent(WellKnownWebhookEvents.Revoked, next, "queue-consumer"), cancellationToken);
 
+        // Idempotent repeat of the queue-time step, so a failure there cannot leave a revoked root signing.
+        if (issuerRevocation is not null)
+            await issuerRevocation.OnCertificateRevokedAsync(next, "queue-consumer", cancellationToken);
+
         return next;
     }
 
@@ -794,6 +804,9 @@ public sealed class CertificateRequestService(
             cancellationToken);
         await webhookService.EnqueueEventAsync(
             RequestEvent(WellKnownWebhookEvents.Revoked, existing, performedBy), cancellationToken);
+
+        if (issuerRevocation is not null)
+            await issuerRevocation.OnCertificateRevokedAsync(existing, performedBy, cancellationToken);
 
         return existing;
     }
@@ -1176,6 +1189,27 @@ public sealed class CertificateRequestService(
         return existing;
     }
 
+    public async Task<CaSettings> SetRevokedIssuerModeAsync(RevokedIssuerMode mode, string performedBy, CancellationToken cancellationToken = default)
+    {
+        var existing = await GetSettingsAsync(cancellationToken);
+        var previous = existing.RevokedIssuerMode;
+        if (previous == mode) return existing;
+
+        existing.RevokedIssuerMode = mode;
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await auditLog.LogAsync(WellKnownWebhookEvents.RevokedIssuerModeChanged, performedBy,
+            detail: $"Revoked issuer: {previous} -> {mode}", cancellationToken: cancellationToken);
+        await webhookService.EnqueueEventAsync(new WebhookEvent(
+            WellKnownWebhookEvents.RevokedIssuerModeChanged, PerformedBy: performedBy,
+            Fields: new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["previousMode"] = previous.ToString(),
+                ["mode"] = mode.ToString()
+            }), cancellationToken);
+        return existing;
+    }
+
     public async Task<CaSettings> SetCaApprovalRuleAsync(bool requireIndependent, string performedBy, CancellationToken cancellationToken = default)
     {
         var existing = await GetSettingsAsync(cancellationToken);
@@ -1228,6 +1262,7 @@ public sealed class CertificateRequestService(
             settings.RequireIndependentCaApproval = true;
             settings.RequireTwoPersonApproval = false; // owned by PUT /v1/settings/two-person-approval (admin only)
             settings.IssuerStrengthMode = IssuerStrengthMode.Warn; // owned by PUT /v1/settings/issuer-strength (admin only)
+            settings.RevokedIssuerMode = RevokedIssuerMode.HardStop; // owned by PUT /v1/settings/revoked-issuer (admin only)
             dbContext.Settings.Add(settings);
         }
         else
@@ -1248,6 +1283,7 @@ public sealed class CertificateRequestService(
             settings.RequireIndependentCaApproval = existing.RequireIndependentCaApproval; // owned by PUT /v1/settings/ca-approval (admin only)
             settings.RequireTwoPersonApproval = existing.RequireTwoPersonApproval; // owned by PUT /v1/settings/two-person-approval (admin only)
             settings.IssuerStrengthMode = existing.IssuerStrengthMode; // owned by PUT /v1/settings/issuer-strength (admin only)
+            settings.RevokedIssuerMode = existing.RevokedIssuerMode; // owned by PUT /v1/settings/revoked-issuer (admin only)
             dbContext.Entry(existing).CurrentValues.SetValues(settings);
         }
 

@@ -69,6 +69,9 @@ public static class WellKnownWebhookEvents
     /// <summary>The <c>IssuerStrengthChanged</c> event: the issuer-strength mode was changed.</summary>
     public const string IssuerStrengthChanged = "IssuerStrengthChanged";
 
+    /// <summary>The <c>RevokedIssuerModeChanged</c> event: what a revoked issuer certificate does was changed.</summary>
+    public const string RevokedIssuerModeChanged = "RevokedIssuerModeChanged";
+
     /// <summary>The <c>TwoPersonApprovalChanged</c> event: the two-person approval switch was turned on or off.</summary>
     public const string TwoPersonApprovalChanged = "TwoPersonApprovalChanged";
 
@@ -141,7 +144,7 @@ public static class WellKnownWebhookEvents
         [WebhookEventFamily.Settings] = new HashSet<string>(StringComparer.Ordinal)
         {
             SettingsUpdated, RolePermissionsUpdated, RolePermissionsRenamed, PqcStageChanged,
-            PqcExceptionCreated, PqcExceptionRevoked, CaApprovalRuleChanged, TwoPersonApprovalChanged, IssuerStrengthChanged
+            PqcExceptionCreated, PqcExceptionRevoked, CaApprovalRuleChanged, TwoPersonApprovalChanged, IssuerStrengthChanged, RevokedIssuerModeChanged
         },
         [WebhookEventFamily.Template] = new HashSet<string>(StringComparer.Ordinal)
         {

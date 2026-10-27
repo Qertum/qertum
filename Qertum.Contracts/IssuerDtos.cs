@@ -25,6 +25,7 @@ namespace Qertum.Services;
 /// <param name="RetiredAtUtc">When the issuer was retired (UTC).</param>
 /// <param name="ArchivedAtUtc">When the issuer was archived (UTC).</param>
 /// <param name="DestroyedAtUtc">When the issuer was destroyed by a force replace (UTC).</param>
+/// <param name="RevokedAtUtc">When the issuer's certificate was revoked, or a revoked ancestor took it out of service (UTC).</param>
 public sealed record IssuerResponse(
     IssuerId Id, string Name, IssuerKind Kind, IssuerId? ParentIssuerId, IssuerKeyCustody KeyCustody,
     IssuerStatus Status, bool IsDefault, string? SubjectDn, string? SerialNumber, string? KeyAlgorithm,
@@ -32,4 +33,5 @@ public sealed record IssuerResponse(
     IReadOnlyList<string> PermittedDnsSuffixes, IReadOnlyList<string> ExcludedDnsSuffixes,
     IReadOnlyList<string> PermittedIpRanges, IReadOnlyList<string> ExcludedIpRanges,
     long? UploadedCrlNumber, DateTime? UploadedCrlNextUpdateUtc,
-    DateTime CreatedAtUtc, DateTime? ActivatedAtUtc, DateTime? RetiredAtUtc, DateTime? ArchivedAtUtc, DateTime? DestroyedAtUtc);
+    DateTime CreatedAtUtc, DateTime? ActivatedAtUtc, DateTime? RetiredAtUtc, DateTime? ArchivedAtUtc, DateTime? DestroyedAtUtc,
+    DateTime? RevokedAtUtc = null);

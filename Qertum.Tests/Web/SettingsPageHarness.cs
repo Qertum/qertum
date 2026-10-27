@@ -19,7 +19,7 @@ internal static class SettingsPageHarness
     public static BunitContext NewContext(
         string caStatusJson = """{"isInitialized":true,"algorithm":"RSA"}""", bool admin = false, string pqcStage = "Off",
         bool requireIndependentCaApproval = true, bool recoveryStatusFails = false, bool requireTwoPersonApproval = false,
-        string issuerStrength = "Warn")
+        string issuerStrength = "Warn", string revokedIssuer = "HardStop")
     {
         var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
@@ -30,11 +30,11 @@ internal static class SettingsPageHarness
         var log = new RequestLog();
         context.Services.AddSingleton(log);
         context.Services.AddSingleton(new CertificateRequestsApiClient(
-            new HttpClient(new SettingsStub(caStatusJson, pqcStage, requireIndependentCaApproval, recoveryStatusFails, requireTwoPersonApproval, issuerStrength, log)) { BaseAddress = new Uri("http://api.test/") }));
+            new HttpClient(new SettingsStub(caStatusJson, pqcStage, requireIndependentCaApproval, recoveryStatusFails, requireTwoPersonApproval, issuerStrength, revokedIssuer, log)) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
 
-    private sealed class SettingsStub(string caStatusJson, string pqcStage, bool requireIndependentCaApproval, bool recoveryStatusFails, bool requireTwoPersonApproval, string issuerStrength, RequestLog log) : HttpMessageHandler
+    private sealed class SettingsStub(string caStatusJson, string pqcStage, bool requireIndependentCaApproval, bool recoveryStatusFails, bool requireTwoPersonApproval, string issuerStrength, string revokedIssuer, RequestLog log) : HttpMessageHandler
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -48,9 +48,11 @@ internal static class SettingsPageHarness
                     System.Text.Json.JsonDocument.Parse(body ?? "{}").RootElement.GetProperty("stage").GetString())}}}""",
                 "/v1/settings/issuer-strength" => $$"""{"id":1,"organizationName":"Test Org","pqcStage":"{{pqcStage}}","requireIndependentCaApproval":true,"issuerStrengthMode":{{System.Text.Json.JsonSerializer.Serialize(
                     System.Text.Json.JsonDocument.Parse(body ?? "{}").RootElement.GetProperty("mode").GetString())}}}""",
+                "/v1/settings/revoked-issuer" => $$"""{"id":1,"organizationName":"Test Org","pqcStage":"{{pqcStage}}","requireIndependentCaApproval":true,"revokedIssuerMode":{{System.Text.Json.JsonSerializer.Serialize(
+                    System.Text.Json.JsonDocument.Parse(body ?? "{}").RootElement.GetProperty("mode").GetString())}}}""",
                 "/v1/settings/ca-approval" => $$"""{"id":1,"organizationName":"Test Org","pqcStage":"{{pqcStage}}","requireIndependentCaApproval":{{(System.Text.Json.JsonDocument.Parse(body ?? "{}").RootElement.GetProperty("requireIndependentApproval").GetBoolean() ? "true" : "false")}}}""",
                 "/v1/settings/two-person-approval" => $$"""{"id":1,"organizationName":"Test Org","pqcStage":"{{pqcStage}}","requireIndependentCaApproval":true,"requireTwoPersonApproval":{{(System.Text.Json.JsonDocument.Parse(body ?? "{}").RootElement.GetProperty("enabled").GetBoolean() ? "true" : "false")}}}""",
-                "/v1/settings" => $$"""{"id":1,"organizationName":"Test Org","pqcStage":"{{pqcStage}}","requireIndependentCaApproval":{{(requireIndependentCaApproval ? "true" : "false")}},"requireTwoPersonApproval":{{(requireTwoPersonApproval ? "true" : "false")}},"issuerStrengthMode":"{{issuerStrength}}"}""",
+                "/v1/settings" => $$"""{"id":1,"organizationName":"Test Org","pqcStage":"{{pqcStage}}","requireIndependentCaApproval":{{(requireIndependentCaApproval ? "true" : "false")}},"requireTwoPersonApproval":{{(requireTwoPersonApproval ? "true" : "false")}},"issuerStrengthMode":"{{issuerStrength}}","revokedIssuerMode":"{{revokedIssuer}}"}""",
                 "/v1/ca/status" => caStatusJson,
                 "/v1/recovery-status" => """{"generatedAtUtc":"2026-10-06T12:00:00Z","backup":{"state":"NotReported"},"restore":{"state":"NotReported"}}""",
                 "/v1/secret-storage/status" => """{"currentProvider":"Local","tpmAvailable":false}""",

@@ -4,6 +4,10 @@ namespace Qertum.Services.Issuers;
 
 internal static class IssuerQueries
 {
+    /// <summary>True when a revoked certificate has taken at least one issuer out of service.</summary>
+    public static Task<bool> AnyRevokedAsync(CertificateRequestDbContext db, CancellationToken ct) =>
+        db.Issuers.AsNoTracking().AnyAsync(i => i.RevokedAtUtc != null, ct);
+
     /// <summary>
     /// Unexpired certificates <paramref name="issuer"/> signed (Issued, PendingRevocation or Revoked — a
     /// pair's PQC leg shares the row's <c>ValidTo</c>, so rows cover both legs) plus its unexpired child CAs.

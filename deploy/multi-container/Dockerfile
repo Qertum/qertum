@@ -4,7 +4,7 @@
 # Used by deploy/multi-container/docker-compose.yml: one container per service. The
 # single-container image (deploy/single-container) stays for homelab setups.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 
 # Copy the whole repo: the projects share many references and a partial copy is brittle.
@@ -18,7 +18,7 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
     dotnet publish Qertum.QueueConsumer/Qertum.QueueConsumer.csproj   -c Release -o /app/queueconsumer && \
     dotnet publish Qertum.RestoreCheck/Qertum.RestoreCheck.csproj     -c Release -o /app/restorecheck
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:535673eb0bf091deebbfefe0ab17dae903f86e49c9687df06448823435ccbc3c AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:76383bc2150de411212238b0fb3cd83239ce4060f5a64d07be88624d8441d1e8 AS runtime
 
 # tpm2-tools: LocalTpm key custody. Redis is its own container, not part of this image.
 # The resolute base ships /usr/bin/pebble (a Go service manager) that nothing here runs; it only adds
@@ -43,7 +43,7 @@ EXPOSE 8080 8081 8082 8083 8084
 # OCI image metadata. VERSION is passed by the publisher (`--build-arg VERSION=<tag>`).
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Qertum services" \
-      org.opencontainers.image.description="Self-hosted post-quantum certificate authority, one image per service (SERVICE selects it). Includes EST." \
+      org.opencontainers.image.description="Self-hosted certificate authority with post-quantum support (one image per service)." \
       org.opencontainers.image.source="https://github.com/Qertum/qertum" \
       org.opencontainers.image.url="https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.documentation="https://github.com/Qertum/qertum/wiki" \

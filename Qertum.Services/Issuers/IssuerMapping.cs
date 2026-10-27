@@ -14,5 +14,6 @@ public static class IssuerMapping
         IssuancePolicyEvaluator.ReadList(issuer.PermittedIpRangesJson),
         IssuancePolicyEvaluator.ReadList(issuer.ExcludedIpRangesJson),
         issuer.UploadedCrlNumber, issuer.UploadedCrlNextUpdateUtc,
-        issuer.CreatedAtUtc, issuer.ActivatedAtUtc, issuer.RetiredAtUtc, issuer.ArchivedAtUtc, issuer.DestroyedAtUtc);
+        issuer.CreatedAtUtc, issuer.ActivatedAtUtc, issuer.RetiredAtUtc, issuer.ArchivedAtUtc, issuer.DestroyedAtUtc,
+        issuer.RevokedAtUtc);
 }

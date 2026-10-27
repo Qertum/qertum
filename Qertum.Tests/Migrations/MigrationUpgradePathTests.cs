@@ -69,5 +69,13 @@ public sealed class MigrationUpgradePathTests
         await using var read = connection.CreateCommand();
         read.CommandText = "SELECT \"IssuerStrengthMode\" FROM \"Settings\" WHERE \"Id\" = 1";
         Assert.Equal("Warn", (string)(await read.ExecuteScalarAsync(ct))!);
+
+        // AddRevokedIssuerMode back-fills HardStop and adds the nullable Issuers.RevokedAtUtc.
+        await using var readMode = connection.CreateCommand();
+        readMode.CommandText = "SELECT \"RevokedIssuerMode\" FROM \"Settings\" WHERE \"Id\" = 1";
+        Assert.Equal("HardStop", (string)(await readMode.ExecuteScalarAsync(ct))!);
+        await using var readColumn = connection.CreateCommand();
+        readColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Issuers') WHERE name = 'RevokedAtUtc'";
+        Assert.Equal(1L, (long)(await readColumn.ExecuteScalarAsync(ct))!);
     }
 }

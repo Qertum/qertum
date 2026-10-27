@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 # Build stage: restore + publish each runtime service into its own /app folder.
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 
 # Copy the whole repo. (The projects share many references; a partial copy buys
@@ -29,12 +29,12 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
 # redis-server package is 7.0). No third-party apt repository is added to the runtime image.
 # See "Bumping the base image" in the README.
 # ---------------------------------------------------------------------------
-FROM redis:8.6@sha256:e6dae84f7db289dde3384fdb18d182556784e5a681df3a3f54d1289952364ce8 AS redis
+FROM redis:8.6@sha256:2455f3803861d6acdae2de7534bf0248241ac4990c17d500e4a35d9c3be10c94 AS redis
 
 # ---------------------------------------------------------------------------
 # Runtime stage: ASP.NET runtime + runit running Redis and the five processes.
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:535673eb0bf091deebbfefe0ab17dae903f86e49c9687df06448823435ccbc3c AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:76383bc2150de411212238b0fb3cd83239ce4060f5a64d07be88624d8441d1e8 AS runtime
 
 # runit supervises Redis and the five .NET processes (it pulls in no Python, unlike the
 # supervisord it replaced); tini is PID 1 and reaps orphans; tpm2-tools is for the LocalTpm
@@ -67,7 +67,7 @@ EXPOSE 8080 8081 8082 8083
 # OCI image metadata. VERSION is passed by the publisher (`--build-arg VERSION=<tag>`).
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Qertum" \
-      org.opencontainers.image.description="Self-hosted post-quantum certificate authority: web UI, REST API, ACME and identity in one container. No EST." \
+      org.opencontainers.image.description="Self-hosted certificate authority with post-quantum support (all-in-one image)." \
       org.opencontainers.image.source="https://github.com/Qertum/qertum" \
       org.opencontainers.image.url="https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.documentation="https://github.com/Qertum/qertum/wiki" \
