@@ -203,7 +203,7 @@ public sealed class UserAdministrationServiceTests
         Assert.NotNull(reloaded);
         Assert.True(reloaded!.MustChangePassword);
         Assert.NotEqual(user.SecurityStamp, reloaded.SecurityStamp);
-        Assert.Equal(IdentityAuditActions.UserPasswordReset, Assert.Single(h.Audit.Entries).Action);
+        Assert.Equal(IdentityAuditActions.UserCredentialReset, Assert.Single(h.Audit.Entries).Action);
     }
 
     [Fact]

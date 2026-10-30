@@ -31,7 +31,7 @@ public sealed class EstDiagnosticEventTests : IClassFixture<EstTestFactory>
 
         var refused = Assert.Single(_factory.Diagnostics.Entries,
             e => e.SubjectId == credentialId && e.Action == DiagnosticActions.AuthRefused);
-        Assert.Equal(DiagnosticCategories.WrongPassword, refused.Category);
+        Assert.Equal(DiagnosticCategories.WrongSecret, refused.Category);
         Assert.DoesNotContain(_factory.Diagnostics.Entries,
             e => (e.Detail ?? "").Contains("no-such-device", StringComparison.Ordinal)
                  || (e.Detail ?? "").Contains("wrong-password", StringComparison.Ordinal));

@@ -4,7 +4,7 @@
    =================================================================== */
 
 @import url('_content/Qertum.DesignSystem/tokens.css');
-@import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
+@import url('_content/Qertum.DesignSystem/bootstrap-icons/bootstrap-icons.min.css');
 
 :root {
     color-scheme: dark;
@@ -54,7 +54,7 @@ header.shell-header {
     background: rgb(var(--primary));
     box-shadow:
         0 0 22px rgba(var(--primary), 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        inset 0 1px 0 rgba(var(--paper), 0.28),
         inset 0 -1px 0 rgba(0, 0, 0, 0.15);
     flex-shrink: 0;
     position: relative;
@@ -124,14 +124,14 @@ header.shell-header {
     height: 22px;
     border-radius: 6px;
     background: rgb(var(--primary));
-    color: #fff;
+    color: rgb(var(--on-primary));
     display: inline-flex;
     align-items: center;
     justify-content: center;
     font-size: 0.62rem;
     font-weight: 700;
     letter-spacing: 0.02em;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 10px rgba(var(--primary), 0.25);
+    box-shadow: 0 0 0 1px rgba(var(--paper), 0.08), 0 0 10px rgba(var(--primary), 0.25);
 }
 
 /* --- Sub nav --- */
@@ -296,9 +296,9 @@ button,
     width: 100%;
     padding: 0.7rem 1rem;
     background: rgb(var(--primary));
-    color: #fff;
+    color: rgb(var(--on-primary));
     border: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     font-weight: 500;
     font-family: var(--font-sans);
     font-size: 0.925rem;
@@ -311,7 +311,7 @@ button,
     justify-content: center;
     gap: 0.4rem;
     transition: all var(--transition-normal);
-    box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(var(--paper), 0.14);
     position: relative;
     overflow: hidden;
 }
@@ -353,7 +353,7 @@ button .bi,
 }
 
 .button.danger:hover {
-    background: #dc2626;
+    background: rgb(var(--error));
     box-shadow: 0 0 22px rgba(var(--error), 0.25);
 }
 
@@ -370,13 +370,13 @@ button .bi,
 }
 
 .error {
-    color: #fca5a5;
+    color: rgb(var(--error-light));
     background: rgba(var(--error), 0.1);
     border: 1px solid rgba(var(--error), 0.22);
 }
 
 .success {
-    color: #6ee7b7;
+    color: rgb(var(--success-light));
     background: rgba(var(--success), 0.1);
     border: 1px solid rgba(var(--success), 0.22);
 }
@@ -392,7 +392,7 @@ button .bi,
 
 .hint code {
     font-family: var(--font-mono);
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(var(--paper), 0.06);
     padding: 0.05rem 0.3rem;
     border-radius: 4px;
     color: var(--text-secondary);
@@ -411,19 +411,19 @@ button .bi,
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    background: rgba(139, 92, 246, 0.12);
-    border: 1px solid rgba(139, 92, 246, 0.28);
-    color: #c4b5fd;
+    background: rgba(var(--info), 0.12);
+    border: 1px solid rgba(var(--info), 0.28);
+    color: var(--text-secondary);
     padding: 0.2rem 0.6rem;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     font-size: 0.72rem;
     font-weight: 500;
     letter-spacing: 0.02em;
 }
 
-.chip.blue    { background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.28); color: #93c5fd; }
-.chip.emerald { background: rgba(var(--success), 0.12); border-color: rgba(var(--success), 0.28); color: #6ee7b7; }
-.chip.amber   { background: rgba(var(--warning), 0.12); border-color: rgba(var(--warning), 0.28); color: #fcd34d; }
+.chip.blue    { background: rgba(var(--primary), 0.12); border-color: rgba(var(--primary), 0.28); color: rgb(var(--primary-light)); }
+.chip.emerald { background: rgba(var(--success), 0.12); border-color: rgba(var(--success), 0.28); color: rgb(var(--success-light)); }
+.chip.amber   { background: rgba(var(--warning), 0.12); border-color: rgba(var(--warning), 0.28); color: rgb(var(--warning-light)); }
 
 /* --- Stack buttons (multiple in a card) --- */
 .button + .button,
@@ -455,11 +455,11 @@ body.centered main.shell-main {
 .card-brand .brand-mark {
     width: 36px;
     height: 36px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     background: rgb(var(--primary));
     box-shadow:
         0 0 22px rgba(var(--primary), 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        inset 0 1px 0 rgba(var(--paper), 0.28),
         inset 0 -1px 0 rgba(0, 0, 0, 0.15);
     position: relative;
     flex-shrink: 0;
@@ -517,7 +517,7 @@ body.centered main.shell-main {
     width: 56px;
     height: 56px;
     margin: 0 auto 1rem;
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     display: grid;
     place-items: center;
     background: rgba(var(--success), 0.12);
@@ -628,7 +628,7 @@ body.centered main.shell-main {
 }
 
 .field-error {
-    color: #fca5a5;
+    color: rgb(var(--error-light));
     font-size: 0.75rem;
 }
 

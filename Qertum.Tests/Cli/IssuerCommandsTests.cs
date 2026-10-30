@@ -14,7 +14,7 @@ public sealed class IssuerCommandsTests
     public void ExposesTheCeremonyCommands()
     {
         Assert.Equal(
-            ["archive", "create-intermediate", "delete", "export-key", "export-pfx", "install", "list", "make-default", "request", "retire", "show", "trust-bundle", "upload-crl"],
+            ["archive", "create-intermediate", "delete", "export-key", "export-pfx", "install", "list", "make-default", "renew", "request", "retire", "show", "trust-bundle", "upload-crl"],
             Issuers().Subcommands.Select(c => c.Name).Order(StringComparer.Ordinal));
     }
 
@@ -53,5 +53,25 @@ public sealed class IssuerCommandsTests
     {
         Assert.NotEmpty(Issuers().Parse("install 11111111-1111-1111-1111-111111111111 --cert a.pem").Errors);
         Assert.Empty(Issuers().Parse("install 11111111-1111-1111-1111-111111111111 --cert a.pem --chain b.pem").Errors);
+    }
+
+    [Fact]
+    public void Renew_TakesAnIdAndOptionalValidityAndRequestFile()
+    {
+        Assert.NotEmpty(Issuers().Parse("renew").Errors);
+        var parsed = Issuers().Parse("renew 11111111-1111-1111-1111-111111111111 --validity-days 400 --request-file next.json");
+        Assert.Empty(parsed.Errors);
+        Assert.Empty(Issuers().Parse("renew 11111111-1111-1111-1111-111111111111").Errors);
+    }
+
+    [Fact]
+    public void NextSteps_NameTheRootSigningAndTheInstallOfThatIssuer()
+    {
+        var id = new IssuerId(Guid.Parse("22222222-2222-2222-2222-222222222222"));
+
+        var lines = IssuerCommands.NextSteps(id, "issuing.request.json");
+
+        Assert.Contains(lines, l => l.Contains("qca root sign") && l.Contains("issuing.request.json"));
+        Assert.Contains(lines, l => l.Contains($"qca issuers install {id}"));
     }
 }

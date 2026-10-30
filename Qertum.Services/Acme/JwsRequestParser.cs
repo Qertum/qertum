@@ -35,42 +35,42 @@ public sealed class JwsRequestParser(
     {
         var body = await EnrollmentPayloadLimits.ReadUtf8Async(request, EnrollmentPayloadLimits.AcmeBodyBytes, ct);
 
-        using var doc = JsonDocument.Parse(body);
+        // Everything up to the signature check is unauthenticated client input: each shape error is a
+        // malformed request, never an exception HandleAcme would have to answer as a server fault.
+        using var doc = AcmeJson.ParseObject(body, "request body");
         var root = doc.RootElement;
 
-        var protectedB64 = root.GetProperty("protected").GetString()
-            ?? throw new AcmeException("malformed", "Missing 'protected' field.");
-        var payloadB64 = root.GetProperty("payload").GetString()
-            ?? throw new AcmeException("malformed", "Missing 'payload' field.");
-        var signatureB64 = root.GetProperty("signature").GetString()
-            ?? throw new AcmeException("malformed", "Missing 'signature' field.");
+        var protectedB64 = AcmeJson.RequiredString(root, "protected", "JWS");
+        var payloadB64 = AcmeJson.RequiredString(root, "payload", "JWS");
+        var signatureB64 = AcmeJson.RequiredString(root, "signature", "JWS");
 
-        var protectedBytes = EnrollmentPayloadLimits.DecodeBase64(protectedB64, EnrollmentPayloadLimits.ProtectedHeaderBytes);
-        var sigBytes = EnrollmentPayloadLimits.DecodeBase64(signatureB64, EnrollmentPayloadLimits.SignatureBytes);
+        var protectedBytes = DecodeBase64(protectedB64, EnrollmentPayloadLimits.ProtectedHeaderBytes, "protected");
+        var sigBytes = DecodeBase64(signatureB64, EnrollmentPayloadLimits.SignatureBytes, "signature");
         var payloadBytes = string.IsNullOrEmpty(payloadB64)
             ? null
-            : EnrollmentPayloadLimits.DecodeBase64(payloadB64, EnrollmentPayloadLimits.DecodedPayloadBytes);
+            : DecodeBase64(payloadB64, EnrollmentPayloadLimits.DecodedPayloadBytes, "payload");
 
-        using var headerDoc = JsonDocument.Parse(protectedBytes);
+        using var headerDoc = AcmeJson.ParseObject(protectedBytes, "protected header");
         var header = headerDoc.RootElement;
 
         // Validate alg
-        var alg = header.GetProperty("alg").GetString()
+        var alg = AcmeJson.OptionalString(header, "alg", "protected header")
             ?? throw new AcmeException("malformed", "Missing 'alg' in protected header.");
         if (!AllowedAlgorithms.Contains(alg))
             throw new AcmeException("badSignatureAlgorithm", $"Algorithm '{alg}' is not supported.");
 
         // Validate nonce
-        if (!header.TryGetProperty("nonce", out var nonceEl) || string.IsNullOrEmpty(nonceEl.GetString()))
+        var nonce = header.TryGetProperty("nonce", out var nonceEl) && nonceEl.ValueKind == JsonValueKind.String
+            ? nonceEl.GetString()
+            : null;
+        if (string.IsNullOrEmpty(nonce))
             throw new AcmeException("badNonce", "Missing nonce in protected header.");
-        var nonce = nonceEl.GetString()!;
         if (!await nonceService.ConsumeAsync(nonce, ct))
             throw new AcmeException("badNonce", "Nonce is invalid or already used.");
 
         // Validate url — must match the request URL
-        if (!header.TryGetProperty("url", out var urlEl))
-            throw new AcmeException("malformed", "Missing 'url' in protected header.");
-        var claimedUrl = urlEl.GetString() ?? string.Empty;
+        var claimedUrl = AcmeJson.OptionalString(header, "url", "protected header")
+            ?? throw new AcmeException("malformed", "Missing 'url' in protected header.");
         var actualUrl = $"{request.Scheme}://{request.Host}{request.Path}{request.QueryString}";
         if (!string.Equals(claimedUrl, actualUrl, StringComparison.OrdinalIgnoreCase))
             throw new AcmeException("malformed", $"URL mismatch: got '{claimedUrl}', expected '{actualUrl}'.");
@@ -89,6 +89,9 @@ public sealed class JwsRequestParser(
 
         if (hasJwk)
         {
+            // ToString of a JSON string is its unescaped text, which would let a quoted JWK through.
+            if (jwkEl.ValueKind != JsonValueKind.Object)
+                throw new AcmeException("malformed", "'jwk' must be a JSON object.");
             jwkJson = jwkEl.ToString();
             embeddedJwk = jwkJson;
             thumbprint = JwkConverter.ComputeThumbprint(jwkJson);
@@ -96,7 +99,8 @@ public sealed class JwsRequestParser(
         else
         {
             // kid is the account URL, e.g. https://host/acme/account/{id}
-            var kid = kidEl.GetString() ?? throw new AcmeException("malformed", "Empty 'kid'.");
+            var kid = AcmeJson.OptionalString(header, "kid", "protected header")
+                ?? throw new AcmeException("malformed", "Empty 'kid'.");
             if (!TryExtractAccountId(kid, out var accountId))
                 throw new AcmeException("accountDoesNotExist", "Cannot resolve account from kid.");
 
@@ -113,10 +117,11 @@ public sealed class JwsRequestParser(
         var signingInput = Encoding.ASCII.GetBytes($"{protectedB64}.{payloadB64}");
         VerifySignature(alg, jwkJson, signingInput, sigBytes);
 
-        // Decode payload (empty string "" = POST-as-GET)
+        // Decode payload (empty string "" = POST-as-GET). Every ACME payload is a JSON object, so
+        // handlers may call TryGetProperty on it without a kind check.
         JsonDocument? payload = payloadBytes is null
             ? null
-            : JsonDocument.Parse(payloadBytes);
+            : AcmeJson.ParseObject(payloadBytes, "payload");
 
         return new JwsParsedRequest
         {
@@ -140,16 +145,18 @@ public sealed class JwsRequestParser(
         if (inner.ValueKind != JsonValueKind.Object)
             throw new AcmeException("malformed", "Inner JWS must be a JSON object.");
 
-        var protectedB64 = GetRequiredString(inner, "protected");
-        var payloadB64 = GetRequiredString(inner, "payload");
-        var signatureB64 = GetRequiredString(inner, "signature");
-        var payloadBytes = EnrollmentPayloadLimits.DecodeBase64(payloadB64, EnrollmentPayloadLimits.DecodedPayloadBytes);
-        var signatureBytes = EnrollmentPayloadLimits.DecodeBase64(signatureB64, EnrollmentPayloadLimits.SignatureBytes);
+        var protectedB64 = AcmeJson.RequiredString(inner, "protected", "inner JWS");
+        var payloadB64 = AcmeJson.RequiredString(inner, "payload", "inner JWS");
+        var signatureB64 = AcmeJson.RequiredString(inner, "signature", "inner JWS");
+        var payloadBytes = DecodeBase64(payloadB64, EnrollmentPayloadLimits.DecodedPayloadBytes, "inner payload");
+        var signatureBytes = DecodeBase64(signatureB64, EnrollmentPayloadLimits.SignatureBytes, "inner signature");
 
-        using var headerDoc = JsonDocument.Parse(EnrollmentPayloadLimits.DecodeBase64(protectedB64, EnrollmentPayloadLimits.ProtectedHeaderBytes));
+        using var headerDoc = AcmeJson.ParseObject(
+            DecodeBase64(protectedB64, EnrollmentPayloadLimits.ProtectedHeaderBytes, "inner protected header"),
+            "inner protected header");
         var header = headerDoc.RootElement;
 
-        var alg = header.TryGetProperty("alg", out var algEl) ? algEl.GetString() : null;
+        var alg = AcmeJson.OptionalString(header, "alg", "inner protected header");
         if (alg is null || !AllowedAlgorithms.Contains(alg))
             throw new AcmeException("badSignatureAlgorithm", $"Algorithm '{alg}' is not supported.");
 
@@ -159,10 +166,12 @@ public sealed class JwsRequestParser(
             throw new AcmeException("malformed", "Inner JWS must not contain 'kid'.");
         if (!header.TryGetProperty("jwk", out var jwkEl))
             throw new AcmeException("malformed", "Inner JWS must contain 'jwk'.");
+        if (jwkEl.ValueKind != JsonValueKind.Object)
+            throw new AcmeException("malformed", "Inner 'jwk' must be a JSON object.");
 
         // Binding the inner signature to the same URL is what stops it being lifted out and replayed
         // against a different endpoint.
-        var claimedUrl = header.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : null;
+        var claimedUrl = AcmeJson.OptionalString(header, "url", "inner protected header");
         if (!string.Equals(claimedUrl, expectedUrl, StringComparison.OrdinalIgnoreCase))
             throw new AcmeException("malformed", $"Inner JWS URL mismatch: got '{claimedUrl}', expected '{expectedUrl}'.");
 
@@ -173,15 +182,23 @@ public sealed class JwsRequestParser(
         if (string.IsNullOrEmpty(payloadB64))
             throw new AcmeException("malformed", "Inner JWS payload must not be empty.");
 
-        return (JsonDocument.Parse(payloadBytes),
+        return (AcmeJson.ParseObject(payloadBytes, "inner payload"),
                 jwkJson,
                 JwkConverter.ComputeThumbprint(jwkJson));
     }
 
-    private static string GetRequiredString(JsonElement element, string name) =>
-        element.TryGetProperty(name, out var value) && value.GetString() is { } text
-            ? text
-            : throw new AcmeException("malformed", $"Inner JWS is missing '{name}'.");
+    /// <summary>Decodes a base64url field; text outside the alphabet is the client's error.</summary>
+    private static byte[] DecodeBase64(string input, int maxBytes, string field)
+    {
+        try
+        {
+            return EnrollmentPayloadLimits.DecodeBase64(input, maxBytes);
+        }
+        catch (FormatException)
+        {
+            throw new AcmeException("malformed", $"'{field}' is not valid base64url.");
+        }
+    }
 
     private static void VerifySignature(string alg, string jwkJson, byte[] signingInput, byte[] signature)
     {

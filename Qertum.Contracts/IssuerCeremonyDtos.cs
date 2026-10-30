@@ -72,6 +72,10 @@ public sealed record IntermediateRequestFile(
     public const string CurrentFormat = "qertum-intermediate-request/1";
 }
 
+/// <summary>Renewing an intermediate: a new key under the same name, subject, algorithm, constraints and parent.</summary>
+/// <param name="ValidityDays">Validity of the new certificate in days; null keeps the old one's length.</param>
+public sealed record RenewIssuerRequest(int? ValidityDays = null);
+
 /// <summary>A created intermediate and, while it waits for its certificate, its request file.</summary>
 /// <param name="Issuer">The new issuer.</param>
 /// <param name="RequestFile">Null when an online parent signed it immediately.</param>

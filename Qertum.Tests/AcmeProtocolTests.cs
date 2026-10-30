@@ -158,18 +158,24 @@ public sealed class AcmeProtocolTests
             await scope.ServiceProvider.GetRequiredService<CertificateRequestDbContext>()
                 .Database.ExecuteSqlRawAsync("DROP TABLE AcmeChallenges", ct);
 
-        var resp = await client.PostAsync("/acme/new-order", new
+        // Routing is case-insensitive, so the request path is the client's spelling, not the route's.
+        var resp = await client.PostAsync("/acme/NEW-ORDER", new
         {
             identifiers = new[] { new { type = "dns", value = "broken.local" } }
         }, ct);
 
         Assert.Equal(HttpStatusCode.InternalServerError, resp.StatusCode);
+        // The cause goes to the log, not to the client: an exception message can name tables,
+        // files or other internals.
+        Assert.DoesNotContain("AcmeChallenges", await resp.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
         // EF Core logs the failed command itself; what matters is that the ACME layer records
         // which endpoint turned it into a 500.
         var entry = Assert.Single(logs.Entries, e => e.Category == AcmeEndpointMappings.LogCategory);
         Assert.Equal(LogLevel.Error, entry.Level);
         Assert.IsType<SqliteException>(entry.Exception?.GetBaseException());
+        // The route template, never the client-chosen path (which could carry a decoded %0A).
         Assert.Contains("/acme/new-order", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("NEW-ORDER", entry.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -187,6 +193,97 @@ public sealed class AcmeProtocolTests
             new { termsOfServiceAgreed = true }, nonce: "totally-invalid-nonce", ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.DoesNotContain(logs.Entries, e => e.Level >= LogLevel.Error);
+    }
+
+    [Theory]
+    [InlineData("not-json", "malformed")]
+    [InlineData("array", "malformed")]
+    [InlineData("missing-signature", "malformed")]
+    [InlineData("number-field", "malformed")]
+    [InlineData("bad-base64", "malformed")]
+    [InlineData("header-not-json", "malformed")]
+    [InlineData("header-missing-alg", "malformed")]
+    [InlineData("alg-none", "badSignatureAlgorithm")]
+    [InlineData("nonce-not-string", "badNonce")]
+    [InlineData("jwk-not-object", "malformed")]
+    [InlineData("jwk-missing-members", "malformed")]
+    [InlineData("jwk-unsupported-type", "badPublicKey")]
+    public async Task MalformedJws_IsAClientError_NotAServerError(string variant, string expectedType)
+    {
+        // Anyone can send these without an account. Each one used to escape the parser as a .NET
+        // exception and come back as a 500 carrying the exception text, logged at error level.
+        var ct = TestContext.Current.CancellationToken;
+        var logs = new CapturingLoggerProvider();
+        await using var factory = CreateFactory();
+        await using var logged = factory.WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<ILoggerProvider>(logs)));
+        using var client = logged.CreateClient();
+        var nonceResponse = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce"), ct);
+        var nonce = nonceResponse.Headers.GetValues("Replay-Nonce").Single();
+
+        static string B64(string text) => JwkConverter.Base64UrlEncode(Encoding.UTF8.GetBytes(text));
+        string Header(object jwk, object? nonceValue = null, string alg = "ES256") =>
+            B64(JsonSerializer.Serialize(new { alg, nonce = nonceValue ?? nonce, url = "http://localhost/acme/new-account", jwk }));
+        static string Jws(string protectedB64) =>
+            JsonSerializer.Serialize(new { @protected = protectedB64, payload = "", signature = "AA" });
+        var ecJwk = new { kty = "EC", crv = "P-256", x = "AA", y = "AA" };
+
+        var body = variant switch
+        {
+            "not-json" => "not json",
+            "array" => "[]",
+            "missing-signature" => JsonSerializer.Serialize(new { @protected = Header(ecJwk), payload = "" }),
+            "number-field" => JsonSerializer.Serialize(new { @protected = 5, payload = "", signature = "AA" }),
+            "bad-base64" => Jws("!!"),
+            "header-not-json" => Jws(B64("not json")),
+            "header-missing-alg" => Jws(B64("{}")),
+            "alg-none" => Jws(Header(ecJwk, alg: "none")),
+            "nonce-not-string" => Jws(Header(ecJwk, nonceValue: 5)),
+            "jwk-not-object" => Jws(Header("text")),
+            "jwk-missing-members" => Jws(Header(new { kty = "EC" })),
+            "jwk-unsupported-type" => Jws(Header(new { kty = "OKP", crv = "Ed25519", x = "AA" })),
+            _ => throw new ArgumentOutOfRangeException(nameof(variant))
+        };
+
+        var response = await client.PostAsync("/acme/new-account",
+            new StringContent(body, Encoding.UTF8, "application/jose+json"), ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        Assert.Equal($"urn:ietf:params:acme:error:{expectedType}", problem.RootElement.GetProperty("type").GetString());
+        Assert.DoesNotContain(logs.Entries, e => e.Level >= LogLevel.Error);
+    }
+
+    [Theory]
+    [InlineData("/acme/new-account", "not json", "malformed")]
+    [InlineData("/acme/new-account", """{"onlyReturnExisting":"yes"}""", "malformed")]
+    [InlineData("/acme/new-account", """{"termsOfServiceAgreed":"yes"}""", "malformed")]
+    [InlineData("/acme/new-order", "{}", "malformed")]
+    [InlineData("/acme/new-order", """{"identifiers":"example.com"}""", "malformed")]
+    [InlineData("/acme/new-order", """{"identifiers":[{"type":5,"value":"example.com"}]}""", "malformed")]
+    [InlineData("/acme/new-order", """{"identifiers":[{"type":"dns"}]}""", "malformed")]
+    [InlineData("/acme/new-order", """{"identifiers":[{"type":"ip","value":"192.0.2.1"}]}""", "unsupportedIdentifier")]
+    [InlineData("account", """{"status":5}""", "malformed")]
+    [InlineData("/acme/revoke-cert", """{"certificate":5}""", "malformed")]
+    public async Task SignedPayloadOfTheWrongShape_IsAClientError_NotAServerError(string url, string payloadJson, string expectedType)
+    {
+        // Validly signed, so it reaches the handler; the payload is still the client's to get right.
+        var ct = TestContext.Current.CancellationToken;
+        var logs = new CapturingLoggerProvider();
+        await using var factory = CreateFactory();
+        await using var logged = factory.WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<ILoggerProvider>(logs)));
+        using var client = new AcmeTestClient(logged.CreateClient());
+        if (url != "/acme/new-account")
+        {
+            var accountResp = await client.PostAsync("/acme/new-account", new { termsOfServiceAgreed = true }, ct);
+            client.AccountUrl = accountResp.Headers.Location!.ToString();
+        }
+
+        var response = await client.PostRawAsync(url == "account" ? client.AccountUrl! : url, payloadJson, ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        Assert.Equal($"urn:ietf:params:acme:error:{expectedType}", problem.RootElement.GetProperty("type").GetString());
         Assert.DoesNotContain(logs.Entries, e => e.Level >= LogLevel.Error);
     }
 
@@ -2301,6 +2398,10 @@ public sealed class AcmeProtocolTests
 
         public Task<HttpResponseMessage> PostAsync(string url, object payload, CancellationToken ct)
             => SendJwsAsync(url, B64U(J(payload)), ct);
+
+        /// <summary>Signs exactly the given payload text, so a test can send JSON of the wrong shape.</summary>
+        public Task<HttpResponseMessage> PostRawAsync(string url, string payloadJson, CancellationToken ct)
+            => SendJwsAsync(url, B64U(payloadJson), ct);
 
         public Task<HttpResponseMessage> PostAsGetAsync(string url, CancellationToken ct)
             => SendJwsAsync(url, "", ct);

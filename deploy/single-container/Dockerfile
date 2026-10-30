@@ -29,7 +29,7 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
 # redis-server package is 7.0). No third-party apt repository is added to the runtime image.
 # See "Bumping the base image" in the README.
 # ---------------------------------------------------------------------------
-FROM redis:8.6@sha256:2455f3803861d6acdae2de7534bf0248241ac4990c17d500e4a35d9c3be10c94 AS redis
+FROM redis:8.6@sha256:372207266325710e75866163a505d18ac0362372c8bf02ad5a0cf0b3c8bbc23e AS redis
 
 # ---------------------------------------------------------------------------
 # Runtime stage: ASP.NET runtime + runit running Redis and the five processes.
@@ -67,11 +67,12 @@ EXPOSE 8080 8081 8082 8083
 # OCI image metadata. VERSION is passed by the publisher (`--build-arg VERSION=<tag>`).
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Qertum" \
-      org.opencontainers.image.description="Self-hosted certificate authority with post-quantum support (all-in-one image)." \
+      org.opencontainers.image.description="Qertum, a self-hosted certificate authority with post-quantum support (ML-DSA, SLH-DSA, ML-KEM and composite certificates). All-in-one image: web UI, identity service, REST API and ACME server in one container, data in one volume. For EST, or one container per service, use qertum-services. Documentation: https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.source="https://github.com/Qertum/qertum" \
       org.opencontainers.image.url="https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.documentation="https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.vendor="Qertum" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}"
 
 # The app-level /health and /alive endpoints are Development-only, so this asks

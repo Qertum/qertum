@@ -77,6 +77,9 @@ public sealed class SerilogAuditLogService : IAuditLogService, IDiagnosticEventL
     {
         // One format for both audit logs (Qertum.Audit), so the same tooling reads either file.
         // Chained when the host registered a chain; tests that build the service directly keep the unchained write.
+        // Names and details can come from request bodies: one line each, before the chain hashes them.
+        resourceName = SingleLine(resourceName);
+        detail = SingleLine(detail);
         if (_chain is not null)
             _chain.Write(_log, action, performedBy, resourceId, resourceName, detail);
         else
@@ -84,6 +87,10 @@ public sealed class SerilogAuditLogService : IAuditLogService, IDiagnosticEventL
 
         return Task.CompletedTask;
     }
+
+    /// <summary>Line breaks become spaces, so a value cannot start what looks like another log line.</summary>
+    internal static string? SingleLine(string? value) =>
+        value?.Replace("\r\n", " ").Replace("\r", " ").Replace("\n", " ");
 
     /// <inheritdoc />
     public Task<IReadOnlyList<AuditLogEntry>> GetAllAsync(

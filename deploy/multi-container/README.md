@@ -24,10 +24,10 @@ and the queue consumer. Browse to `http://<QERTUM_HOST>:8080` and log in as `adm
 | Variable | Required | Meaning |
 |---|---|---|
 | `QERTUM_IMAGE` | yes | Image reference, e.g. `registry.example.lan:5000/qertum-services:latest` |
-| `QERTUM_HOST` | yes | Host name or IP that browsers, ACME/EST clients **and the other containers** use; advertised in every URL. Not `localhost`: inside a container that is the container itself, so `apiservice` and `webfrontend` refuse to start (exit 64). On Docker Desktop use `host.docker.internal` for a local trial |
+| `QERTUM_HOST` | yes | Public host name or IP that browsers, ACME/EST clients **and the other containers** use, exactly as users type it (no NAT, DNS alias or other name in between; a different browser address fails sign-in with ID2043); advertised in every URL. Not `localhost`: inside a container that is the container itself, so `apiservice` and `webfrontend` refuse to start (exit 64). On Docker Desktop use `host.docker.internal` for a local trial |
 | `QERTUM_EST_TLS_CERT`, `QERTUM_EST_TLS_KEY` | yes | Host paths of the EST server certificate chain and key (PEM) |
 | `QERTUM_DATA` | no | Host path or volume for `/data` (default: named volume `qertum-data`) |
-| `QERTUM_SCHEME` | no | `http` (default) or `https` for web, identity and API when a proxy terminates TLS for them. Never for ACME or EST |
+| `QERTUM_SCHEME` | no | `http` (default) or `https` for web, identity and API when a proxy terminates TLS for them. `https` also has those three take the client's scheme and address from the proxy's `X-Forwarded-Proto`/`X-Forwarded-For`, so their ports must be reachable by the proxy only. Never for ACME or EST, which never trust those headers. With `http` the web, identity and API containers log a warning at every start, and the API and web UI log one again on startup: sign-in, tokens and the admin password are then unencrypted. |
 | `WEB_PORT`, `IDENTITY_PORT`, `API_PORT`, `ACME_PORT`, `EST_PORT` | no | Advertised and published ports (defaults 8080–8084). Containers always listen on 8080–8084 inside |
 | `ACME_SCHEME` | no | `http` (default) or `https`, the scheme ACME advertises. `https` only when the acme container terminates TLS itself (see below) |
 | `SEED_ADMIN_PASSWORD` | no | First-run admin password |
@@ -130,6 +130,12 @@ TPM override, run 2026-10-20 on one x86_64 TPM 2.0 (Ubuntu 26.04 host, Docker 29
 - 2026-10-23, same machine, single-container image `alpha-02` with `--device /dev/tpmrm0 --group-add <group>`: `tpmAvailable: true` as non-root; a CA on the file key, migrate to `LocalTpm`, restart (keys issued before and after migration downloadable, CRL served), migrate back to `LocalFileKey`, restart (still readable, a new certificate issued; `tpm-sealed.blob` stays, as documented). Data left on `LocalTpm` and started without the device exits with `'tpm2_createprimary ...' ... Failed to open specified TCTI device file /dev/tpmrm0`; started again with the device it recovers. Data on the file key starts without a device.
 - Not run: a cleared or replaced TPM, other hardware, the `.ps1` wrappers, and an
   EST `/simplereenroll` with a client certificate.
+
+Security scan, run 2026-10-29 (Docker Desktop on macOS, arm64, image built from source, ports 9080–9084, an ECDSA P-256 root onboarded through the API, one EST username and password):
+
+- EST: `cacerts` and `csrattrs` answer 200; `simpleenroll` without credentials, with a wrong password or with a malformed `Authorization` header answers 401, a CSR that is not base64 or not a CSR answers 400, a valid one 202 (waiting for approval); `simplereenroll` with only a password answers 401; plain HTTP to 8084 is refused; more than 20 attempts a minute answer 429.
+- TLS on 8084 (testssl.sh): TLS 1.2 and 1.3 only, no known protocol weakness. TLS 1.2 still offers CBC suites, which testssl flags as "potentially vulnerable" to LUCKY13; restricting them would refuse older EST clients, so it is left as is.
+- Nikto, OWASP ZAP baseline and sqlmap (OIDC token and authorize endpoints, ACME renewal-info) found nothing beyond missing browser headers (`X-Content-Type-Options`, `Referrer-Policy`, framing protection), which every service has sent since this run. The API rate limit has also been per caller since this run; before, one caller could use it up for everyone. ZAP still warns that the CSP has no `default-src` or `script-src`: no script policy for the web UI yet.
 
 ## Two-person approval
 

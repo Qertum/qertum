@@ -2,5 +2,7 @@
 # runit service: stdout/stderr go to the container log; the environment is the one entrypoint.sh exported.
 exec 2>&1
 cd /app/acmeservice
+# ACME is never behind a proxy: it does not trust X-Forwarded-* even when the other services do.
+unset ASPNETCORE_FORWARDEDHEADERS_ENABLED
 export ASPNETCORE_URLS="http://0.0.0.0:8083"
 exec dotnet /app/acmeservice/Qertum.AcmeService.dll

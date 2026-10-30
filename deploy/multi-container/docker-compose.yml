@@ -28,7 +28,7 @@ x-qertum-service: &qertum-service
 
 services:
   cache:
-    image: redis:8.6@sha256:2455f3803861d6acdae2de7534bf0248241ac4990c17d500e4a35d9c3be10c94
+    image: redis:8.6@sha256:372207266325710e75866163a505d18ac0362372c8bf02ad5a0cf0b3c8bbc23e
     container_name: qertum-cache
     restart: unless-stopped
     # Regenerable cache (CRL, ACME nonces): no persistence, internal network only, never published.

@@ -10,28 +10,22 @@ public static class JwkConverter
     /// Imports a JWK public key JSON string into an ECDsa or RSA key.
     /// Returns the key as an <see cref="AsymmetricAlgorithm"/> (cast to ECDsa or RSA as needed).
     /// </summary>
-    public static AsymmetricAlgorithm ImportPublicKey(string jwkJson)
+    public static AsymmetricAlgorithm ImportPublicKey(string jwkJson) => Read(jwkJson, root =>
     {
-        EnrollmentPayloadLimits.CheckUtf8(jwkJson, EnrollmentPayloadLimits.JwkBytes);
-        using var doc = JsonDocument.Parse(jwkJson);
-        var root = doc.RootElement;
         var kty = root.GetProperty("kty").GetString()
             ?? throw new ArgumentException("JWK missing 'kty'.");
 
         return kty switch
         {
-            "EC" => ImportEcKey(root),
+            "EC" => (AsymmetricAlgorithm)ImportEcKey(root),
             "RSA" => ImportRsaKey(root),
             _ => throw new NotSupportedException($"Unsupported JWK key type: {kty}")
         };
-    }
+    });
 
     /// <summary>Computes the RFC 7638 JWK thumbprint (SHA-256, base64url) for the given JWK JSON.</summary>
-    public static string ComputeThumbprint(string jwkJson)
+    public static string ComputeThumbprint(string jwkJson) => Read(jwkJson, root =>
     {
-        EnrollmentPayloadLimits.CheckUtf8(jwkJson, EnrollmentPayloadLimits.JwkBytes);
-        using var doc = JsonDocument.Parse(jwkJson);
-        var root = doc.RootElement;
         var kty = root.GetProperty("kty").GetString()
             ?? throw new ArgumentException("JWK missing 'kty'.");
 
@@ -45,6 +39,31 @@ public static class JwkConverter
 
         var hash = SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(canonical));
         return Base64UrlEncode(hash);
+    });
+
+    /// <summary>
+    /// Runs <paramref name="read"/> over the parsed JWK. Every JWK read here came from an ACME client
+    /// (directly, or stored after its first successful read), so a key that cannot be read is the
+    /// client's error: <c>malformed</c>, or <c>badPublicKey</c> for a key type or curve this server
+    /// does not support (RFC 8555 §6.7). Left alone these escaped as a <c>serverInternal</c> 500.
+    /// </summary>
+    private static T Read<T>(string jwkJson, Func<JsonElement, T> read)
+    {
+        EnrollmentPayloadLimits.CheckUtf8(jwkJson, EnrollmentPayloadLimits.JwkBytes);
+        try
+        {
+            using var doc = JsonDocument.Parse(jwkJson);
+            return read(doc.RootElement);
+        }
+        catch (NotSupportedException ex)
+        {
+            throw new AcmeException("badPublicKey", ex.Message);
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException
+                                       or ArgumentException or FormatException or CryptographicException)
+        {
+            throw new AcmeException("malformed", "The JWK is not a readable public key.");
+        }
     }
 
     private static ECDsa ImportEcKey(JsonElement root)

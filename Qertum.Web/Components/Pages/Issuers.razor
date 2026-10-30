@@ -20,6 +20,8 @@
     </Actions>
 </PageHeader>
 
+<Notification Message="@notice" OnDismiss="@(() => notice = null)" />
+
 @if (error is not null)
 {
     <div class="alert alert-danger alert-dismissible" role="alert" data-test="issuer-error">
@@ -65,6 +67,11 @@
     </div>
 }
 
+<label class="form-check list-toggle mb-2">
+    <input class="form-check-input" type="checkbox" data-test="valid-only" checked="@validOnly" @onchange="OnValidOnlyChanged" />
+    <span class="form-check-label">Show only valid certificates</span>
+</label>
+
 @if (loadError is not null)
 {
     <div class="alert alert-danger" role="alert" data-test="load-error">
@@ -74,6 +81,10 @@
 else if (lines is null)
 {
     <LoadingState Text="Loading issuers…" />
+}
+else if (lines.Count == 0 && validOnly)
+{
+    <p class="text-muted" data-test="no-valid-issuers">No issuer has a valid certificate. Untick <em>Show only valid certificates</em> to see revoked, expired, archived and destroyed ones.</p>
 }
 else if (lines.Count == 0)
 {
@@ -106,6 +117,11 @@ else
                             @if (issuer.IsDefault)
                             {
                                 <span class="issuer-badge issuer-badge-default ms-1" data-test="badge-default">Default</span>
+                            }
+                            @if (issuer.RenewalOfIssuerId is not null && issuer.Status == IssuerStatus.PendingCertificate)
+                            {
+                                @* A renewal keeps the name, so the old issuer's name is this one's. *@
+                                <div class="small text-muted" data-test="renewal-of">Renewal of @issuer.Name, waiting for its certificate</div>
                             }
                         </td>
                         <td>
@@ -146,6 +162,12 @@ else
                             {
                                 <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
                             }
+                            @if (issuer.Kind == IssuerKind.Intermediate && issuer.KeyCustody == IssuerKeyCustody.Online &&
+                                 (issuer.Status == IssuerStatus.Active || issuer.RevokedAtUtc is not null) &&
+                                 !issuers.Any(r => r.RenewalOfIssuerId == issuer.Id))
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-renew" @onclick='() => Ask("renew", issuer)'>Renew</button>
+                            }
                             @if (issuer.Status == IssuerStatus.Retired)
                             {
                                 <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-archive" @onclick='() => Ask("archive", issuer)'>Archive</button>
@@ -178,13 +200,31 @@ else
     private byte[]? crlBytes;
     private string? pfxPassword;
 
-    protected override Task OnInitializedAsync() => LoadAsync();
+    // On by default: revoked, expired, archived and destroyed CAs (and CAs below a revoked or expired one) are left out.
+    // valid=0 in the URL turns it off (the revoked-CA banner links there, since a revoked issuer is not "valid").
+    private bool validOnly = true;
+    private string? notice;
+
+    [SupplyParameterFromQuery(Name = "valid")]
+    public string? ValidParameter { get; set; }
+
+    protected override Task OnInitializedAsync()
+    {
+        validOnly = ValidParameter != "0";
+        return LoadAsync();
+    }
+
+    private Task OnValidOnlyChanged(ChangeEventArgs e)
+    {
+        validOnly = e.Value is true;
+        return LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
         try
         {
-            issuers = await Api.GetIssuersAsync();
+            issuers = await Api.GetIssuersAsync(validOnly);
             lines = IssuerTree.Build(issuers);
             loadError = null;
         }
@@ -246,11 +286,18 @@ else
         if (pending is not { } action) return;
         busy = true;
         error = null;
+        IssuerId? awaitingSignature = null;
         try
         {
             var id = action.Issuer.Id;
             switch (action.Action)
             {
+                case "renew":
+                    // Signed at once: nothing more to do. Otherwise continue in the ceremony on the pending replacement.
+                    var renewed = await Api.RenewIssuerAsync(id);
+                    if (renewed.RequestFile is not null) awaitingSignature = renewed.Issuer.Id;
+                    else notice = RenewedNotice(renewed.Issuer);
+                    break;
                 case "make-default": await Api.MakeIssuerDefaultAsync(id); break;
                 case "retire": await Api.RetireIssuerAsync(id); break;
                 case "archive": await Api.ArchiveIssuerAsync(id); break;
@@ -267,6 +314,7 @@ else
             pending = null;
             crlBytes = null;
             await LoadAsync();
+            if (awaitingSignature is { } replacement) OpenCeremony(replacement);
         }
         catch (ApiProblemException ex)
         {
@@ -280,8 +328,19 @@ else
         }
     }
 
+    // Says when the parent's expiry capped the validity, since the old length was asked for.
+    private string RenewedNotice(IssuerResponse replacement)
+    {
+        var parent = issuers.FirstOrDefault(i => i.Id == replacement.ParentIssuerId);
+        var capped = parent?.ValidTo is { } parentEnd && replacement.ValidTo is { } end && end >= parentEnd.AddMinutes(-1);
+        return $"Renewed \"{replacement.Name}\" with a new key, valid to {replacement.ValidTo:yyyy-MM-dd}"
+            + (capped ? $", which is as far as its parent \"{parent!.Name}\" is valid." : ".");
+    }
+
     private static string ConfirmText(string action, IssuerResponse issuer) => action switch
     {
+        "renew" when issuer.RevokedAtUtc is not null => $"Renew the revoked \"{issuer.Name}\"? A new key under the same name takes its place, including the default seat and template pins. CAs below it are not revived; renew them afterwards.",
+        "renew" => $"Renew \"{issuer.Name}\" with a new key under the same name? It keeps issuing until the replacement is active, then retires and keeps answering CRL and OCSP. Relying parties need the new chain.",
         "make-default" => $"Make \"{issuer.Name}\" the default issuer? New certificates from templates without a pinned issuer will be signed by it; the current default stays active.",
         "retire" => $"Retire \"{issuer.Name}\"? It signs nothing new but keeps publishing its CRL and answering OCSP. Templates pinned to it will refuse issuance.",
         "archive" => $"Archive \"{issuer.Name}\"? Its key is deleted; only allowed once nothing it signed is still valid.",
@@ -294,6 +353,7 @@ else
 
     private static string ConfirmLabel(string action) => action switch
     {
+        "renew" => "Renew",
         "make-default" => "Make default",
         "retire" => "Retire",
         "archive" => "Archive and delete key",

@@ -43,11 +43,12 @@ EXPOSE 8080 8081 8082 8083 8084
 # OCI image metadata. VERSION is passed by the publisher (`--build-arg VERSION=<tag>`).
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Qertum services" \
-      org.opencontainers.image.description="Self-hosted certificate authority with post-quantum support (one image per service)." \
+      org.opencontainers.image.description="Qertum, a self-hosted certificate authority with post-quantum support (ML-DSA, SLH-DSA, ML-KEM and composite certificates). One image for the multi-container layout, EST included: the SERVICE variable selects identityservice, apiservice, webfrontend, acmeservice, estservice or queueconsumer. Documentation: https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.source="https://github.com/Qertum/qertum" \
       org.opencontainers.image.url="https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.documentation="https://github.com/Qertum/qertum/wiki" \
       org.opencontainers.image.vendor="Qertum" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \

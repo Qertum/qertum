@@ -68,13 +68,13 @@ public static class EstEndpointMappings
             IDiagnosticEventLog diagnostics,
             CancellationToken ct) =>
         {
-            if (ctx.Request.ContentLength > EnrollmentPayloadLimits.EstBodyBytes)
-                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
             // RFC 7030 §3.3.1 mandates HTTP Basic run only over TLS: it is trivially replayable
             // over plaintext. Only an operator who has decided TLS is terminated in front of this
             // service (a trusted reverse proxy) may opt out, same shape as other "may be behind a
             // proxy" toggles in this repo.
-            if (estOptions.Value.RequireHttps && !ctx.Request.IsHttps)
+            // The TLS handshake of this very connection, not the request's scheme: EstService terminates TLS itself
+            // and never trusts forwarded headers.
+            if (estOptions.Value.RequireHttps && ctx.Features.Get<Microsoft.AspNetCore.Http.Features.ITlsConnectionFeature>() is null)
                 return Unauthorized(ctx);
 
             var (authError, credentialId) = await TryAuthenticateBasicAsync(ctx, credentials, ct);
@@ -540,7 +540,7 @@ public static class EstEndpointMappings
         {
             ctx.RequestServices.GetRequiredService<IDiagnosticEventLog>().Record(
                 LifecycleSubjectTypes.EstCredential, credentialId, DiagnosticActions.AuthRefused, $"est:{credentialId}",
-                check.Outcome == EstCredentialOutcome.Disabled ? DiagnosticCategories.Disabled : DiagnosticCategories.WrongPassword,
+                check.Outcome == EstCredentialOutcome.Disabled ? DiagnosticCategories.Disabled : DiagnosticCategories.WrongSecret,
                 check.Outcome == EstCredentialOutcome.Disabled
                     ? "Authentication refused: the credential is disabled."
                     : "Authentication refused: wrong password.");

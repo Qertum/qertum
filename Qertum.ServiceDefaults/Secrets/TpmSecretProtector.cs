@@ -166,15 +166,14 @@ public sealed class TpmSecretProtector : ISecretProtector
     {
         try
         {
-            using var process = new Process
+            // One argv entry per argument: a joined string would split a temp path containing a space.
+            var startInfo = new ProcessStartInfo(tool, args)
             {
-                StartInfo = new ProcessStartInfo(tool, string.Join(' ', args))
-                {
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false
-                }
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false
             };
+            using var process = new Process { StartInfo = startInfo };
             process.Start();
             var stderr = process.StandardError.ReadToEnd();
             process.WaitForExit();

@@ -120,19 +120,20 @@ public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProv
     /// applied by the server, so the caller never filters a fetched page itself.
     /// </summary>
     public async Task<PagedResult<CertificateRequest>> GetIssuedCertificatesAsync(int page = 1, int pageSize = 100,
-        IssuedCertificateFilter? filter = null, string? search = null, CancellationToken cancellationToken = default)
+        IssuedCertificateFilter? filter = null, string? search = null, bool validOnly = false, CancellationToken cancellationToken = default)
     {
         var url = $"v1/certificate-requests/issued?page={page}&pageSize={pageSize}"
                 + (filter is { } f ? $"&filter={f}" : string.Empty)
-                + SearchQuery(search);
+                + SearchQuery(search)
+                + (validOnly ? "&validOnly=true" : string.Empty);
         return await GetJsonAsync<PagedResult<CertificateRequest>>(url, cancellationToken)
             ?? new PagedResult<CertificateRequest>();
     }
 
     /// <summary>Certificate counts per validity bucket, for the certificates list's filter chips.</summary>
-    public async Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, CancellationToken cancellationToken = default)
+    public async Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, bool validOnly = false, CancellationToken cancellationToken = default)
     {
-        var url = $"v1/certificate-requests/issued/validity-counts?{SearchQuery(search).TrimStart('&')}";
+        var url = $"v1/certificate-requests/issued/validity-counts?{(SearchQuery(search) + (validOnly ? "&validOnly=true" : string.Empty)).TrimStart('&')}";
         return await GetJsonAsync<IssuedCertificateCounts>(url, cancellationToken)
             ?? new IssuedCertificateCounts();
     }
@@ -811,8 +812,9 @@ public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProv
         return await response.Content.ReadAsByteArrayAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<IssuerResponse>> GetIssuersAsync(CancellationToken cancellationToken = default) =>
-        await GetJsonAsync<List<IssuerResponse>>("v1/issuers", cancellationToken) ?? [];
+    /// <summary>Every issuer, or with <paramref name="validOnly"/> only those whose certificate chain can still be used.</summary>
+    public async Task<IReadOnlyList<IssuerResponse>> GetIssuersAsync(bool validOnly = false, CancellationToken cancellationToken = default) =>
+        await GetJsonAsync<List<IssuerResponse>>(validOnly ? "v1/issuers?validOnly=true" : "v1/issuers", cancellationToken) ?? [];
 
     public Task<IssuerResponse?> GetIssuerAsync(IssuerId id, CancellationToken cancellationToken = default) =>
         GetJsonAsync<IssuerResponse>($"v1/issuers/{id}", cancellationToken);
@@ -837,6 +839,17 @@ public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProv
 
     public Task<byte[]> DownloadTrustBundleAsync(string format = "pem", CancellationToken cancellationToken = default) =>
         GetBytesAsync($"v1/issuers/trust-bundle?format={format}", cancellationToken);
+
+    /// <summary>
+    /// Renews an intermediate with a new key under the same name. <c>RequestFile</c> is null when it was signed at
+    /// once (the replacement is already active); otherwise the replacement waits for the parent's signature.
+    /// </summary>
+    public async Task<CreateIntermediateResponse> RenewIssuerAsync(IssuerId id, int? validityDays = null, CancellationToken cancellationToken = default)
+    {
+        var response = await httpClient.PostAsJsonAsync($"v1/issuers/{id}/renew", new RenewIssuerRequest(validityDays), cancellationToken);
+        await response.EnsureSuccessOrThrowAsync(cancellationToken);
+        return (await response.Content.ReadFromJsonAsync<CreateIntermediateResponse>(cancellationToken))!;
+    }
 
     public async Task<CreateIntermediateResponse> CreateIntermediateAsync(CreateIntermediateRequest request, CancellationToken cancellationToken = default)
     {

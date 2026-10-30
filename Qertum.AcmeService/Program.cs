@@ -26,6 +26,8 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 
+app.UseQertumSecurityHeaders();
+
 app.UseRouting();
 app.UseRateLimiter();
 

@@ -64,6 +64,8 @@ builder.Services.AddAuthentication(options =>
         options.ClientId = "qertum-web";
         options.ResponseType = OpenIdConnectResponseType.Code;
         options.UsePkce = true;
+        // No x-client-SKU / x-client-ver on the authorize redirect: the library version is nobody else's business.
+        options.DisableTelemetry = true;
         options.SaveTokens = true;
         options.GetClaimsFromUserInfoEndpoint = true;
         options.Scope.Clear();
@@ -111,6 +113,12 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddOutputCache();
 
 var app = builder.Build();
+
+Qertum.ServiceDefaults.InsecureTransport.WarnIfPlainHttp(
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Qertum.Transport"),
+    app.Environment, "Web", identityServiceUrl);
+
+app.UseQertumSecurityHeaders(SecurityHeaders.WebPolicy(identityServiceUrl));
 
 if (!app.Environment.IsDevelopment())
 {

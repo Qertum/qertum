@@ -59,7 +59,7 @@ internal static class ApprovalCommands
     {
         var operationArg = new Argument<string>("operation")
         {
-            Description = "What you want to do: key-export, pfx-export, issuer-create-intermediate, issuer-install-certificate, issuer-upload-crl, issuer-make-default, issuer-retire, issuer-archive, issuer-delete, issuer-key-export, issuer-pfx-export, bulk-revoke or policy-publish."
+            Description = "What you want to do: key-export, pfx-export, issuer-create-intermediate, issuer-renew, issuer-install-certificate, issuer-upload-crl, issuer-make-default, issuer-retire, issuer-archive, issuer-delete, issuer-key-export, issuer-pfx-export, bulk-revoke or policy-publish."
         };
         var targetOption = new Option<string?>("--target")
         {

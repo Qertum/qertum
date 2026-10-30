@@ -60,6 +60,10 @@ builder.Services.AddApiRateLimiting();
 
 var app = builder.Build();
 
+Qertum.ServiceDefaults.InsecureTransport.WarnIfPlainHttp(
+    app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Qertum.Transport"),
+    app.Environment, "ApiService", identityOptions.Authority);
+
 // Validate the enrollment display URLs now, so a misconfigured value is logged at startup
 // rather than on the first wizard load.
 app.Services.GetRequiredService<Qertum.Services.Enrollment.EnrollmentDisplayUrls>();
@@ -122,10 +126,12 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+app.UseQertumSecurityHeaders();
+
 // Configure the HTTP request pipeline.
 // Errors the framework writes itself (an unmatched route, an authentication challenge, a forbidden
 // response) get a problem-details body too, so every error the API returns has one shape.
-// First, so even a 401, a 429 or an unhandled 500 names the request. Set when the response starts: the
+// Before every other middleware but the security headers, so even a 401, a 429 or an unhandled 500 names the request. Set when the response starts: the
 // exception handler clears headers before it writes its body, and a callback registered here survives that.
 app.Use(async (context, next) =>
 {

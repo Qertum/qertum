@@ -69,11 +69,7 @@ public sealed class IssuerRevocationService(
     private async Task<Issuer?> FindIssuerOfAsync(CertificateRequest revoked, CancellationToken ct)
     {
         if (revoked.Type == WellKnownCertificateTypes.RootCa)
-        {
-            return revoked.IssuerId is { } id
-                ? await db.Issuers.FirstOrDefaultAsync(i => i.Id == id, ct)
-                : await db.Issuers.FirstOrDefaultAsync(i => i.LegacyFiles, ct);
-        }
+            return await IssuerQueries.RootIssuerOfAsync(db, revoked, ct);
 
         if (string.IsNullOrEmpty(revoked.SerialNumber)) return null;
         var parentId = revoked.IssuerId ?? (await db.Issuers.AsNoTracking().FirstOrDefaultAsync(i => i.LegacyFiles, ct))?.Id;

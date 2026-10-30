@@ -58,8 +58,9 @@ public sealed class AcmeChallengeVerifier(
 
             if (logger.IsEnabled(LogLevel.Debug))
             {
-                logger.LogDebug("http-01 key-auth mismatch for {Domain}. Expected: {Expected}, Got: {Actual}",
-                    domain, expected, actual);
+                // Lengths only: the key authorization carries the account key thumbprint.
+                logger.LogDebug("http-01 key-auth mismatch for {Domain}: expected {ExpectedLength} characters, got {ActualLength}",
+                    domain, expected.Length, actual.Length);
             }
             return AcmeVerificationResult.Failed(AcmeChallengeFailure.KeyAuthorizationMismatch, $"Key authorization mismatch for domain '{domain}'.");
         }

@@ -14,6 +14,7 @@ public static class StepUpRoutes
         ("POST", "/v1/ca/generate"),
         ("POST", "/v1/ca/import"),
         ("POST", "/v1/issuers/intermediates"),
+        ("POST", "/v1/issuers/{id:guid}/renew"),
         ("POST", "/v1/issuers/{id:guid}/certificate"),
         ("POST", "/v1/issuers/{id:guid}/crl"),
         ("POST", "/v1/issuers/{id:guid}/make-default"),

@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
+using Qertum.Services.Auth;
 
 namespace Qertum.ApiService;
 
@@ -36,16 +37,26 @@ public static class ApiRateLimiting
         services.AddOptions<RateLimiterOptions>().Configure<IOptions<ApiRateLimitOptions>>((options, api) =>
         {
             var limits = api.Value;
-            options.AddSlidingWindowLimiter(PolicyName, limiter =>
-            {
-                limiter.PermitLimit = limits.PermitLimit;
-                limiter.Window = TimeSpan.FromSeconds(limits.WindowSeconds);
-                limiter.SegmentsPerWindow = 6;
-                limiter.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-                limiter.QueueLimit = limits.QueueLimit;
-            });
+            // One window per caller, as documented: a single shared window let one client, whatever its
+            // permissions, refuse the API to everyone else. The limiter runs after authentication, so the
+            // token's subject is known; a request without one falls back to the client address.
+            options.AddPolicy(PolicyName, context => RateLimitPartition.GetSlidingWindowLimiter(
+                PartitionKey(context),
+                _ => new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = limits.PermitLimit,
+                    Window = TimeSpan.FromSeconds(limits.WindowSeconds),
+                    SegmentsPerWindow = 6,
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                    QueueLimit = limits.QueueLimit
+                }));
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
         });
         return services;
     }
+
+    private static string PartitionKey(HttpContext context) =>
+        context.RequestServices.GetService<IIdentityClaimsMapper>()?.GetSubject(context.User) is { Length: > 0 } subject
+            ? "sub:" + subject
+            : "ip:" + context.Connection.RemoteIpAddress;
 }

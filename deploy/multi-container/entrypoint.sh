@@ -57,6 +57,18 @@ API_PORT="${API_PORT:-8082}"
 ACME_PORT="${ACME_PORT:-8083}"
 EST_PORT="${EST_PORT:-8084}"
 
+# Browsers and API clients reach web, identity and API over QERTUM_SCHEME. Plain http sends sign-in, access tokens and
+# the administrator password unencrypted; say so on every start of a service that carries them.
+if [ "${QERTUM_SCHEME}" = "http" ]; then
+  case "${SERVICE:-}" in
+    webfrontend|identityservice|apiservice)
+      echo "WARNING: QERTUM_SCHEME is http: sign-in, access tokens and the admin password cross the network" >&2
+      echo "         unencrypted. Use it only on a trusted network; otherwise put a TLS-terminating proxy in front" >&2
+      echo "         and set QERTUM_SCHEME=https." >&2
+      ;;
+  esac
+fi
+
 # Every spelling of "this container" (localhost in any case, 127.x.x.x, ::1, 0.0.0.0) is a name that
 # only works from outside: inside a container it is the container itself.
 host_lc="$(printf '%s' "${QERTUM_HOST}" | tr '[:upper:]' '[:lower:]')"
@@ -74,6 +86,10 @@ case "${host_lc}" in
     echo "         or browser login and ACME/EST will fail." >&2
     ;;
 esac
+if [ "${SERVICE:-}" = "webfrontend" ]; then
+  echo "NOTE: open Qertum at ${QERTUM_SCHEME}://${QERTUM_HOST}:${WEB_PORT} exactly. Sign-in accepts only this" >&2
+  echo "      address; localhost, 127.0.0.1 or another name or IP fails with ID2043 (redirect_uri not valid)." >&2
+fi
 
 # Seeds the qertum-api client in the identity service; stable across restarts.
 SECRET_FILE="${DATA_DIR}/.api-introspection-secret"
@@ -140,6 +156,19 @@ if [ "${SERVICE}" = "estservice" ]; then
   export Kestrel__Certificates__Default__Path="/run/est/tls.crt"
   export Kestrel__Certificates__Default__KeyPath="/run/est/tls.key"
 fi
+
+# Behind the TLS proxy that QERTUM_SCHEME=https stands for, web, identity and API see the proxy's plain-http
+# hop and must take the client's scheme and address from X-Forwarded-Proto/-For: without it the identity
+# service refuses every request ("This server only accepts HTTPS requests") and builds http URLs. This trusts
+# the headers from whoever connects, which is the proxy alone only while their ports are not published to
+# anyone else (README). ACME and EST never sit behind a proxy, so they never trust the headers.
+case "${SERVICE}" in
+  webfrontend|identityservice|apiservice)
+    if [ "${QERTUM_SCHEME}" = "https" ]; then
+      export ASPNETCORE_FORWARDEDHEADERS_ENABLED="${ASPNETCORE_FORWARDEDHEADERS_ENABLED:-true}"
+    fi ;;
+  *) unset ASPNETCORE_FORWARDEDHEADERS_ENABLED ;;
+esac
 
 echo "Qertum ${SERVICE} starting (data ${DATA_DIR}, host ${QERTUM_HOST})"
 cd "/app/${SERVICE}"

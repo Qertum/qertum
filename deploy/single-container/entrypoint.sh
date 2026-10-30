@@ -88,10 +88,30 @@ IDENTITY_PORT="${IDENTITY_PORT:-8081}"
 API_PORT="${API_PORT:-8082}"
 ACME_PORT="${ACME_PORT:-8083}"
 
+# The scheme browsers use for web, identity and API. "https" is for a TLS-terminating proxy in front of those three
+# ports (README, "TLS / exposing beyond the LAN"). ACME is deliberately not covered: it must not sit behind such a proxy,
+# so its URLs stay plain http.
+QERTUM_PUBLIC_SCHEME="${QERTUM_PUBLIC_SCHEME:-http}"
+case "${QERTUM_PUBLIC_SCHEME}" in
+  http|https) ;;
+  *)
+    echo "ERROR: QERTUM_PUBLIC_SCHEME must be http or https, not '${QERTUM_PUBLIC_SCHEME}'." >&2
+    exit 64
+    ;;
+esac
+
+if [ "${QERTUM_PUBLIC_SCHEME}" = "http" ]; then
+  echo "WARNING: QERTUM_PUBLIC_SCHEME is http: sign-in, access tokens and the admin password cross the network" >&2
+  echo "         unencrypted. Use it only on a trusted network; otherwise put a TLS-terminating proxy in front and set" >&2
+  echo "         QERTUM_PUBLIC_SCHEME=https." >&2
+fi
+
 if [ "${QERTUM_HOST}" = "localhost" ]; then
   echo "WARNING: QERTUM_HOST is 'localhost'. Set it to the Unraid host IP/hostname" >&2
   echo "         (e.g. -e QERTUM_HOST=192.168.1.50) or browser login and ACME will fail." >&2
 fi
+echo "NOTE: open Qertum at ${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${WEB_PORT} exactly. Sign-in accepts only this" >&2
+echo "      address; localhost, 127.0.0.1 or another name or IP fails with ID2043 (redirect_uri not valid)." >&2
 
 # ---------------------------------------------------------------------------
 # IdentityService's client-seeding secret (used only to seed/verify OpenIddict
@@ -135,7 +155,7 @@ export IdentityService__DataPath="${IDENTITY_DATA_DIR}"
 export ConnectionStrings__Identity="Data Source=${IDENTITY_DATA_DIR}/identity.db"
 
 # OIDC authority for Web's login flow — must be browser-reachable.
-export IdentityService__Authority="http://${QERTUM_HOST}:${IDENTITY_PORT}"
+export IdentityService__Authority="${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${IDENTITY_PORT}"
 
 # Fed into ClientSeedHostedService so it seeds a stable qertum-api client secret
 # in clients.json across restarts/redeploys (see the SECRET_FILE block above).
@@ -147,10 +167,15 @@ export IdentityService__SeedAdminPassword="${IdentityService__SeedAdminPassword:
 
 # ApiService validates bearer tokens as standard OIDC JWTs against the issuer above —
 # it needs no client secret of its own. Identity:Authority must be browser/worker-reachable
-# (same host:port as IdentityService__Authority) and, since this deployment is plain HTTP
-# by design, RequireHttpsMetadata must be turned off to match.
-export Identity__Authority="http://${QERTUM_HOST}:${IDENTITY_PORT}"
-export Identity__RequireHttpsMetadata="${Identity__RequireHttpsMetadata:-false}"
+# (same host:port as IdentityService__Authority) and, while this deployment is plain HTTP
+# (the default), RequireHttpsMetadata must be off to match. With QERTUM_PUBLIC_SCHEME=https it is on.
+if [ "${QERTUM_PUBLIC_SCHEME}" = "https" ]; then
+  secure_default=true; insecure_default=false
+else
+  secure_default=false; insecure_default=true
+fi
+export Identity__Authority="${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${IDENTITY_PORT}"
+export Identity__RequireHttpsMetadata="${Identity__RequireHttpsMetadata:-${secure_default}}"
 
 # Web -> API is server-side only (Blazor Server circuit), so it can stay on localhost.
 export ApiService__BaseUrl="http://localhost:${API_PORT}"
@@ -159,7 +184,7 @@ export ApiService__BaseUrl="http://localhost:${API_PORT}"
 export Acme__BaseUrl="http://${QERTUM_HOST}:${ACME_PORT}"
 
 # Display only: the URL the Web UI prints in its automation snippets for pipelines.
-export Automation__ApiUrl="http://${QERTUM_HOST}:${API_PORT}"
+export Automation__ApiUrl="${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${API_PORT}"
 
 # The enrollment wizard offers ACME, with its client setup examples, only when it
 # knows the directory URL. EST is not in this image, so no EST URL.
@@ -167,22 +192,31 @@ export Enrollment__AcmeDirectoryUrl="http://${QERTUM_HOST}:${ACME_PORT}/acme/dir
 
 # Drives ClientSeedHostedService to register the web app's redirect URIs
 # (<base>/signin-oidc, <base>/signout-callback-oidc) without editing clients.json.
-export Services__webfrontend__http__0="http://${QERTUM_HOST}:${WEB_PORT}"
+export "Services__webfrontend__${QERTUM_PUBLIC_SCHEME}__0=${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${WEB_PORT}"
 
 # ClientSeedHostedService only reads Services__webfrontend__* when this is on
 # (default: Development only). This deployment runs Production but injects the
 # variable deliberately, so opt in explicitly.
 export IdentityService__EnableServiceDiscoveryRedirectUris="${IdentityService__EnableServiceDiscoveryRedirectUris:-true}"
 
-# Allow plain-HTTP transport for the OIDC server and client metadata (LAN / TLS
-# terminated elsewhere). Opt-in flags added to the app; default behavior unchanged.
-export IdentityService__DisableTransportSecurity="${IdentityService__DisableTransportSecurity:-true}"
-export OpenIdConnect__RequireHttpsMetadata="${OpenIdConnect__RequireHttpsMetadata:-false}"
+# Plain-HTTP transport for the OIDC server and client metadata (the LAN default). With
+# QERTUM_PUBLIC_SCHEME=https the secure values are the defaults; either can still be set explicitly.
+export IdentityService__DisableTransportSecurity="${IdentityService__DisableTransportSecurity:-${insecure_default}}"
+export OpenIdConnect__RequireHttpsMetadata="${OpenIdConnect__RequireHttpsMetadata:-${secure_default}}"
+
+# Behind the TLS proxy that QERTUM_PUBLIC_SCHEME=https stands for, web, identity and API see the proxy's
+# plain-http hop and must take the client's scheme and address from X-Forwarded-Proto/-For: without it the
+# identity service refuses every request ("This server only accepts HTTPS requests") and builds http URLs.
+# This trusts the headers from whoever connects, which is the proxy alone only while 8080-8082 are not
+# published (README). ACME never sits behind a proxy, so its service unsets it (service/acmeservice/run).
+if [ "${QERTUM_PUBLIC_SCHEME}" = "https" ]; then
+  export ASPNETCORE_FORWARDEDHEADERS_ENABLED="${ASPNETCORE_FORWARDEDHEADERS_ENABLED:-true}"
+fi
 
 echo "Qertum single-container starting:"
-echo "  Web      http://${QERTUM_HOST}:${WEB_PORT}"
-echo "  Identity http://${QERTUM_HOST}:${IDENTITY_PORT}"
-echo "  API      http://${QERTUM_HOST}:${API_PORT}"
+echo "  Web      ${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${WEB_PORT}"
+echo "  Identity ${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${IDENTITY_PORT}"
+echo "  API      ${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${API_PORT}"
 echo "  ACME     http://${QERTUM_HOST}:${ACME_PORT}/acme/directory"
 echo "  Data     ${DATA_DIR}"
 

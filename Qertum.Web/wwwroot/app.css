@@ -26,9 +26,8 @@ h3,
 .display-type {
     font-family: var(--font-display);
     font-optical-sizing: auto;
-    font-variation-settings: 'opsz' 72, 'SOFT' 50, 'WONK' 0;
     letter-spacing: -0.025em;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 /* Monospace utility — for serials, fingerprints, identifiers */
@@ -50,28 +49,27 @@ a,
 
 a:hover,
 .btn-link:hover {
-    color: #60a5fa;
+    color: rgb(var(--primary-light));
 }
 
 .btn-primary {
-    color: #fff;
+    color: rgb(var(--on-primary));
     background: rgb(var(--primary));
     border: none;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     font-weight: 500;
     font-family: var(--font-sans);
     letter-spacing: -0.005em;
     padding: 0.55rem 1.35rem;
     transition: all var(--transition-normal);
-    box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    box-shadow: none;
+    font-weight: 600;
     position: relative;
     overflow: hidden;
 }
 
 .btn-primary:hover {
-    background: rgb(var(--primary-dark));
-    transform: translateY(-1px);
-    box-shadow: 0 0 20px rgba(var(--primary), 0.25);
+    background: rgb(var(--primary-light));
 }
 
 .btn-primary:active {
@@ -186,7 +184,7 @@ h1:focus {
     background: rgb(var(--primary));
     box-shadow:
         0 0 22px rgba(var(--primary), 0.35),
-        inset 0 1px 0 rgba(255, 255, 255, 0.28),
+        inset 0 1px 0 rgba(var(--paper), 0.28),
         inset 0 -1px 0 rgba(0, 0, 0, 0.15);
     flex-shrink: 0;
     position: relative;
@@ -297,7 +295,7 @@ h1:focus {
 
 /* --- Top Row --- */
 .top-row {
-    background: rgba(10, 12, 18, 0.55) !important;
+    background: rgba(var(--ink), 0.7) !important;
     border-bottom: 1px solid var(--border-color);
 }
 
@@ -387,12 +385,12 @@ h1:focus {
     height: 24px;
     border-radius: 7px;
     background: var(--accent-blue);
-    color: #fff;
+    color: rgb(var(--on-primary));
     font-size: 0.65rem;
     font-weight: 700;
     letter-spacing: 0.02em;
     margin-right: 0.5rem;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 12px rgba(59, 130, 246, 0.25);
+    box-shadow: 0 0 0 1px rgba(var(--paper), 0.08), 0 0 12px rgba(var(--primary), 0.25);
 }
 
 /* --- Page Background --- */
@@ -480,12 +478,12 @@ main {
     0%,
     100% {
         opacity: 1;
-        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+        box-shadow: 0 0 0 0 rgba(var(--success), 0.4);
     }
 
     50% {
         opacity: 0.7;
-        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+        box-shadow: 0 0 0 6px rgba(var(--success), 0);
     }
 }
 
@@ -549,7 +547,7 @@ main {
 }
 
 .stat-card.purple:hover {
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+    box-shadow: 0 0 20px rgba(var(--info), 0.15);
 }
 
 .stat-card.amber::before {
@@ -581,7 +579,7 @@ main {
 }
 
 .stat-card.cyan:hover {
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.15);
+    box-shadow: 0 0 20px rgba(var(--info), 0.15);
 }
 
 /* Card internals */
@@ -603,7 +601,7 @@ main {
 .stat-card-icon {
     width: 36px;
     height: 36px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -700,7 +698,7 @@ main {
     height: 10px;
     border-radius: 5px;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(var(--paper), 0.05);
     display: flex;
     margin-bottom: 1rem;
 }
@@ -763,7 +761,7 @@ main {
 /* --- Recent Activity Table --- */
 .recent-table-section {
     background: var(--bg-card);
-    border: none;
+    border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 1.5rem;
     -webkit-backdrop-filter: var(--glass-blur);
@@ -802,8 +800,9 @@ main {
 }
 
 .table-dashboard thead th {
-    font-size: 0.7rem;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-muted);
@@ -843,11 +842,13 @@ main {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.25rem 0.65rem;
-    border-radius: 100px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    padding: 0.2rem 0.55rem;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     white-space: nowrap;
 }
 
@@ -858,7 +859,7 @@ main {
 }
 
 .status-badge.pending {
-    background: rgba(245, 158, 11, 0.12);
+    background: rgba(var(--warning), 0.12);
     color: var(--accent-amber);
 }
 
@@ -867,7 +868,7 @@ main {
 }
 
 .status-badge.approved {
-    background: rgba(59, 130, 246, 0.12);
+    background: rgba(var(--primary), 0.12);
     color: var(--accent-blue);
 }
 
@@ -876,7 +877,7 @@ main {
 }
 
 .status-badge.rejected {
-    background: rgba(239, 68, 68, 0.12);
+    background: rgba(var(--error), 0.12);
     color: var(--accent-rose);
 }
 
@@ -885,7 +886,7 @@ main {
 }
 
 .status-badge.issued {
-    background: rgba(16, 185, 129, 0.12);
+    background: rgba(var(--success), 0.12);
     color: var(--accent-emerald);
 }
 
@@ -899,23 +900,23 @@ main {
     align-items: center;
     gap: 0.3rem;
     padding: 0.2rem 0.55rem;
-    border-radius: 100px;
+    border-radius: var(--radius-sm);
     font-size: 0.7rem;
     font-weight: 500;
 }
 
 .validity-badge.valid {
-    background: rgba(16, 185, 129, 0.1);
+    background: rgba(var(--success), 0.1);
     color: var(--accent-emerald);
 }
 
 .validity-badge.expiring-soon {
-    background: rgba(245, 158, 11, 0.1);
+    background: rgba(var(--warning), 0.1);
     color: var(--accent-amber);
 }
 
 .validity-badge.expired {
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba(var(--error), 0.1);
     color: var(--accent-rose);
 }
 
@@ -965,14 +966,14 @@ main {
     width: 68px;
     height: 68px;
     margin: 0 auto 1.1rem;
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
     display: grid;
     place-items: center;
     font-size: 1.75rem;
     color: var(--text-secondary);
     background: var(--bg-glass);
     border: none;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 1px 0 rgba(var(--paper), 0.04);
 }
 
 .empty-state-icon .bi {
@@ -1013,30 +1014,30 @@ main {
 
 /* --- Alert Override for Dark Theme --- */
 .alert-danger {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
+    background: rgba(var(--error), 0.1);
+    border: 1px solid rgba(var(--error), 0.2);
+    color: rgb(var(--error-light));
     border-radius: var(--border-radius);
 }
 
 .alert-info {
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.2);
-    color: #93c5fd;
+    background: rgba(var(--primary), 0.1);
+    border: 1px solid rgba(var(--primary), 0.2);
+    color: rgb(var(--primary-light));
     border-radius: var(--border-radius);
 }
 
 .alert-success {
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.22);
-    color: #6ee7b7;
+    background: rgba(var(--success), 0.1);
+    border: 1px solid rgba(var(--success), 0.22);
+    color: rgb(var(--success-light));
     border-radius: var(--border-radius);
 }
 
 .alert-warning {
-    background: rgba(245, 158, 11, 0.1);
-    border: 1px solid rgba(245, 158, 11, 0.22);
-    color: #fcd34d;
+    background: rgba(var(--warning), 0.1);
+    border: 1px solid rgba(var(--warning), 0.22);
+    color: rgb(var(--warning-light));
     border-radius: var(--border-radius);
 }
 
@@ -1052,7 +1053,7 @@ main {
 }
 
 .eab-issued-header {
-    color: #6ee7b7;
+    color: rgb(var(--success-light));
     margin-bottom: 0.5rem;
 }
 
@@ -1102,9 +1103,9 @@ main {
        `color` here left every cell painted white regardless of the page's dark theme. */
     --bs-table-bg: transparent;
     --bs-table-color: var(--text-primary);
-    --bs-table-striped-bg: rgba(255, 255, 255, 0.02);
+    --bs-table-striped-bg: rgba(var(--paper), 0.02);
     --bs-table-striped-color: var(--text-primary);
-    --bs-table-hover-bg: rgba(255, 255, 255, 0.04);
+    --bs-table-hover-bg: rgba(var(--paper), 0.04);
     --bs-table-hover-color: var(--text-primary);
     --bs-table-border-color: var(--border-color);
     color: var(--text-primary);
@@ -1216,7 +1217,7 @@ main {
 /* --- Detail Card --- */
 .detail-card {
     background: var(--bg-card);
-    border: none;
+    border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 1.5rem;
     -webkit-backdrop-filter: var(--glass-blur);
@@ -1299,7 +1300,7 @@ main {
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
     font-size: 0.8rem;
     color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(var(--paper), 0.03);
     padding: 0.3rem 0.5rem;
     border-radius: 6px;
     border: 1px solid var(--border-color);
@@ -1324,11 +1325,11 @@ main {
 }
 
 .clickable-row:hover {
-    background: rgba(59, 130, 246, 0.06) !important;
+    background: rgba(var(--primary), 0.06) !important;
 }
 
 .clickable-row:active {
-    background: rgba(59, 130, 246, 0.1) !important;
+    background: rgba(var(--primary), 0.1) !important;
 }
 
 /* --- Certificate Row Icon --- */
@@ -1346,7 +1347,7 @@ main {
 .validity-progress-bar {
     height: 6px;
     border-radius: 3px;
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(var(--paper), 0.06);
     overflow: hidden;
     margin-bottom: 0.4rem;
 }
@@ -1393,18 +1394,18 @@ main {
 }
 
 .cert-hero-valid {
-    background: rgba(16, 185, 129, 0.06);
-    border-color: rgba(16, 185, 129, 0.15);
+    background: rgba(var(--success), 0.06);
+    border-color: rgba(var(--success), 0.15);
 }
 
 .cert-hero-expiring {
-    background: rgba(245, 158, 11, 0.06);
-    border-color: rgba(245, 158, 11, 0.15);
+    background: rgba(var(--warning), 0.06);
+    border-color: rgba(var(--warning), 0.15);
 }
 
 .cert-hero-expired {
-    background: rgba(239, 68, 68, 0.06);
-    border-color: rgba(239, 68, 68, 0.15);
+    background: rgba(var(--error), 0.06);
+    border-color: rgba(var(--error), 0.15);
 }
 
 .cert-hero-unknown {
@@ -1414,7 +1415,7 @@ main {
 .cert-hero-icon {
     width: 52px;
     height: 52px;
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1423,17 +1424,17 @@ main {
 }
 
 .cert-hero-valid .cert-hero-icon {
-    background: rgba(16, 185, 129, 0.15);
+    background: rgba(var(--success), 0.15);
     color: var(--accent-emerald);
 }
 
 .cert-hero-expiring .cert-hero-icon {
-    background: rgba(245, 158, 11, 0.15);
+    background: rgba(var(--warning), 0.15);
     color: var(--accent-amber);
 }
 
 .cert-hero-expired .cert-hero-icon {
-    background: rgba(239, 68, 68, 0.15);
+    background: rgba(var(--error), 0.15);
     color: var(--accent-rose);
 }
 
@@ -1534,7 +1535,7 @@ main {
 .btn-outline-detail:hover {
     border-color: var(--accent-blue);
     color: var(--accent-blue);
-    background: rgba(59, 130, 246, 0.06);
+    background: rgba(var(--primary), 0.06);
 }
 
 @media (max-width: 640px) {
@@ -1661,7 +1662,7 @@ main {
    =================================================================== */
 
 .status-badge.revoked {
-    background: rgba(6, 182, 212, 0.12);
+    background: rgba(var(--info), 0.12);
     color: var(--accent-cyan);
 }
 
@@ -1670,7 +1671,7 @@ main {
 }
 
 .validity-badge.revoked-badge {
-    background: rgba(6, 182, 212, 0.1);
+    background: rgba(var(--info), 0.1);
     color: var(--accent-cyan);
 }
 
@@ -1684,12 +1685,12 @@ main {
 
 /* --- Revoked Hero State --- */
 .cert-hero-revoked {
-    background: rgba(6, 182, 212, 0.06);
-    border-color: rgba(6, 182, 212, 0.15);
+    background: rgba(var(--info), 0.06);
+    border-color: rgba(var(--info), 0.15);
 }
 
 .cert-hero-revoked .cert-hero-icon {
-    background: rgba(6, 182, 212, 0.15);
+    background: rgba(var(--info), 0.15);
     color: var(--accent-cyan);
 }
 
@@ -1719,14 +1720,14 @@ main {
    =================================================================== */
 
 .nav-section-label {
-    font-size: 0.6rem;
-    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.12em;
     color: var(--text-muted);
     margin-top: 0.75rem;
     margin-bottom: 0.25rem;
-    opacity: 0.6;
     padding-left: 1.2rem !important;
 }
 
@@ -1755,7 +1756,7 @@ main {
     align-items: center;
     gap: 0.3rem;
     padding: 0.45rem 1rem;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    border: 1px solid rgba(var(--error), 0.3);
     border-radius: 8px;
     color: var(--accent-rose);
     font-size: 0.8rem;
@@ -1768,7 +1769,7 @@ main {
 
 .btn-danger-outline:hover {
     border-color: var(--accent-rose);
-    background: rgba(239, 68, 68, 0.1);
+    background: rgba(var(--error), 0.1);
 }
 
 .btn-danger-outline:disabled {
@@ -1802,7 +1803,7 @@ main {
 
 .form-control, .form-select {
     background-color: var(--bg-secondary) !important;
-    border: 1px solid rgba(255,255,255,0.12) !important;
+    border: 1px solid rgba(var(--paper), 0.12) !important;
     color: var(--text-primary) !important;
 }
 
@@ -1820,7 +1821,7 @@ main {
     background-color: var(--bg-primary) !important;
     color: var(--text-heading) !important;
     border-color: var(--accent-blue) !important;
-    box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25) !important;
+    box-shadow: 0 0 0 0.25rem rgba(var(--primary), 0.25) !important;
 }
 
 .form-control::placeholder {
@@ -1871,7 +1872,7 @@ main {
     padding: 0.55rem 0.75rem 0.55rem 2.25rem;
     background: var(--bg-card) !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: var(--radius-lg) !important;
     color: var(--text-primary) !important;
     font-size: 0.875rem;
     -webkit-backdrop-filter: var(--glass-blur);
@@ -1881,8 +1882,8 @@ main {
 
 .list-search input:focus {
     outline: none;
-    border-color: rgba(59, 130, 246, 0.45) !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+    border-color: rgba(var(--primary), 0.45) !important;
+    box-shadow: 0 0 0 3px rgba(var(--primary), 0.14);
 }
 
 .list-search input::placeholder {
@@ -1900,12 +1901,15 @@ main {
     align-items: center;
     gap: 0.35rem;
     padding: 0.4rem 0.75rem;
-    border-radius: 999px;
-    background: var(--bg-glass);
-    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
     font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
     cursor: pointer;
     transition: all var(--transition-fast);
 }
@@ -1916,10 +1920,10 @@ main {
 }
 
 .filter-chip.active {
-    background: rgba(59, 130, 246, 0.14);
-    color: #dbeafe;
-    border-color: rgba(59, 130, 246, 0.4);
-    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.1);
+    background: rgba(var(--primary), 0.14);
+    color: rgb(var(--paper));
+    border-color: rgba(var(--primary), 0.4);
+    box-shadow: inset 0 0 0 1px rgba(var(--primary), 0.1);
 }
 
 .filter-chip-count {
@@ -1927,14 +1931,14 @@ main {
     font-size: 0.7rem;
     color: var(--text-muted);
     background: rgba(0, 0, 0, 0.35);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     padding: 0 0.4rem;
     font-weight: 600;
 }
 
 .filter-chip.active .filter-chip-count {
-    color: #dbeafe;
-    background: rgba(59, 130, 246, 0.25);
+    color: rgb(var(--paper));
+    background: rgba(var(--primary), 0.25);
 }
 
 .list-toolbar .list-toolbar-spacer {
@@ -1947,19 +1951,34 @@ main {
     font-variant-numeric: tabular-nums;
 }
 
+/* "Show only valid certificates" beside the chips (and above the issuer tree). */
+.list-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
 /* ===================================================================
    Form Card (used by New Request / Settings pages)
    =================================================================== */
 
 .form-card {
     background: var(--bg-card);
-    border: none;
+    border: 1px solid var(--border-color);
     border-radius: var(--border-radius-lg);
     padding: 0;
     -webkit-backdrop-filter: var(--glass-blur);
     backdrop-filter: var(--glass-blur);
     overflow: hidden;
     max-width: 880px;
+}
+
+/* Page-level cards stacked directly on each other get the same gap as the detail grid. */
+:is(.form-card, .recent-table-section) + :is(.form-card, .recent-table-section) {
+    margin-top: 1.5rem;
 }
 
 /* Lists and tables use the full page width instead of the form-width cap. */
@@ -2111,7 +2130,7 @@ main {
     align-items: center;
     gap: 0.4rem;
     padding: 0.35rem 0.75rem;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     font-size: 0.78rem;
     font-weight: 500;
     cursor: pointer;
@@ -2129,8 +2148,8 @@ main {
 
 .audit-chip .bi { font-size: 0.8rem; }
 .audit-chip-count {
-    background: rgba(255,255,255,0.08);
-    border-radius: 999px;
+    background: rgba(var(--paper), 0.08);
+    border-radius: var(--radius-sm);
     padding: 0 0.45rem;
     font-size: 0.72rem;
     font-weight: 600;
@@ -2175,13 +2194,13 @@ main {
 
 .audit-action-badge .bi { font-size: 0.8rem; }
 
-.audit-action-created  { background: rgba(59,130,246,0.12);  color: #60a5fa; }
-.audit-action-approved { background: rgba(16,185,129,0.12);  color: #34d399; }
-.audit-action-rejected { background: rgba(239,68,68,0.12);   color: #f87171; }
-.audit-action-issued   { background: rgba(16,185,129,0.12);  color: #34d399; }
-.audit-action-revoked  { background: rgba(245,158,11,0.12);  color: #fbbf24; }
-.audit-action-renewed  { background: rgba(139,92,246,0.12);  color: #a78bfa; }
-.audit-action-settings { background: rgba(6,182,212,0.12);   color: #22d3ee; }
+.audit-action-created  { background: rgba(var(--primary), 0.12);  color: rgb(var(--primary-light)); }
+.audit-action-approved { background: rgba(var(--success), 0.12);  color: rgb(var(--success-light)); }
+.audit-action-rejected { background: rgba(var(--error), 0.12);   color: rgb(var(--error-light)); }
+.audit-action-issued   { background: rgba(var(--success), 0.12);  color: rgb(var(--success-light)); }
+.audit-action-revoked  { background: rgba(var(--warning), 0.12);  color: rgb(var(--warning-light)); }
+.audit-action-renewed  { background: rgba(var(--info), 0.12);  color: var(--text-secondary); }
+.audit-action-settings { background: rgba(var(--info), 0.12);   color: var(--text-secondary); }
 .audit-action-default  { background: var(--bg-glass);        color: var(--text-secondary); }
 
 /* ── Table column sizing ── */
@@ -2203,7 +2222,7 @@ main {
     --bs-dropdown-link-color: var(--text-primary);
     --bs-dropdown-link-hover-color: var(--text-primary);
     --bs-dropdown-link-hover-bg: var(--bg-glass-strong);
-    --bs-dropdown-link-active-color: #fff;
+    --bs-dropdown-link-active-color: rgb(var(--on-primary));
     --bs-dropdown-link-active-bg: rgb(var(--primary));
     --bs-dropdown-link-disabled-color: var(--text-muted);
     --bs-dropdown-header-color: var(--text-muted);
@@ -2274,7 +2293,7 @@ main {
 
 .client-setup-tab.active {
     background: rgb(var(--primary));
-    color: #fff;
+    color: rgb(var(--on-primary));
 }
 
 .client-setup-code {
@@ -2415,7 +2434,7 @@ main {
     text-transform: uppercase;
     letter-spacing: 0.04em;
     padding: 0.125rem 0.5rem;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: rgba(var(--warning), 0.15);
     color: rgb(var(--warning));
 }
@@ -2589,7 +2608,7 @@ main {
 .wizard-steps li.current .wizard-step-number {
     background: rgb(var(--primary));
     border-color: rgb(var(--primary));
-    color: #fff;
+    color: rgb(var(--on-primary));
 }
 
 .wizard-step-label {
@@ -2640,7 +2659,7 @@ main {
     margin-left: auto;
     min-width: 1.4rem;
     padding: 0 0.45rem;
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     font-family: var(--font-mono);
     font-size: 0.7rem;
     line-height: 1.25rem;
@@ -2705,7 +2724,7 @@ main {
 .issuer-badge {
     display: inline-block;
     padding: 0.15rem 0.55rem;
-    border-radius: 100px;
+    border-radius: var(--radius-sm);
     font-size: 0.7rem;
     font-weight: 600;
     white-space: nowrap;
@@ -2866,7 +2885,7 @@ main {
 /* A toggle chip (webhook event picker). */
 .chip {
     padding: 4px 12px;
-    border-radius: 20px;
+    border-radius: var(--radius-lg);
     font-size: 0.8rem;
     cursor: pointer;
     border: 1px solid var(--border-subtle);
@@ -2959,7 +2978,7 @@ main {
     gap: 10px;
     cursor: pointer;
     padding: 12px;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     border: 1px solid transparent;
     background: var(--bg-glass);
     transition: all 150ms;
@@ -2999,7 +3018,7 @@ main {
     gap: 6px;
     background: var(--bg-glass-strong);
     border: 1px solid var(--border-subtle);
-    border-radius: 20px;
+    border-radius: var(--radius-lg);
     padding: 3px 10px;
     font-size: 0.78rem;
     font-family: var(--font-mono);
@@ -3020,7 +3039,7 @@ main {
 .summary-box {
     background: var(--bg-glass);
     border: none;
-    border-radius: 10px;
+    border-radius: var(--radius-lg);
     padding: 16px;
     font-size: 0.85rem;
 }

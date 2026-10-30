@@ -65,4 +65,17 @@ public sealed class CaStatusResponse
 
     /// <summary>An intermediate waiting for its signed certificate (offline-root onboarding in progress), or null.</summary>
     public IssuerId? PendingIntermediateIssuerId { get; set; }
+
+    /// <summary>
+    /// True when <see cref="IsInitialized"/> is false because a revoked CA certificate took the issuers out of
+    /// service, not because no CA was ever set up. The UI then explains that, and still lets an administrator
+    /// open the other pages (issuers, audit log) instead of forcing onboarding.
+    /// </summary>
+    public bool IssuerRevoked { get; set; }
+
+    /// <summary>
+    /// While <see cref="IssuerRevoked"/>: the kind of the most recently revoked issuer, so the UI can point to where
+    /// that kind renews (a root from its certificate page, an intermediate from the Issuers page). Null otherwise.
+    /// </summary>
+    public IssuerKind? RevokedIssuerKind { get; set; }
 }

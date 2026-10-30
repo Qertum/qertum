@@ -130,8 +130,9 @@ public static class AcmeExternalAccountBinding
                 JwkConverter.ComputeThumbprint(accountJwkJson),
                 StringComparison.Ordinal);
         }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (AcmeException)
         {
+            // The account key was read once already; the one that failed is the bound key.
             throw new AcmeException("malformed", "External account binding payload is not a JWK.");
         }
     }

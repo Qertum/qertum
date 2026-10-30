@@ -25,8 +25,8 @@ internal sealed class FakeRevocationStatusService(IReadOnlyDictionary<string, Oc
         CertificateRequestStatus? status = null, string? search = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<CertificateRequestStatusCounts> GetStatusCountsAsync(string? search = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<PagedResult<CertificateRequest>> GetIssuedAsync(int page = 1, int pageSize = 100,
-        IssuedCertificateFilter? filter = null, string? search = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
-    public Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        IssuedCertificateFilter? filter = null, string? search = null, bool validOnly = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    public Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, bool validOnly = false, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<PagedResult<CertificateRequest>> GetRejectedAsync(int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<PagedResult<CertificateRequest>> GetRevokedAsync(int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     public Task<PagedResult<CertificateRequest>> GetExpiredAsync(int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) => throw new NotImplementedException();

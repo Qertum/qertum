@@ -29,6 +29,8 @@ builder.Services.Configure<Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServe
 
 var app = builder.Build();
 
+app.UseQertumSecurityHeaders();
+
 app.UseRouting();
 app.UseRateLimiter();
 

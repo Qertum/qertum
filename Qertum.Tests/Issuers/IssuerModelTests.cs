@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Qertum.Services;
+using Qertum.Services.Issuers;
 
 namespace Qertum.Tests.Issuers;
 
@@ -65,7 +66,27 @@ public sealed class IssuerModelTests
     }
 
     [Fact]
-    public async Task SameNameTwice_IsRefused()
+    public async Task RenewalOfIssuerId_RoundTrips_AndIsMapped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var database = SharedInMemoryDatabase.Create(createSchema: true);
+        var first = Row("old");
+        var second = Row("old");
+        second.RenewalOfIssuerId = first.Id;
+        await using (var db = database.CreateContext())
+        {
+            db.Issuers.AddRange(first, second);
+            await db.SaveChangesAsync(ct);
+        }
+
+        await using var read = database.CreateContext();
+        var loaded = await read.Issuers.AsNoTracking().SingleAsync(i => i.Id == second.Id, ct);
+        Assert.Equal(first.Id, loaded.RenewalOfIssuerId);
+        Assert.Equal(first.Id, IssuerMapping.ToResponse(loaded).RenewalOfIssuerId);
+    }
+
+    [Fact]
+    public async Task SameNameTwice_IsAllowed_BecauseARenewedCaKeepsItsName()
     {
         var ct = TestContext.Current.CancellationToken;
         var database = SharedInMemoryDatabase.Create(createSchema: true);
@@ -74,8 +95,9 @@ public sealed class IssuerModelTests
         db.Issuers.Add(Row("same"));
         await db.SaveChangesAsync(ct);
         db.Issuers.Add(Row("same"));
+        await db.SaveChangesAsync(ct);
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(ct));
+        Assert.Equal(2, await db.Issuers.CountAsync(i => i.Name == "same", ct));
     }
 
     [Fact]

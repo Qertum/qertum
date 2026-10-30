@@ -6,11 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Qertum — Certificate Authority management dashboard for issuing and tracking certificate requests." />
     <base href="/" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="@Assets["_content/Qertum.DesignSystem/bootstrap-icons/bootstrap-icons.min.css"]" />
     <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["Qertum.Web.styles.css"]" />
-    <ImportMap />
     <link rel="icon" type="image/png" href="favicon.png" />
     <HeadOutlet />
 </head>
@@ -18,45 +17,7 @@
 <body>
     <Routes @rendermode="InteractiveServer" />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
-    <script>
-        document.addEventListener('click', function (e) {
-            document.querySelectorAll('details.user-menu[open]').forEach(function (d) {
-                if (!d.contains(e.target)) { d.removeAttribute('open'); }
-            });
-        });
-        async function copyText(text) {
-            // The Clipboard API needs a secure context; fall back so an http:// deployment still copies.
-            try {
-                await navigator.clipboard.writeText(text);
-                return true;
-            } catch {
-                const ta = document.createElement('textarea');
-                ta.value = text;
-                ta.setAttribute('readonly', '');
-                ta.style.position = 'fixed';
-                ta.style.opacity = '0';
-                document.body.appendChild(ta);
-                ta.select();
-                const ok = document.execCommand('copy');
-                document.body.removeChild(ta);
-                return ok;
-            }
-        }
-        function downloadFile(filename, mimeType, base64) {
-            const bytes = atob(base64);
-            const arr = new Uint8Array(bytes.length);
-            for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-            const blob = new Blob([arr], { type: mimeType });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => URL.revokeObjectURL(url), 100);
-        }
-    </script>
+    <script src="@Assets["js/app.js"]"></script>
 </body>
 
 </html>

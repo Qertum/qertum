@@ -208,6 +208,56 @@ public sealed class RequestListPagingTests
         Assert.Contains(host.Api.ListQueries, q => q.Contains("filter=Expiring", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void CertificatesList_ShowsOnlyValidByDefault_AndHidesTheChipsThatWouldBeEmpty()
+    {
+        using var host = new Host();
+        host.Api.ListPath = "/v1/certificate-requests/issued";
+        host.Navigate("http://localhost/certificates");
+
+        var cut = host.Context.Render<Certificates>();
+        cut.WaitForElement("#certificates-table");
+
+        Assert.True(cut.Find("[data-test='valid-only']").HasAttribute("checked"));
+        Assert.Contains("validOnly=true", host.Api.ListQueries.Last(), StringComparison.Ordinal);
+        Assert.Contains("validOnly=true", host.Api.CountQueries.Last(), StringComparison.Ordinal);
+        Assert.Empty(cut.FindAll("[data-test='chip-Expired']"));
+        Assert.Empty(cut.FindAll("[data-test='chip-Revoking']"));
+        Assert.Empty(cut.FindAll("[data-test='chip-Revoked']"));
+        Assert.NotEmpty(cut.FindAll("[data-test='chip-Expiring']"));
+    }
+
+    [Fact]
+    public void CertificatesList_UntickingValidOnly_PutsItInTheUrl()
+    {
+        using var host = new Host();
+        host.Api.ListPath = "/v1/certificate-requests/issued";
+        host.Navigate("http://localhost/certificates");
+
+        var cut = host.Context.Render<Certificates>();
+        cut.WaitForElement("#certificates-table");
+        cut.Find("[data-test='valid-only']").Change(false);
+
+        Assert.Contains("valid=0", host.Context.Services.GetRequiredService<NavigationManager>().Uri, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("http://localhost/certificates?valid=0")]
+    [InlineData("http://localhost/certificates?filter=Expired")]   // an old link to an invalid bucket still works
+    public void CertificatesList_WithValidOnlyOff_AsksForEverything_AndShowsEveryChip(string url)
+    {
+        using var host = new Host();
+        host.Api.ListPath = "/v1/certificate-requests/issued";
+        host.Navigate(url);
+
+        var cut = host.Context.Render<Certificates>();
+        cut.WaitForElement("#certificates-table");
+
+        Assert.False(cut.Find("[data-test='valid-only']").HasAttribute("checked"));
+        Assert.DoesNotContain("validOnly=true", host.Api.ListQueries.Last(), StringComparison.Ordinal);
+        Assert.NotEmpty(cut.FindAll("[data-test='chip-Revoked']"));
+    }
+
     private sealed class Host : IDisposable
     {
         public Host()
@@ -233,6 +283,8 @@ public sealed class RequestListPagingTests
     {
         public List<string> ListQueries { get; } = [];
 
+        public List<string> CountQueries { get; } = [];
+
         public string ListPath { get; set; } = "/v1/certificate-requests";
 
         public int TotalCount { get; set; } = 1;
@@ -257,7 +309,10 @@ public sealed class RequestListPagingTests
                 return Task.FromResult(Json(Counts));
 
             if (uri.AbsolutePath == "/v1/certificate-requests/issued/validity-counts")
+            {
+                CountQueries.Add(uri.Query);
                 return Task.FromResult(Json(ValidityCounts));
+            }
 
             if (uri.AbsolutePath == ListPath)
             {

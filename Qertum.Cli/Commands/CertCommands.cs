@@ -511,6 +511,7 @@ internal static class CertCommands
             "Create a renewal request for a certificate, copying its common name, type, algorithm, SANs and validity.\n" +
             "\n" +
             "Creates a new Pending request linked to the original; the original is untouched and the new one still needs approval. Issuance policy is re-evaluated, and the post-quantum stage may refuse or warn.\n" +
+            "Renewing the root CA certificate (type RootCA) gives the CA a new key under the same name: once approved and signed it becomes the default issuer and the old root is retired, never destroyed or revoked, so what it signed stays checkable. It is also the way back after the root certificate was revoked.\n" +
             "A CA-capable certificate (for example a SubordinateCA) also needs the certificates.ca permission to renew (refusal rule 'caPermission'), and its approval needs an independent approver. CA certificates are never auto-renewed: renewing one is always this deliberate step.\n" +
             "Needs: certificates.create (plus certificates.ca for CA-capable certificates; and certificates.view, which every certificate-request route requires).\n" +
             "Exit codes: 0 renewal request created; 1 not signed in, request not found, refused by policy or a call failed.\n" +

@@ -22,10 +22,17 @@ public static class IssuerEndpointMappings
     {
         var group = v1.MapGroup("/issuers").WithTags("Issuers");
 
-        group.MapGet("/", async (IIssuerRegistry issuers, CancellationToken ct) =>
-            Results.Ok((await issuers.GetAllAsync(ct))
+        // validOnly leaves out CAs whose chain is broken (IssuerQueries.Broken) and archived or destroyed ones; a
+        // retired CA with a valid certificate (the old root after a renewal) and one awaiting its certificate stay.
+        group.MapGet("/", async (IIssuerRegistry issuers, TimeProvider clock, CancellationToken ct, bool validOnly = false) =>
+        {
+            var all = await issuers.GetAllAsync(ct);
+            var broken = validOnly ? IssuerQueries.Broken(all, clock.GetUtcNow().UtcDateTime).Ids : [];
+            return Results.Ok(all
+                .Where(i => !validOnly || (!broken.Contains(i.Id) && i.Status is not (IssuerStatus.Archived or IssuerStatus.Destroyed)))
                 .OrderBy(i => i.Kind == IssuerKind.Root ? 0 : 1).ThenBy(i => i.CreatedAtUtc)
-                .Select(IssuerMapping.ToResponse)))
+                .Select(IssuerMapping.ToResponse));
+        })
             .RequireAuthorization(AppPermissions.CertificatesView);
 
         group.MapGet("/{id:guid}", async (Guid id, IIssuerRegistry issuers, CancellationToken ct) =>
@@ -70,6 +77,20 @@ public static class IssuerEndpointMappings
             if (!validation.IsValid) return Results.ValidationProblem(validation.ToErrorDictionary());
             var outcome = await ceremonies.CreateIntermediateAsync(request, claims.GetName(http.User), ct);
             return ToResult(outcome, created => Results.Created($"/v1/issuers/{created.Issuer.Id}", created));
+        });
+
+        admin.MapPost("/{id:guid}/renew", async (Guid id, [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] RenewIssuerRequest? body,
+            IValidator<RenewIssuerRequest> validator, IssuerCeremonyService ceremonies, HttpContext http, IIdentityClaimsMapper claims,
+            CancellationToken ct) =>
+        {
+            var request = body ?? new RenewIssuerRequest();
+            var validation = await validator.ValidateAsync(request, ct);
+            if (!validation.IsValid) return Results.ValidationProblem(validation.ToErrorDictionary());
+            var outcome = await ceremonies.RenewIntermediateAsync(new IssuerId(id), request, claims.GetName(http.User), ct);
+            // Signed at once: the replacement is already in place (200). Waiting for its certificate: a new pending issuer (201).
+            return ToResult(outcome, renewed => renewed.RequestFile is null
+                ? Results.Ok(renewed)
+                : Results.Created($"/v1/issuers/{renewed.Issuer.Id}", renewed));
         });
 
         admin.MapGet("/{id:guid}/request", async (Guid id, IssuerCeremonyService ceremonies, CancellationToken ct) =>

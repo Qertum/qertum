@@ -156,6 +156,123 @@ public sealed class IssuerLifecycleService(
         await issuers.InvalidateAsync(ct);
     }
 
+    /// <summary>
+    /// A renewed root: <paramref name="replacement"/> (a new key under the same name) becomes the active default
+    /// and takes over the template pins of <paramref name="renewed"/>. A live <paramref name="renewed"/> is
+    /// retired, never destroyed: what it signed stays checkable through its CRL and OCSP. A revoked one is
+    /// already retired and stays as it is.
+    /// </summary>
+    public async Task RenewRootAsync(Issuer renewed, Issuer replacement, string performedBy, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var retiredNow = false;
+        int pinsMoved;
+        await using (var transaction = await db.Database.BeginTransactionAsync(ct))
+        {
+            var old = await db.Issuers.SingleAsync(i => i.Id == renewed.Id, ct);
+            if (old.IsDefault || old.Status == IssuerStatus.Active)
+            {
+                retiredNow = old.Status == IssuerStatus.Active;
+                old.IsDefault = false;
+                old.Status = IssuerStatus.Retired;
+                old.RetiredAtUtc ??= now;
+                // Own SaveChanges: SQLite checks the filtered unique index per statement.
+                await db.SaveChangesAsync(ct);
+            }
+
+            replacement.IsDefault = true;
+            replacement.Status = IssuerStatus.Active;
+            replacement.ActivatedAtUtc = now;
+            db.Issuers.Add(replacement);
+            await db.SaveChangesAsync(ct);
+
+            pinsMoved = await db.CertificateTemplates.Where(t => t.IssuerId == renewed.Id)
+                .ExecuteUpdateAsync(t => t.SetProperty(x => x.IssuerId, replacement.Id), ct);
+            await transaction.CommitAsync(ct);
+        }
+
+        if (retiredNow)
+        {
+            await audit.LogAsync("IssuerRetired", performedBy, (Guid)renewed.Id, renewed.Name,
+                $"Renewed as '{replacement.Name}' with a new key; issues nothing new, keeps answering CRL and OCSP.", ct);
+            await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerRetired, renewed, performedBy), ct);
+        }
+        await audit.LogAsync("IssuerRegistered", performedBy, (Guid)replacement.Id, replacement.Name,
+            $"Registered as the new default by renewing '{renewed.Name}' with a new key"
+            + (pinsMoved == 0 ? "." : $"; {pinsMoved} template pin(s) moved to it."), ct);
+        await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerRegistered, replacement, performedBy), ct);
+        await issuers.InvalidateAsync(ct);
+    }
+
+    /// <summary>What a renewal swap changed, for <see cref="AnnounceRenewalAsync"/> to report once it is committed.</summary>
+    /// <param name="Old">The renewed issuer as it is after the swap.</param>
+    /// <param name="Replacement">The replacement, now active.</param>
+    /// <param name="RetiredNow">True when the old one was live and the swap retired it.</param>
+    /// <param name="TakesDefault">True when the replacement took the default seat.</param>
+    /// <param name="PinsMoved">Template pins moved from the old one to the replacement.</param>
+    public sealed record IntermediateRenewal(Issuer Old, Issuer Replacement, bool RetiredNow, bool TakesDefault, int PinsMoved);
+
+    /// <summary>
+    /// A renewed intermediate, database part: <paramref name="replacement"/> (signed, a new key under the same name)
+    /// becomes active, takes the default seat when the renewed one held it or nothing is default, and takes over its
+    /// template pins. A live renewed issuer is retired, never destroyed; a revoked one stays as it is. Joins the
+    /// caller's transaction when there is one (install), else opens its own. Writes no audit: the caller announces
+    /// the result with <see cref="AnnounceRenewalAsync"/> after its own commit. The filtered unique index on
+    /// <c>RenewalOfIssuerId</c> refuses a second replacement (<see cref="DbUpdateException"/>).
+    /// </summary>
+    public async Task<IntermediateRenewal> SwapRenewedIntermediateAsync(IssuerId renewedId, Issuer replacement, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow().UtcDateTime;
+        await using var own = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(ct) : null;
+        var old = await db.Issuers.SingleAsync(i => i.Id == renewedId, ct);
+        var takesDefault = old.IsDefault || !await db.Issuers.AnyAsync(i => i.IsDefault && i.Id != replacement.Id, ct);
+        var retiredNow = old.Status == IssuerStatus.Active;
+        if (old.IsDefault || retiredNow)
+        {
+            old.IsDefault = false;
+            if (retiredNow)
+            {
+                old.Status = IssuerStatus.Retired;
+                old.RetiredAtUtc ??= now;
+            }
+            // Own SaveChanges: SQLite checks the filtered unique index per statement.
+            await db.SaveChangesAsync(ct);
+        }
+
+        replacement.Status = IssuerStatus.Active;
+        replacement.ActivatedAtUtc ??= now;
+        replacement.IsDefault = takesDefault;
+        if (db.Entry(replacement).State == EntityState.Detached) db.Issuers.Add(replacement);
+        await db.SaveChangesAsync(ct);
+
+        var pinsMoved = await db.CertificateTemplates.Where(t => t.IssuerId == renewedId)
+            .ExecuteUpdateAsync(t => t.SetProperty(x => x.IssuerId, replacement.Id), ct);
+        if (own is not null) await own.CommitAsync(ct);
+        return new IntermediateRenewal(old, replacement, retiredNow, takesDefault, pinsMoved);
+    }
+
+    /// <summary>
+    /// Audits and announces a committed renewal swap: <c>IssuerRetired</c> for a live old issuer (its payload carries
+    /// its new status) and <c>IssuerCertificateInstalled</c> for the replacement, then invalidates the registry.
+    /// <paramref name="signedBy"/> names the CA that signed the replacement.
+    /// </summary>
+    public async Task AnnounceRenewalAsync(IntermediateRenewal renewal, string signedBy, string performedBy, CancellationToken ct)
+    {
+        var (old, replacement) = (renewal.Old, renewal.Replacement);
+        if (renewal.RetiredNow)
+        {
+            await audit.LogAsync("IssuerRetired", performedBy, (Guid)old.Id, old.Name,
+                $"Renewed as '{replacement.Name}' with a new key; issues nothing new, keeps answering CRL and OCSP.", ct);
+            await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerRetired, old, performedBy), ct);
+        }
+        await audit.LogAsync("IssuerCertificateInstalled", performedBy, (Guid)replacement.Id, replacement.Name,
+            $"Renewal of '{old.Name}' with a new key, signed by '{signedBy}', valid to {replacement.ValidTo:yyyy-MM-dd}"
+            + (renewal.TakesDefault ? ", now the default" : string.Empty)
+            + (renewal.PinsMoved == 0 ? "." : $"; {renewal.PinsMoved} template pin(s) moved to it."), ct);
+        await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerCertificateInstalled, replacement, performedBy), ct);
+        await issuers.InvalidateAsync(ct);
+    }
+
     /// <summary>Unexpired certificates this issuer signed (Issued, PendingRevocation or Revoked, incl. paired PQC legs via the row) plus unexpired child CAs.</summary>
     public Task<int> UnexpiredCountAsync(Issuer issuer, CancellationToken ct) =>
         IssuerQueries.UnexpiredCountAsync(db, issuer, _clock.GetUtcNow().UtcDateTime, ct);

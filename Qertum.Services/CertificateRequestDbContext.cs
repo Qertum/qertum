@@ -283,6 +283,9 @@ public sealed class CertificateRequestDbContext(
         issuer.Property(i => i.ParentIssuerId).HasConversion(
             id => id.HasValue ? id.Value.Value : (Guid?)null,
             g => g.HasValue ? new IssuerId?(new IssuerId(g.Value)) : null);
+        issuer.Property(i => i.RenewalOfIssuerId).HasConversion(
+            id => id.HasValue ? id.Value.Value : (Guid?)null,
+            g => g.HasValue ? new IssuerId?(new IssuerId(g.Value)) : null);
         issuer.Property(i => i.Name).IsRequired().HasMaxLength(200);
         issuer.Property(i => i.Kind).HasConversion<string>().HasMaxLength(20);
         issuer.Property(i => i.KeyCustody).HasConversion<string>().HasMaxLength(20);
@@ -297,8 +300,11 @@ public sealed class CertificateRequestDbContext(
         issuer.Property(i => i.CrlDistributionPoint).HasMaxLength(2000);
         issuer.Property(i => i.OcspResponderUrl).HasMaxLength(2000);
         issuer.Property(i => i.CaIssuersUrl).HasMaxLength(2000);
-        issuer.HasIndex(i => i.Name).IsUnique();
+        // Not unique: a renewed CA keeps its predecessor's name. New CAs still get a free name (IssuerNames).
+        issuer.HasIndex(i => i.Name);
         issuer.HasIndex(i => i.SpkiSha256).IsUnique();
+        // One replacement per issuer: a second renewal (repeated, or two at once) must not make a second CA.
+        issuer.HasIndex(i => i.RenewalOfIssuerId).IsUnique().HasFilter("\"RenewalOfIssuerId\" IS NOT NULL");
         // At most one default. SQLite checks it per statement, so switching the default clears the
         // old flag in its own SaveChanges first (see IssuerLifecycleService.MakeDefaultAsync).
         issuer.HasIndex(i => i.IsDefault).IsUnique().HasFilter("\"IsDefault\" = 1");

@@ -22,11 +22,13 @@ public interface ICertificateRequestService
     /// the common name and requester. Both run in the database, for the same reason
     /// <see cref="GetAllAsync"/>'s do.
     /// </summary>
+    /// With <paramref name="validOnly"/>, only certificates that can still be used: not expired, not revoked or
+    /// being revoked, and under no revoked or expired CA.
     Task<PagedResult<CertificateRequest>> GetIssuedAsync(int page = 1, int pageSize = 100,
-        IssuedCertificateFilter? filter = null, string? search = null, CancellationToken cancellationToken = default);
+        IssuedCertificateFilter? filter = null, string? search = null, bool validOnly = false, CancellationToken cancellationToken = default);
 
-    /// <summary>Certificate counts per validity bucket, over the same optional search.</summary>
-    Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, CancellationToken cancellationToken = default);
+    /// <summary>Certificate counts per validity bucket, over the same optional search and <paramref name="validOnly"/> narrowing.</summary>
+    Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, bool validOnly = false, CancellationToken cancellationToken = default);
 
     Task<PagedResult<CertificateRequest>> GetRejectedAsync(int page = 1, int pageSize = 100, CancellationToken cancellationToken = default);
 

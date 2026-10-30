@@ -63,6 +63,9 @@ public sealed class Issuer
     /// <summary>The issuer that signed this one's certificate; null for roots.</summary>
     public IssuerId? ParentIssuerId { get; set; }
 
+    /// <summary>The issuer this one renews; set on a renewal's replacement, root or intermediate.</summary>
+    public IssuerId? RenewalOfIssuerId { get; set; }
+
     /// <summary>Whether the key is on this server.</summary>
     public IssuerKeyCustody KeyCustody { get; set; }
 

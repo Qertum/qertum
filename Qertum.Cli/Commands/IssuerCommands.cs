@@ -54,6 +54,16 @@ internal static class IssuerCommands
         "Output: --output json prints the contract (issuer and requestFile) only when the intermediate was signed immediately; when a request file is produced the issuer table is printed and the file written regardless of --output.\n" +
         "Example: qca issuers create-intermediate --name \"Issuing CA 1\" --cn \"Example Issuing CA 1\" --permit-dns example.com";
 
+    private const string RenewHelp =
+        "Renew an intermediate issuer with a new key under the same name.\n\n" +
+        "Creates a replacement issuer with a new key for an Active or revoked intermediate whose key this server holds, and Retires a live old one once the replacement is signed. The replacement keeps the name, subject, algorithm, constraints and parent, and takes the old one's place: the default seat (when the old one held it, or when nothing is default) and every template pinned to it; a live old one is retired, not destroyed, and keeps answering CRL and OCSP. " +
+        "When this server holds the parent's key the renewal finishes at once. Otherwise the replacement stays PendingCertificate and the command writes a request file (see --request-file) to take to 'qca root sign' (or the external CA), then 'qca issuers install'; the swap happens at install. After a parent or root renewal the new intermediate is signed under the parent's replacement. " +
+        "Audited as IssuerCreated, then IssuerCertificateInstalled (and IssuerRetired for a live old one).\n" +
+        "Needs: the admin role (not a grantable permission); step-up and a second administrator's approval when those are switched on.\n" +
+        "Exit codes: 0 renewed or request file written; 1 not signed in, the server refused, or the call failed (403 not admin or no approval; 404 unknown id; 409 a root, an offline-custody issuer, a status that cannot be renewed, a renewal already pending, or a revoked or expired parent; 400 invalid --validity-days or a refused algorithm).\n" +
+        "Output: --output json prints the contract (issuer and requestFile) only when the renewal finished at once; when a request file is produced the issuer table is printed and the file written regardless of --output.\n" +
+        "Example: qca issuers renew 3f2c9a1e-0000-0000-0000-000000000000";
+
     private const string RequestHelp =
         "Fetch the request file of a pending intermediate.\n\n" +
         "Reads the stored request file (CSR plus the requested constraints) so you can take it to the offline root; it changes nothing on the server. Use it if the file written by create-intermediate was lost.\n" +
@@ -171,7 +181,7 @@ internal static class IssuerCommands
 
         Sub("list", ListHelp, async (r, api, ct) =>
         {
-            var issuers = await api.GetIssuersAsync(ct);
+            var issuers = await api.GetIssuersAsync(cancellationToken: ct);
             if (Json(r)) return CliApi.PrintJson(issuers);
             Console.WriteLine($"{"Name",-28}  {"Kind",-12}  {"Custody",-8}  {"Status",-18}  {"Def",-3}  {"Valid To",-10}  Id");
             foreach (var i in issuers)
@@ -199,13 +209,28 @@ internal static class IssuerCommands
             {
                 var path = r.GetValue(RequestFileOption) ?? $"{SafeFileName(created.Issuer.Name)}.request.json";
                 await File.WriteAllTextAsync(path, JsonSerializer.Serialize(file, FileJson), ct);
-                Console.WriteLine($"Request file: {path}");
-                Console.WriteLine($"Next: qca root sign --dir <root-dir> --request {path}");
-                Console.WriteLine($"Then: qca issuers install {created.Issuer.Id} --cert <cert> --chain <chain>");
+                foreach (var line in NextSteps(created.Issuer.Id, path)) Console.WriteLine(line);
             }
             return 0;
         }, NameOption, CnOption, OOption, OuOption, COption, StOption, LOption, AlgorithmOption, ValidityOption, PathLengthOption,
             PermitDnsOption, ExcludeDnsOption, PermitIpOption, ExcludeIpOption, ParentOption, RequestFileOption);
+
+        var renewId = new Argument<Guid>("id") { Description = "Id of the Active or revoked intermediate to renew (GUID, from 'qca issuers list')." };
+        var renewValidity = new Option<int?>("--validity-days") { Description = "Validity of the new certificate in days, 1 to 36500 (default: the old one's length; capped at the parent's)." };
+        Sub("renew", RenewHelp, async (r, api, ct) =>
+        {
+            var renewed = await api.RenewIssuerAsync(new IssuerId(r.GetValue(renewId)), r.GetValue(renewValidity), ct);
+            if (Json(r) && renewed.RequestFile is null) return CliApi.PrintJson(renewed);
+            PrintIssuer(renewed.Issuer);
+            if (renewed.RequestFile is { } file)
+            {
+                var path = r.GetValue(RequestFileOption) ?? $"{SafeFileName(renewed.Issuer.Name)}.renewal.request.json";
+                await File.WriteAllTextAsync(path, JsonSerializer.Serialize(file, FileJson), ct);
+                foreach (var line in NextSteps(renewed.Issuer.Id, path)) Console.WriteLine(line);
+                Console.WriteLine("At install the new intermediate takes the old one's place; until then a still-active old one keeps issuing.");
+            }
+            return 0;
+        }, renewId, renewValidity, RequestFileOption);
 
         var requestId = new Argument<Guid>("id") { Description = "Id of a pending intermediate issuer (GUID, from 'qca issuers list')." };
         var requestOut = new Option<string?>("--file", "-f") { Description = "Where to write the request file (default: print it to stdout)." };
@@ -406,6 +431,14 @@ internal static class IssuerCommands
     }
 
     private static void PrintRow(string label, string? value) => Console.WriteLine($"{label,-14} {value}");
+
+    /// <summary>What to run after a request file was written: sign it at the root, then install the certificate on that issuer.</summary>
+    internal static IReadOnlyList<string> NextSteps(IssuerId issuerId, string requestFilePath) =>
+    [
+        $"Request file: {requestFilePath}",
+        $"Next: qca root sign --dir <root-dir> --request {requestFilePath}",
+        $"Then: qca issuers install {issuerId} --cert <cert> --chain <chain>"
+    ];
 
     private static string SafeFileName(string name) =>
         string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-')).Trim('-') is { Length: > 0 } safe ? safe : "intermediate";

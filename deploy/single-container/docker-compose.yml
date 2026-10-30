@@ -7,7 +7,8 @@
 #
 # Required environment (shell or a .env file beside this compose file):
 #   QERTUM_REGISTRY  registry address the CI job pushes to, no scheme (e.g. registry.example.lan:5000)
-#   QERTUM_HOST      host IP/name that browsers and ACME clients use to reach this stack
+#   QERTUM_HOST      public IP/name that browsers and ACME clients type to reach this stack, exactly
+#                    (no NAT, DNS alias or other name in between; sign-in accepts only this address)
 #
 # NOTE: with direct port exposure the published host port MUST equal the
 # container port, because the OIDC authority and ACME base URL are advertised
@@ -28,7 +29,8 @@ services:
       # Unraid Docker tab "WebUI" link. [IP] / [PORT:8090] are resolved by Unraid.
       net.unraid.docker.webui: "http://[IP]:[PORT:8090]/"
     environment:
-      # The Unraid host IP/hostname browsers and ACME clients use to reach this stack.
+      # The public IP/hostname browsers and ACME clients type to reach this stack, exactly as typed
+      # (no NAT, DNS alias or other name in between): sign-in accepts only this address.
       QERTUM_HOST: "${QERTUM_HOST:?set QERTUM_HOST to the host IP or name clients use}"
       # Advertised web port for OIDC redirect registration. The web app still LISTENS
       # on 8080 inside the container, so this MUST equal the host port mapped to 8080.

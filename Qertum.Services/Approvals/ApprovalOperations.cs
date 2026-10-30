@@ -15,6 +15,9 @@ public static class ApprovalOperations
     /// <summary>Installing an issuer's signed certificate.</summary>
     public const string IssuerInstallCertificate = "issuer-install-certificate";
 
+    /// <summary>Renewing an intermediate CA with a new key.</summary>
+    public const string IssuerRenew = "issuer-renew";
+
     /// <summary>Uploading an offline issuer's CRL.</summary>
     public const string IssuerUploadCrl = "issuer-upload-crl";
 
@@ -44,7 +47,7 @@ public static class ApprovalOperations
 
     private static readonly HashSet<string> All = new(StringComparer.Ordinal)
     {
-        KeyExport, PfxExport, IssuerCreateIntermediate, IssuerInstallCertificate, IssuerUploadCrl,
+        KeyExport, PfxExport, IssuerCreateIntermediate, IssuerRenew, IssuerInstallCertificate, IssuerUploadCrl,
         IssuerMakeDefault, IssuerRetire, IssuerArchive, IssuerDelete, IssuerKeyExport, IssuerPfxExport, BulkRevoke, PolicyPublish
     };
 

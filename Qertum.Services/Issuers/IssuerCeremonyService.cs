@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Org.BouncyCastle.Security;
 using Qertum.Services.Crypto;
+using LifecycleRenewal = Qertum.Services.Issuers.IssuerLifecycleService.IntermediateRenewal;
 
 namespace Qertum.Services.Issuers;
 
@@ -21,6 +22,7 @@ public sealed class IssuerCeremonyService(
     ICertificateRequestService requests,
     IAuditLogService audit,
     IWebhookService webhooks,
+    IssuerLifecycleService lifecycle,
     TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
@@ -29,22 +31,78 @@ public sealed class IssuerCeremonyService(
     public async Task<IssuerOutcome<CreateIntermediateResponse>> CreateIntermediateAsync(
         CreateIntermediateRequest request, string performedBy, CancellationToken ct)
     {
-        var algorithm = request.KeyAlgorithm ?? CertificateKeyAlgorithm.EcdsaP384;
-        var settings = await requests.GetSettingsAsync(ct);
-        // A CA key has no template, so the CA default stage governs and no exception applies.
-        var pqcVerdict = PqcStageEvaluator.Evaluate(settings.PqcStage, algorithm, isRenewal: false);
-        if (pqcVerdict.Outcome == PqcOutcome.Refused)
-            return IssuerOutcome<CreateIntermediateResponse>.Invalid(pqcVerdict.Reason!);
-
         if (await db.Issuers.AnyAsync(i => i.Name == request.Name, ct))
             return IssuerOutcome<CreateIntermediateResponse>.Conflict($"An issuer named '{request.Name}' already exists.");
 
+        var profile = new SubordinateCaProfile(request.PathLength,
+            Normalize(request.PermittedDnsSuffixes), Normalize(request.ExcludedDnsSuffixes),
+            NormalizeIp(request.PermittedIpRanges), NormalizeIp(request.ExcludedIpRanges));
+        var subject = CaCertificateBuilder.SubjectName(request.CommonName, request.OrganizationName,
+            request.OrganizationalUnit, request.Country, request.State, request.Locality);
+        return await CreateAsync(new IntermediateSpec(request.Name, subject, request.KeyAlgorithm ?? CertificateKeyAlgorithm.EcdsaP384,
+            profile, request.ValidityDays, request.ParentIssuerId, Renews: null), performedBy, ct);
+    }
+
+    /// <summary>
+    /// Renews an active or revoked intermediate: a new key under the same name, subject, algorithm, constraints and
+    /// parent. An online parent signs at once and the replacement takes the old one's place; otherwise the
+    /// replacement waits for its certificate (request file) and the swap happens at install.
+    /// </summary>
+    public async Task<IssuerOutcome<CreateIntermediateResponse>> RenewIntermediateAsync(
+        IssuerId id, RenewIssuerRequest request, string performedBy, CancellationToken ct)
+    {
+        var old = await db.Issuers.AsNoTracking().FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (old is null) return IssuerOutcome<CreateIntermediateResponse>.NotFound($"Issuer {id} does not exist.");
+        if (old.Kind != IssuerKind.Intermediate)
+            return IssuerOutcome<CreateIntermediateResponse>.Conflict(
+                $"'{old.Name}' is a root; a root CA renews from its certificate page.");
+        if (old.KeyCustody == IssuerKeyCustody.Offline)
+            return IssuerOutcome<CreateIntermediateResponse>.Conflict(
+                $"Qertum holds no key for '{old.Name}'; renew it where it is kept.");
+        if (old.Status != IssuerStatus.Active && old.RevokedAtUtc is null)
+            return IssuerOutcome<CreateIntermediateResponse>.Conflict(
+                $"'{old.Name}' is {old.Status}; only an active or revoked intermediate can be renewed.");
+        if (old.KeyAlgorithm is not { } algorithm || old.SubjectDn is null || old.CertificatePem is null)
+            return IssuerOutcome<CreateIntermediateResponse>.Conflict($"'{old.Name}' never got a certificate; there is nothing to renew.");
+        // One replacement per issuer (also a unique index): renew the replacement, not the old one again.
+        var existing = await db.Issuers.AsNoTracking().Where(i => i.RenewalOfIssuerId == id).Select(i => new { i.Status }).FirstOrDefaultAsync(ct);
+        if (existing is not null)
+            return IssuerOutcome<CreateIntermediateResponse>.Conflict(existing.Status == IssuerStatus.PendingCertificate
+                ? $"A renewal of '{old.Name}' is already waiting for its certificate; install it or delete it first."
+                : $"'{old.Name}' was already renewed; renew its replacement instead.");
+
+        var requested = old.RequestedConstraintsJson is null ? null : JsonSerializer.Deserialize<RequestedConstraints>(old.RequestedConstraintsJson);
+        var profile = requested?.Profile ?? ProfileOf(IssuerCertificateFacts.Read(old.CertificatePem!));
+        var validity = request.ValidityDays ?? requested?.ValidityDays
+            ?? (old.ValidFrom is { } from && old.ValidTo is { } to ? Math.Max(1, (int)Math.Round((to - from).TotalDays)) : 1825);
+        // Sign under whatever now stands in for the old parent: after the parent's own renewal, its replacement.
+        var parentId = old.ParentIssuerId is { } p ? (await IssuerQueries.CurrentReplacementAsync(db, p, ct))?.Id ?? p : (IssuerId?)null;
+        return await CreateAsync(new IntermediateSpec(old.Name, new Org.BouncyCastle.Asn1.X509.X509Name(old.SubjectDn), algorithm,
+            profile, validity, parentId, Renews: old), performedBy, ct);
+    }
+
+    private sealed record IntermediateSpec(string Name, Org.BouncyCastle.Asn1.X509.X509Name Subject, CertificateKeyAlgorithm Algorithm,
+        SubordinateCaProfile Profile, int ValidityDays, IssuerId? ParentId, Issuer? Renews);
+
+    private async Task<IssuerOutcome<CreateIntermediateResponse>> CreateAsync(IntermediateSpec spec, string performedBy, CancellationToken ct)
+    {
+        var algorithm = spec.Algorithm;
+        var settings = await requests.GetSettingsAsync(ct);
+        // A CA key has no template, so the CA default stage governs and no exception applies.
+        var pqcVerdict = PqcStageEvaluator.Evaluate(settings.PqcStage, algorithm, isRenewal: spec.Renews is not null);
+        if (pqcVerdict.Outcome == PqcOutcome.Refused)
+            return IssuerOutcome<CreateIntermediateResponse>.Invalid(pqcVerdict.Reason!);
+
         IssuerHandle? parent = null;
-        if (request.ParentIssuerId is { } parentId)
+        if (spec.ParentId is { } parentId)
         {
             parent = await issuers.GetAsync(parentId, ct);
             if (parent is null)
                 return IssuerOutcome<CreateIntermediateResponse>.NotFound($"Parent issuer {parentId} does not exist.");
+            if (spec.Renews is not null &&
+                IssuerQueries.Broken(await db.Issuers.AsNoTracking().ToListAsync(ct), _clock.GetUtcNow().UtcDateTime).Ids.Contains(parentId))
+                return IssuerOutcome<CreateIntermediateResponse>.Conflict(
+                    $"Parent issuer '{parent.Issuer.Name}' is revoked or expired; renew or replace the parent first.");
             var offlineAnchor = parent.Issuer.KeyCustody == IssuerKeyCustody.Offline && parent.Issuer.Status == IssuerStatus.Active;
             if (!parent.CanIssue && !offlineAnchor)
                 return IssuerOutcome<CreateIntermediateResponse>.Conflict(
@@ -64,20 +122,18 @@ public sealed class IssuerCeremonyService(
             strengthNote = $" Warning: {mismatch}";
         }
 
-        var profile = new SubordinateCaProfile(request.PathLength,
-            Normalize(request.PermittedDnsSuffixes), Normalize(request.ExcludedDnsSuffixes),
-            NormalizeIp(request.PermittedIpRanges), NormalizeIp(request.ExcludedIpRanges));
-        var subject = CaCertificateBuilder.SubjectName(request.CommonName, request.OrganizationName,
-            request.OrganizationalUnit, request.Country, request.State, request.Locality);
+        var profile = spec.Profile;
+        var subject = spec.Subject;
         var keyPair = AlgorithmStrategyFactory.CreateIssuer(algorithm).GenerateCaKeyPair(new SecureRandom());
         var csr = CaCertificateBuilder.BuildRequest(keyPair, subject, profile);
         var now = _clock.GetUtcNow().UtcDateTime;
 
         var issuer = new Issuer
         {
-            Name = request.Name,
+            Name = spec.Name,
             Kind = IssuerKind.Intermediate,
             ParentIssuerId = parent?.Issuer.Id,
+            RenewalOfIssuerId = spec.Renews?.Id,
             KeyCustody = IssuerKeyCustody.Online,
             Status = IssuerStatus.PendingCertificate,
             CsrPem = QertumKeyCodec.WriteCertificationRequestPem(csr),
@@ -85,28 +141,44 @@ public sealed class IssuerCeremonyService(
             SubjectDn = subject.ToString(),
             SpkiSha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
                 QertumKeyCodec.ToSubjectPublicKeyInfo(keyPair.Public).GetDerEncoded())),
-            RequestedConstraintsJson = JsonSerializer.Serialize(new RequestedConstraints(request.ValidityDays, profile)),
+            RequestedConstraintsJson = JsonSerializer.Serialize(new RequestedConstraints(spec.ValidityDays, profile)),
             CreatedAtUtc = now
         };
 
         Directory.CreateDirectory(storage.DirectoryFor(issuer));
         await File.WriteAllTextAsync(storage.KeyPath(issuer), _keyProtector.Protect(QertumKeyCodec.WritePrivateKeyPem(keyPair.Private)), ct);
 
+        var signedNow = parent is { CanIssue: true };
+        LifecycleRenewal? swapped = null;
         try
         {
-            if (parent is { CanIssue: true })
+            if (signedNow)
             {
-                var certificate = parent.Generator!.IssueSubordinateCa(
+                var certificate = parent!.Generator!.IssueSubordinateCa(
                     QertumKeyCodec.ToSubjectPublicKeyInfo(keyPair.Public), subject, profile,
-                    now.AddDays(request.ValidityDays), IssuerUrls.For(parent.Issuer, settings));
+                    now.AddDays(spec.ValidityDays), IssuerUrls.For(parent.Issuer, settings));
                 var pem = QertumKeyCodec.WriteCertificatePem(certificate);
                 await File.WriteAllTextAsync(storage.CertificatePath(issuer), pem, ct);
                 Activate(issuer, pem, now);
-                issuer.IsDefault = !await db.Issuers.AnyAsync(i => i.IsDefault, ct);
+                if (spec.Renews is null)
+                    issuer.IsDefault = !await db.Issuers.AnyAsync(i => i.IsDefault, ct);
             }
 
-            db.Issuers.Add(issuer);
-            await db.SaveChangesAsync(ct);
+            if (spec.Renews is not null && signedNow)
+            {
+                swapped = await lifecycle.SwapRenewedIntermediateAsync(spec.Renews.Id, issuer, ct);
+            }
+            else
+            {
+                db.Issuers.Add(issuer);
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        catch (DbUpdateException) when (spec.Renews is not null)
+        {
+            // Another renewal of the same issuer won the race (unique index on RenewalOfIssuerId).
+            storage.DeleteFiles(issuer);
+            return IssuerOutcome<CreateIntermediateResponse>.Conflict($"'{spec.Renews.Name}' was renewed at the same time; renew its replacement instead.");
         }
         catch
         {
@@ -114,17 +186,34 @@ public sealed class IssuerCeremonyService(
             throw;
         }
 
+        var renewalNote = spec.Renews is null ? string.Empty : $"Renewal of '{spec.Renews.Name}'. ";
         var detail = issuer.Status == IssuerStatus.Active
-            ? $"Intermediate signed by '{parent!.Issuer.Name}'. {IssuerCeremonyText.Describe(profile)}"
-            : $"Intermediate pending; request file issued. {IssuerCeremonyText.Describe(profile)}";
+            ? $"{renewalNote}Intermediate signed by '{parent!.Issuer.Name}'. {IssuerCeremonyText.Describe(profile)}"
+            : $"{renewalNote}Intermediate pending; request file issued. {IssuerCeremonyText.Describe(profile)}";
         await audit.LogAsync("IssuerCreated", performedBy, (Guid)issuer.Id, issuer.Name, detail + strengthNote, ct);
         await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerCreated, issuer, performedBy), ct);
-        await issuers.InvalidateAsync(ct);
+        if (swapped is not null)
+            await lifecycle.AnnounceRenewalAsync(swapped, parent!.Issuer.Name, performedBy, ct); // also invalidates
+        else
+            await issuers.InvalidateAsync(ct);
 
         return IssuerOutcome<CreateIntermediateResponse>.Ok(new CreateIntermediateResponse(
             IssuerMapping.ToResponse(issuer),
             issuer.Status == IssuerStatus.PendingCertificate ? RequestFileFor(issuer) : null));
     }
+
+    /// <summary>True unless both certificates name an authority key and the two differ.</summary>
+    private static bool SameAuthorityKey(X509Certificate a, X509Certificate b)
+    {
+        static byte[]? Aki(X509Certificate c) => c.GetExtensionValue(Org.BouncyCastle.Asn1.X509.X509Extensions.AuthorityKeyIdentifier) is { } v
+            ? Org.BouncyCastle.Asn1.X509.AuthorityKeyIdentifier.GetInstance(
+                Org.BouncyCastle.X509.Extension.X509ExtensionUtilities.FromExtensionValue(v)).KeyIdentifier?.GetOctets()
+            : null;
+        return Aki(a) is not { } left || Aki(b) is not { } right || left.AsSpan().SequenceEqual(right);
+    }
+
+    private static SubordinateCaProfile ProfileOf(IssuerCertificateFacts facts) => new(facts.PathLengthConstraint,
+        [.. facts.PermittedDnsSuffixes], [.. facts.ExcludedDnsSuffixes], [.. facts.PermittedIpRanges], [.. facts.ExcludedIpRanges]);
 
     public async Task<IssuerOutcome<IntermediateRequestFile>> GetRequestFileAsync(IssuerId id, CancellationToken ct)
     {
@@ -199,6 +288,23 @@ public sealed class IssuerCeremonyService(
         var weaker = WeakerThanRequested(facts, RequestedProfile(issuer));
         if (weaker is not null) return IssuerOutcome<IssuerResponse>.Invalid(weaker);
 
+        // A renewal takes the old issuer's place, so the old one must still be there to replace.
+        Issuer? renewed = null;
+        if (issuer.RenewalOfIssuerId is { } renewedId)
+        {
+            renewed = await db.Issuers.AsNoTracking().FirstOrDefaultAsync(i => i.Id == renewedId, ct);
+            if (renewed is null || renewed.Status is IssuerStatus.Archived or IssuerStatus.Destroyed ||
+                await db.Issuers.AnyAsync(i => i.RenewalOfIssuerId == renewedId && i.Status == IssuerStatus.Active && i.Id != issuer.Id, ct))
+                return IssuerOutcome<IssuerResponse>.Conflict(
+                    $"The issuer this renewal replaces is {(renewed is null ? "gone" : renewed.Status.ToString())} or already renewed; delete this pending renewal.");
+            // No parent on record (an imported external intermediate): nothing to compare the chain with, so the
+            // renewal must at least come from the same CA as the certificate it replaces.
+            if (renewed.ParentIssuerId is null && QertumKeyCodec.ReadCertificatePem(renewed.CertificatePem!) is { } previous &&
+                (!previous.IssuerDN.Equivalent(certificate.IssuerDN) || !SameAuthorityKey(previous, certificate)))
+                return IssuerOutcome<IssuerResponse>.Invalid(
+                    $"The certificate's issuer '{certificate.IssuerDN}' is not the CA that issued the certificate it renews ('{previous.IssuerDN}').");
+        }
+
         // Register every CA above this one we do not know yet, as offline issuers, linking parents.
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         IssuerId? childParent = null;
@@ -235,8 +341,16 @@ public sealed class IssuerCeremonyService(
         await File.WriteAllTextAsync(storage.CertificatePath(issuer), pem, ct);
         issuer.ParentIssuerId = childParent;
         Activate(issuer, pem, now);
-        issuer.IsDefault = !await db.Issuers.AnyAsync(i => i.IsDefault, ct);
-        await db.SaveChangesAsync(ct);
+        LifecycleRenewal? swapped = null;
+        if (renewed is null)
+        {
+            issuer.IsDefault = !await db.Issuers.AnyAsync(i => i.IsDefault, ct);
+            await db.SaveChangesAsync(ct);
+        }
+        else
+        {
+            swapped = await lifecycle.SwapRenewedIntermediateAsync(renewed.Id, issuer, ct); // joins this transaction
+        }
         await transaction.CommitAsync(ct);
 
         foreach (var added in registered)
@@ -245,9 +359,16 @@ public sealed class IssuerCeremonyService(
                 "Offline CA registered from an installed chain.", ct);
             await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerRegistered, added, performedBy), ct);
         }
-        await audit.LogAsync("IssuerCertificateInstalled", performedBy, (Guid)issuer.Id, issuer.Name,
-            $"Signed by '{path[1].SubjectDN}', valid to {certificate.NotAfter:yyyy-MM-dd}. {IssuerCeremonyText.Describe(RequestedProfile(issuer))}", ct);
-        await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerCertificateInstalled, issuer, performedBy), ct);
+        if (swapped is not null)
+        {
+            await lifecycle.AnnounceRenewalAsync(swapped, path[1].SubjectDN.ToString(), performedBy, ct);
+        }
+        else
+        {
+            await audit.LogAsync("IssuerCertificateInstalled", performedBy, (Guid)issuer.Id, issuer.Name,
+                $"Signed by '{path[1].SubjectDN}', valid to {certificate.NotAfter:yyyy-MM-dd}. {IssuerCeremonyText.Describe(RequestedProfile(issuer))}", ct);
+            await webhooks.EnqueueEventAsync(IssuerEvents.For(WellKnownWebhookEvents.IssuerCertificateInstalled, issuer, performedBy), ct);
+        }
         await issuers.InvalidateAsync(ct);
         return IssuerOutcome<IssuerResponse>.Ok(IssuerMapping.ToResponse(issuer));
     }

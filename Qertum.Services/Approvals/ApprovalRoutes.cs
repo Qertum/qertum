@@ -38,6 +38,7 @@ public static class ApprovalRoutes
         new("GET", "/v1/certificate-requests/{id:guid}/private-key", ApprovalOperations.KeyExport, ApprovalGate.NonOwnerKeyAccess),
         new("POST", "/v1/certificate-requests/{id:guid}/pfx", ApprovalOperations.PfxExport, ApprovalGate.NonOwnerKeyAccess),
         new("POST", "/v1/issuers/intermediates", ApprovalOperations.IssuerCreateIntermediate, ApprovalGate.Always),
+        new("POST", "/v1/issuers/{id:guid}/renew", ApprovalOperations.IssuerRenew, ApprovalGate.Always),
         new("POST", "/v1/issuers/{id:guid}/certificate", ApprovalOperations.IssuerInstallCertificate, ApprovalGate.Always),
         new("POST", "/v1/issuers/{id:guid}/crl", ApprovalOperations.IssuerUploadCrl, ApprovalGate.Always),
         new("POST", "/v1/issuers/{id:guid}/make-default", ApprovalOperations.IssuerMakeDefault, ApprovalGate.Always),

@@ -60,7 +60,7 @@ public static class DiagnosticCategories
     public const string DuplicateCommonName = "DuplicateCommonName";
 
     public const string Disabled = "Disabled";
-    public const string WrongPassword = "WrongPassword";
+    public const string WrongSecret = "WrongPassword"; // the stored category name; the value must not change
     public const string Revoked = "Revoked";
     public const string IdentityMismatch = "IdentityMismatch";
     public const string CompositeReenrollUnsupported = "CompositeReenrollUnsupported";
@@ -95,7 +95,7 @@ public static class DiagnosticHints
         [DiagnosticCategories.CaNotReady] = "The CA is not initialized yet; approve the root CA request first.",
         [DiagnosticCategories.DuplicateCommonName] = "Another identity holds an active request for this name; revoke or reject it first.",
         [DiagnosticCategories.Disabled] = "The credential is disabled; enable it in Settings → EST or issue a new one.",
-        [DiagnosticCategories.WrongPassword] = "The device sent the wrong password. Passwords cannot be read back; issue a new credential if it was lost.",
+        [DiagnosticCategories.WrongSecret] = "The device sent the wrong password. Passwords cannot be read back; issue a new credential if it was lost.",
         [DiagnosticCategories.Revoked] = "The certificate presented for re-enrollment is revoked; enroll again with /simpleenroll.",
         [DiagnosticCategories.CompositeReenrollUnsupported] = "Re-enrollment cannot verify composite ML-DSA certificates or certificates issued by a composite CA; enroll again with /simpleenroll.",
         [DiagnosticCategories.IdentityMismatch] = "Re-enrollment must keep the names of the certificate presented; enroll with /simpleenroll for new names.",

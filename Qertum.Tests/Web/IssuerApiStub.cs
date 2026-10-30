@@ -12,6 +12,7 @@ internal sealed class IssuerApiStub : HttpMessageHandler
 
     public List<IssuerResponse> Issuers { get; } = [];
     public List<(HttpMethod Method, string Path, string? Body)> Requests { get; } = [];
+    public List<string> Queries { get; } = [];
     public Func<HttpRequestMessage, HttpResponseMessage?>? Override { get; set; }
 
     public static IssuerResponse Issuer(string name, IssuerStatus status = IssuerStatus.Active, IssuerKeyCustody custody = IssuerKeyCustody.Online,
@@ -24,6 +25,7 @@ internal sealed class IssuerApiStub : HttpMessageHandler
     {
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
         Requests.Add((request.Method, request.RequestUri!.AbsolutePath, body));
+        Queries.Add(request.RequestUri.PathAndQuery);
         if (Override?.Invoke(request) is { } overridden) return overridden;
 
         var path = request.RequestUri!.AbsolutePath;

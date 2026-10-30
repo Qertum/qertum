@@ -232,6 +232,8 @@ if (secretStorageChange is not null)
         detail: $"{secretStorageChange.From} -> {secretStorageChange.To}");
 }
 
+app.UseQertumSecurityHeaders(SecurityHeaders.IdentityPolicy);
+
 // MapStaticAssets (not UseStaticFiles) so identity.css is served build-time compressed
 // (gzip on build, brotli on publish) and fingerprinted with immutable cache headers.
 app.MapStaticAssets();

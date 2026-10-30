@@ -632,6 +632,14 @@ else
                        ConfirmLabel="Revoke Certificate" Busy="actionInProgress"
                        OnConfirm="ConfirmRevoke" OnCancel="@(() => showRevokeModal = false)">
             <p>Are you sure you want to revoke <strong class="confirm-dialog-emphasis">@certificate.CommonName</strong>? This cannot be undone.</p>
+            @if (certificate.Type == WellKnownCertificateTypes.RootCa)
+            {
+                <p data-test="revoke-ca-warning"><strong>This is the CA's own certificate.</strong> Revoking it stops the CA from issuing: the CA, and by default every CA below it, stops signing at once, until it is renewed (Renew on this page: a new key under the same name) or an administrator creates or imports a new root. It keeps answering CRL and OCSP for what it signed. Settings, Issuance, <em>When a CA certificate is revoked</em> chooses how far this goes.</p>
+            }
+            else if (isSubordinateCa)
+            {
+                <p data-test="revoke-subordinate-ca-warning"><strong>This is a CA certificate.</strong> Revoking it makes every certificate it signed fail for clients that check revocation. If Qertum issues from this CA, it stops signing at once, and by default so does every CA below it; if it is the default issuer, all issuance stops until another CA is made the default on the Issuers page. It keeps answering CRL and OCSP for what it signed. Settings, Issuance, <em>When a CA certificate is revoked</em> chooses how far this goes.</p>
+            }
             <div class="mb-3">
                 <label class="form-label">Reason (optional)</label>
                 <select class="form-select" @bind="revokeReason">
@@ -669,6 +677,8 @@ else
     private bool showDownloadMenu;
     private bool showPqcRawData;
     private bool includeChain;
+    // A CA certificate other than the root: the SubordinateCA template, or any certificate whose basic constraints say cA.
+    private bool isSubordinateCa;
     private string? cachedCaPem;
     private bool showPfxModal;
     private string? pfxPassword;
@@ -906,7 +916,11 @@ else
                     {
                         parsedCertificate = X509Certificate2.CreateFromPem(certificate.CertificatePem);
                         var bc = parsedCertificate.Extensions.OfType<X509BasicConstraintsExtension>().FirstOrDefault();
-                        if (bc is { CertificateAuthority: true }) includeChain = true;
+                        if (bc is { CertificateAuthority: true })
+                        {
+                            includeChain = true;
+                            isSubordinateCa = certificate.Type != WellKnownCertificateTypes.RootCa;
+                        }
                     }
                     catch { /* Ignore parse errors */ }
                 }
@@ -917,7 +931,11 @@ else
                     try { parsedPqcCertificate = X509Certificate2.CreateFromPem(certificate.PqcCertificatePem); }
                     catch { /* Ignore parse errors */ }
                 }
-                if (!includeChain && certificate.Type == "SubordinateCA") includeChain = true;
+                if (certificate.Type == "SubordinateCA")
+                {
+                    includeChain = true;
+                    isSubordinateCa = true;
+                }
                 await LoadPolicyLabelAsync();
             }
         }

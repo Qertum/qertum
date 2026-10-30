@@ -32,6 +32,7 @@ public static class IssuerServiceRegistration
         services.TryAddScoped<IssuerRevocationService>();
         services.TryAddSingleton<IssuerKeyExporter>();
         services.TryAddSingleton<FluentValidation.IValidator<CreateIntermediateRequest>, Validators.CreateIntermediateRequestValidator>();
+        services.TryAddSingleton<FluentValidation.IValidator<RenewIssuerRequest>, Validators.RenewIssuerRequestValidator>();
         return services;
     }
 }

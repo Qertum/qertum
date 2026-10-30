@@ -193,12 +193,12 @@ public static class ApiEndpointMappings
             Results.Ok(await service.GetDashboardSummaryAsync(cancellationToken)));
 
         certificateRequests.MapGet("/issued", async (CertificateRequestApiService service, int page = 1, int pageSize = 100,
-            IssuedCertificateFilter? filter = null, string? search = null, CancellationToken cancellationToken = default) =>
-            Results.Ok(await service.GetIssuedAsync(page, pageSize, filter, search, cancellationToken)));
+            IssuedCertificateFilter? filter = null, string? search = null, bool validOnly = false, CancellationToken cancellationToken = default) =>
+            Results.Ok(await service.GetIssuedAsync(page, pageSize, filter, search, validOnly, cancellationToken)));
 
         certificateRequests.MapGet("/issued/validity-counts", async (CertificateRequestApiService service,
-            string? search = null, CancellationToken cancellationToken = default) =>
-            Results.Ok(await service.GetIssuedValidityCountsAsync(search, cancellationToken)));
+            string? search = null, bool validOnly = false, CancellationToken cancellationToken = default) =>
+            Results.Ok(await service.GetIssuedValidityCountsAsync(search, validOnly, cancellationToken)));
 
         certificateRequests.MapGet("/rejected", async (CertificateRequestApiService service, int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) =>
             Results.Ok(await service.GetRejectedAsync(page, pageSize, cancellationToken)));
@@ -723,8 +723,11 @@ public static class ApiEndpointMappings
 
         var secretStorageGroup = v1.MapGroup("/secret-storage").WithTags("SecretStorage")
             .RequireAuthorization(AppPermissions.SettingsEdit);
+        // The data directory is server configuration (a singleton), resolved once here rather than as a handler
+        // parameter, so nothing about the request can ever be mistaken for, or bound into, a file-system path.
+        var options = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<SecretStorageOptions>(((IEndpointRouteBuilder)v1).ServiceProvider);
 
-        secretStorageGroup.MapGet("/status", (SecretStorageOptions options) =>
+        secretStorageGroup.MapGet("/status", () =>
         {
             var provider = Qertum.ServiceDefaults.Secrets.SecretStorageConfig.Read(options.DataDirectory);
             var tpmAvailable = Qertum.ServiceDefaults.Secrets.TpmSecretProtector.IsAvailable();
@@ -734,7 +737,6 @@ public static class ApiEndpointMappings
 
         secretStorageGroup.MapPost("/migrate", async (
             MigrateSecretStorageRequest request,
-            SecretStorageOptions options,
             HttpContext httpContext, IIdentityClaimsMapper claimsMapper,
             IAuditLogService auditLog,
             CancellationToken cancellationToken) =>
@@ -763,7 +765,7 @@ public static class ApiEndpointMappings
         // CA lifecycle — status is readable by any authenticated user; generate/import require settings.edit
         var caGroup = v1.MapGroup("/ca").RequireAuthorization();
 
-        caGroup.MapGet("/status", async (IIssuerRegistry issuers, CertificateRequestApiService requestService, CancellationToken cancellationToken) =>
+        caGroup.MapGet("/status", async (IIssuerRegistry issuers, CertificateRequestApiService requestService, CertificateRequestDbContext db, CancellationToken cancellationToken) =>
         {
             var handle = await issuers.GetDefaultAsync(cancellationToken);
             var status = handle?.Generator?.GetCaStatus() ?? new CaStatusResponse { IsInitialized = false };
@@ -777,6 +779,8 @@ public static class ApiEndpointMappings
                 status.PendingRootCaRequestId = await requestService.GetPendingRootCaRequestIdAsync(cancellationToken);
                 status.PendingIntermediateIssuerId = (await issuers.GetAllAsync(cancellationToken))
                     .FirstOrDefault(i => i.Status == IssuerStatus.PendingCertificate)?.Id;
+                status.IssuerRevoked = await IssuerQueries.AnyRevokedAsync(db, cancellationToken);
+                if (status.IssuerRevoked) status.RevokedIssuerKind = await IssuerQueries.LatestRevokedKindAsync(db, cancellationToken);
             }
             return Results.Ok(status);
         });
@@ -1660,11 +1664,11 @@ public sealed class CertificateRequestApiService(
         => certificateRequestService.GetStatusCountsAsync(search, cancellationToken);
 
     public Task<PagedResult<CertificateRequest>> GetIssuedAsync(int page = 1, int pageSize = 100,
-        IssuedCertificateFilter? filter = null, string? search = null, CancellationToken cancellationToken = default)
-        => certificateRequestService.GetIssuedAsync(page, pageSize, filter, search, cancellationToken);
+        IssuedCertificateFilter? filter = null, string? search = null, bool validOnly = false, CancellationToken cancellationToken = default)
+        => certificateRequestService.GetIssuedAsync(page, pageSize, filter, search, validOnly, cancellationToken);
 
-    public Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, CancellationToken cancellationToken = default)
-        => certificateRequestService.GetIssuedValidityCountsAsync(search, cancellationToken);
+    public Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, bool validOnly = false, CancellationToken cancellationToken = default)
+        => certificateRequestService.GetIssuedValidityCountsAsync(search, validOnly, cancellationToken);
 
     public Task<PagedResult<CertificateRequest>> GetRejectedAsync(int page = 1, int pageSize = 100, CancellationToken cancellationToken = default)
         => certificateRequestService.GetRejectedAsync(page, pageSize, cancellationToken);

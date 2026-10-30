@@ -44,8 +44,13 @@ else
             <input type="search" placeholder="Search common name or requester…"
                    value="@searchQuery" @oninput="OnSearchInput" data-test="search" />
         </div>
+        <label class="form-check list-toggle">
+            <input class="form-check-input" type="checkbox" data-test="valid-only"
+                   checked="@validOnly" @onchange="OnValidOnlyChanged" />
+            <span class="form-check-label">Show only valid certificates</span>
+        </label>
         <div class="filter-chips">
-            @foreach (var f in Filters)
+            @foreach (var f in Filters.Where(f => !validOnly || !f.InvalidOnly))
             {
                 <button type="button"
                         class="filter-chip @(validityFilter == f.Key ? "active" : "")"
@@ -141,17 +146,24 @@ else
 
     private string validityFilter = AllFilter;
 
-    private sealed record ValidityChip(string Key, IssuedCertificateFilter? Filter);
+    // InvalidOnly: the bucket holds nothing "Show only valid certificates" keeps, so the chip is hidden while it is on.
+    private sealed record ValidityChip(string Key, IssuedCertificateFilter? Filter, bool InvalidOnly = false);
 
     private static readonly ValidityChip[] Filters =
     [
         new(AllFilter, null),
         new("Valid", IssuedCertificateFilter.Valid),
         new("Expiring", IssuedCertificateFilter.Expiring),
-        new("Expired", IssuedCertificateFilter.Expired),
-        new("Revoking", IssuedCertificateFilter.Revoking),
-        new("Revoked", IssuedCertificateFilter.Revoked),
+        new("Expired", IssuedCertificateFilter.Expired, InvalidOnly: true),
+        new("Revoking", IssuedCertificateFilter.Revoking, InvalidOnly: true),
+        new("Revoked", IssuedCertificateFilter.Revoked, InvalidOnly: true),
     ];
+
+    // On by default; valid=0 in the URL turns it off, and so does a link to a chip it would hide (old links keep working).
+    [SupplyParameterFromQuery(Name = "valid")]
+    public string? ValidParameter { get; set; }
+
+    private bool validOnly = true;
 
     // Bulk revoke needs certificates.manage and bulk renew certificates.create; either is enough to open the page.
     private bool canBulk;
@@ -167,6 +179,7 @@ else
     {
         // An unknown value falls back to All rather than showing an empty list for a typo.
         validityFilter = Filters.FirstOrDefault(f => string.Equals(f.Key, FilterName, StringComparison.OrdinalIgnoreCase))?.Key ?? AllFilter;
+        validOnly = ValidParameter != "0" && !Filters.First(f => f.Key == validityFilter).InvalidOnly;
         await LoadAsync();
     }
 
@@ -178,22 +191,31 @@ else
         try
         {
             loadError = null;
-            var result = await CertificateRequestsApiClient.GetIssuedCertificatesAsync(CurrentPage, PageSize, filter, search);
+            var result = await CertificateRequestsApiClient.GetIssuedCertificatesAsync(CurrentPage, PageSize, filter, search, validOnly);
             certificates = result.Items;
             totalCount = result.TotalCount;
-            counts = await CertificateRequestsApiClient.GetIssuedValidityCountsAsync(search);
+            counts = await CertificateRequestsApiClient.GetIssuedValidityCountsAsync(search, validOnly);
         }
         catch (Exception ex) { loadError = $"Failed to load certificates: {ex.Message}"; }
     }
 
     private void SelectFilter(string key) => NavigateWith(key == AllFilter ? null : key, page: null);
 
+    private void OnValidOnlyChanged(ChangeEventArgs e)
+    {
+        validOnly = e.Value is true;
+        // A chip the box now hides falls back to All rather than an empty list.
+        var keep = validOnly && Filters.First(f => f.Key == validityFilter).InvalidOnly ? AllFilter : validityFilter;
+        NavigateWith(keep == AllFilter ? null : keep, page: null);
+    }
+
     private void NavigateWith(string? filter, int? page)
     {
         var uri = NavigationManager.GetUriWithQueryParameters(new Dictionary<string, object?>
         {
             ["filter"] = filter,
-            ["page"] = page is > 1 ? page : null
+            ["page"] = page is > 1 ? page : null,
+            ["valid"] = validOnly ? null : "0"
         });
         NavigationManager.NavigateTo(uri);
     }

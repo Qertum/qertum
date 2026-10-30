@@ -94,6 +94,10 @@ else if (_step == Step.Choose)
         </div>
         <h1 class="ob-title">Set Up Certificate Authority</h1>
         <p class="ob-subtitle">Choose how to configure the root CA for this server. This CA will sign all certificates issued here.</p>
+        @if (_issuerRevoked)
+        {
+            <p class="ob-subtitle" data-test="issuer-revoked-notice">The previous CA certificate was revoked, so that CA no longer issues. It keeps answering CRL and OCSP for what it signed, and its issuers stay on the Issuers page. A new root created here starts a new CA. To keep the same CA name instead, renew the revoked root certificate: open it from Revoked certificates and choose Renew, which gives it a new key.</p>
+        }
 
         <div class="option-list">
             @* Creating issuers is admin-only on the API, like permission grants. *@
@@ -550,6 +554,7 @@ else if (_step == Step.Import)
     private static string WithDetail(string message, ApiProblemException ex) =>
         ex.WithCorrelationId(string.IsNullOrWhiteSpace(ex.Detail) ? message : $"{message} ({ex.Detail})");
 
+    private bool _issuerRevoked;
     private enum Step { Choose, OfflineRoot, Generate, Import, PendingApproval, Done }
 
     private Step _step = Step.Choose;
@@ -646,6 +651,10 @@ else if (_step == Step.Import)
             {
                 _pendingRootCaRequestId = status.PendingRootCaRequestId;
                 _step = Step.PendingApproval;
+            }
+            else if (status.IssuerRevoked)
+            {
+                _issuerRevoked = true;
             }
             else if (status.PendingIntermediateIssuerId is { } pendingIntermediate)
             {

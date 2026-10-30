@@ -15,12 +15,19 @@ internal sealed class NullAuditLog : IAuditLogService
 
 internal sealed class NullWebhooks : IWebhookService
 {
+    /// <summary>Every event enqueued, so a test can read what would have been sent.</summary>
+    public List<WebhookEvent> Events { get; } = [];
+
     public Task<IReadOnlyList<Webhook>> GetAllAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Webhook>>([]);
     public Task<Webhook?> GetByIdAsync(WebhookId id, CancellationToken cancellationToken = default) => Task.FromResult<Webhook?>(null);
     public Task<Webhook> CreateAsync(Webhook webhook, string performedBy, CancellationToken cancellationToken = default) => Task.FromResult(webhook);
     public Task<Webhook?> UpdateAsync(WebhookId id, Webhook webhook, string performedBy, CancellationToken cancellationToken = default) => Task.FromResult<Webhook?>(null);
     public Task<bool> DeleteAsync(WebhookId id, string performedBy, CancellationToken cancellationToken = default) => Task.FromResult(false);
-    public Task EnqueueEventAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task EnqueueEventAsync(WebhookEvent webhookEvent, CancellationToken cancellationToken = default)
+    {
+        lock (Events) Events.Add(webhookEvent);
+        return Task.CompletedTask;
+    }
 }
 
 internal static class IssuanceSignerFactory

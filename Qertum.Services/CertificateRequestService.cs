@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Qertum.Services.Policies;
 
@@ -131,25 +132,27 @@ public sealed class CertificateRequestService(
              .Replace("_", LikeEscape + "_");
 
     public async Task<PagedResult<CertificateRequest>> GetIssuedAsync(int page = 1, int pageSize = 100,
-        IssuedCertificateFilter? filter = null, string? search = null, CancellationToken cancellationToken = default)
+        IssuedCertificateFilter? filter = null, string? search = null, bool validOnly = false, CancellationToken cancellationToken = default)
     {
         (page, pageSize) = Clamp(page, pageSize);
-        var query = ApplyIssuedFilters(IssuedCertificates(), filter, search)
+        var source = validOnly ? await ValidCertificatesAsync(cancellationToken) : IssuedCertificates();
+        var query = ApplyIssuedFilters(source, filter, search)
             .OrderByDescending(r => r.ValidFrom)
             .ThenBy(r => r.Id);
         return await ToPagedResultAsync(query, page, pageSize, cancellationToken);
     }
 
-    public async Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, CancellationToken cancellationToken = default)
+    public async Task<IssuedCertificateCounts> GetIssuedValidityCountsAsync(string? search = null, bool validOnly = false, CancellationToken cancellationToken = default)
     {
         var counted = new Dictionary<string, int>();
         var total = 0;
+        var source = validOnly ? await ValidCertificatesAsync(cancellationToken) : IssuedCertificates();
 
         // One query per bucket rather than a grouped projection: the buckets are date comparisons
         // against "now", not a stored column, so there is nothing to group by.
         foreach (var filter in Enum.GetValues<IssuedCertificateFilter>())
         {
-            var count = await ApplyIssuedFilters(IssuedCertificates(), filter, search).CountAsync(cancellationToken);
+            var count = await ApplyIssuedFilters(source, filter, search).CountAsync(cancellationToken);
             if (count > 0) counted[filter.ToString()] = count;
             total += count;
         }
@@ -162,6 +165,21 @@ public sealed class CertificateRequestService(
             .Where(r => r.Status == CertificateRequestStatus.Issued
                      || r.Status == CertificateRequestStatus.Revoked
                      || r.Status == CertificateRequestStatus.PendingRevocation);
+
+    /// <summary>
+    /// "Show only valid": issued, not expired, and under no revoked or expired CA (<see cref="Issuers.IssuerQueries.Broken"/>).
+    /// A renewed original stays until it expires, so the overlap with its renewal shows.
+    /// </summary>
+    private async Task<IQueryable<CertificateRequest>> ValidCertificatesAsync(CancellationToken cancellationToken)
+    {
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var (broken, legacyBroken) = await Issuers.IssuerQueries.BrokenAsync(dbContext, now, cancellationToken);
+        var brokenIds = broken.Select(id => (IssuerId?)id).ToList();
+        return dbContext.CertificateRequests.Where(r =>
+            r.Status == CertificateRequestStatus.Issued
+            && (r.ValidTo == null || r.ValidTo > now)
+            && (r.IssuerId == null ? !legacyBroken : !brokenIds.Contains(r.IssuerId)));
+    }
 
     /// <summary>
     /// The validity-bucket and search filters shared by the certificates list and its chip counts.
@@ -510,7 +528,9 @@ public sealed class CertificateRequestService(
         if (!existing.RenewedFromId.HasValue)
             return existing;
 
-        if (settings.AutoRevokeOnRenewal)
+        // Not for a root: revoking it would retire everything it signed. Signing the renewal retires it instead
+        // (IssuanceSigner), and its certificates stay checkable.
+        if (settings.AutoRevokeOnRenewal && existing.Type != WellKnownCertificateTypes.RootCa)
             await MarkAsPendingRevocationAsync(existing.RenewedFromId.Value, "superseded", performedBy, cancellationToken);
 
         return existing;
@@ -811,6 +831,27 @@ public sealed class CertificateRequestService(
         return existing;
     }
 
+    /// <summary>
+    /// A root renewal keeps the CA's name, organisation and validity but not the one-off instructions of the
+    /// request it renews (replace a given issuer, first root after a revocation): the renewal is its own case,
+    /// recognised by <c>RenewedFromId</c>.
+    /// </summary>
+    private static string? RootRenewalProperties(string? propertiesJson)
+    {
+        if (string.IsNullOrEmpty(propertiesJson)) return propertiesJson;
+        var source = JsonSerializer.Deserialize<RootCaProperties>(propertiesJson);
+        if (source is null) return propertiesJson;
+        return JsonSerializer.Serialize(new RootCaProperties
+        {
+            OrganizationName = source.OrganizationName,
+            OrganizationalUnit = source.OrganizationalUnit,
+            Country = source.Country,
+            State = source.State,
+            Locality = source.Locality,
+            ValidityDays = source.ValidityDays
+        });
+    }
+
     public Task<CertificateRequest?> RenewAsync(CertificateRequestId id, string performedBy, CancellationToken cancellationToken = default)
         => RenewAsync(id, performedBy, caller: null, cancellationToken);
 
@@ -838,7 +879,9 @@ public sealed class CertificateRequestService(
             // Carry ownership across the renewal so the original requester keeps key access.
             RequestedBySubject = existing.RequestedBySubject,
             Type = existing.Type,
-            PropertiesJson = existing.PropertiesJson,
+            PropertiesJson = existing.Type == WellKnownCertificateTypes.RootCa
+                ? RootRenewalProperties(existing.PropertiesJson)
+                : existing.PropertiesJson,
             KeyAlgorithm = existing.KeyAlgorithm,
             // Carried so a renewal keeps the shorter window its source asked for; it is
             // re-evaluated against the current policy like any other request.

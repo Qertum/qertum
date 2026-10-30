@@ -24,7 +24,7 @@ public sealed class EstCredentialActivityTests
         db.EstEnrollmentCredentials.Add(credential);
         db.CertificateRequests.Add(request);
         db.LifecycleEvents.AddRange(
-            Event(credential.Id, DiagnosticActions.AuthRefused, DiagnosticCategories.WrongPassword, null, DateTime.UtcNow.AddMinutes(-10)),
+            Event(credential.Id, DiagnosticActions.AuthRefused, DiagnosticCategories.WrongSecret, null, DateTime.UtcNow.AddMinutes(-10)),
             Event(credential.Id, DiagnosticActions.Enrolled, null,
                 $$"""{"certificateRequestId":"{{(Guid)request.Id}}","autoApproved":false}""", DateTime.UtcNow));
         await db.SaveChangesAsync(ct);
@@ -34,7 +34,7 @@ public sealed class EstCredentialActivityTests
         Assert.Equal([DiagnosticActions.Enrolled, DiagnosticActions.AuthRefused], page.Items.Select(e => e.Action));
         Assert.Equal((Guid)request.Id, page.Items[0].RelatedRequestId);
         Assert.Equal("Rejected", page.Items[0].Category);
-        Assert.Equal(DiagnosticHints.For(DiagnosticCategories.WrongPassword), page.Items[1].Hint);
+        Assert.Equal(DiagnosticHints.For(DiagnosticCategories.WrongSecret), page.Items[1].Hint);
     }
 
     [Fact]

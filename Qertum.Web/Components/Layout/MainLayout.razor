@@ -73,6 +73,22 @@
                     </AuthorizeView>
                 </div>
             }
+            else if (_issuerRevoked)
+            {
+                <div class="ca-setup-banner" data-test="ca-revoked-banner">
+                    <span class="bi bi-exclamation-triangle-fill ca-setup-banner-icon" aria-hidden="true"></span>
+                    <span class="ca-setup-banner-text">The CA certificate was revoked — certificates cannot be issued until it is renewed or a new root CA is created.</span>
+                    <AuthorizeView Roles="admin">
+                        <Authorized>
+                            <a href="@CaRevokedBanner.RenewHref(_revokedIssuerKind)" class="ca-setup-banner-action" data-test="ca-revoked-renew">Renew it</a>
+                            <a href="/onboarding" class="ca-setup-banner-action">Set up a new CA</a>
+                        </Authorized>
+                        <NotAuthorized>
+                            <span class="ca-setup-banner-hint">Contact an administrator.</span>
+                        </NotAuthorized>
+                    </AuthorizeView>
+                </div>
+            }
             else
             {
                 <div class="ca-setup-banner">
@@ -108,6 +124,8 @@
     private string? currentCrumb;
     private bool? _caInitialized;
     private Guid? _pendingRootCaRequestId;
+    private bool _issuerRevoked;
+    private IssuerKind? _revokedIssuerKind;
     private string? _lastPath;
 
     protected override void OnInitialized()
@@ -147,7 +165,11 @@
                     var status = await ApiClient.GetCaStatusAsync();
                     _caInitialized = status.IsInitialized;
                     _pendingRootCaRequestId = status.PendingRootCaRequestId;
-                    shouldRedirect = !status.IsInitialized && !status.PendingRootCaRequestId.HasValue;
+                    _issuerRevoked = status.IssuerRevoked;
+                    _revokedIssuerKind = status.RevokedIssuerKind;
+                    // Onboarding is forced only for a server that never had a CA. After a revoked one the admin
+                    // still needs the issuers page, the audit log and the old CRL, so the banner points to onboarding.
+                    shouldRedirect = !status.IsInitialized && !status.PendingRootCaRequestId.HasValue && !status.IssuerRevoked;
                 }
             }
         }
@@ -188,11 +210,14 @@
             var status = await ApiClient.GetCaStatusAsync();
             _caInitialized = status.IsInitialized;
             _pendingRootCaRequestId = status.PendingRootCaRequestId;
+            _issuerRevoked = status.IssuerRevoked;
+            _revokedIssuerKind = status.RevokedIssuerKind;
         }
         catch
         {
             _caInitialized = true;
             _pendingRootCaRequestId = null;
+            _issuerRevoked = false;
         }
         StateHasChanged();
     }

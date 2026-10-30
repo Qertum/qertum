@@ -23,8 +23,7 @@ public sealed class StepUpMiddleware(RequestDelegate next)
             var result = evaluator.Evaluate(context.User);
             if (result != StepUpResult.Satisfied)
             {
-                logger.LogInformation("Step-up required for {Method} {Route}: {Reason}.",
-                    context.Request.Method, endpoint.RoutePattern.RawText, result);
+                logger.LogInformation("Step-up required for {Endpoint}: {Reason}.", endpoint.DisplayName, result);
                 var options = evaluator.Options;
                 context.Response.Headers[HeaderNames.WWWAuthenticate] =
                     "Bearer error=\"insufficient_user_authentication\", " +

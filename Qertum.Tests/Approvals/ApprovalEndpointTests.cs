@@ -102,7 +102,7 @@ public sealed class ApprovalEndpointTests
         await using var host = await HostAsync();
         var endpoints = host.Factory.Services.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>().ToList();
 
-        Assert.Equal(13, ApprovalRoutes.Gated.Count);
+        Assert.Equal(14, ApprovalRoutes.Gated.Count);
         foreach (var entry in ApprovalRoutes.Gated)
         {
             var matches = endpoints.Count(e => e.RoutePattern.RawText == entry.Pattern

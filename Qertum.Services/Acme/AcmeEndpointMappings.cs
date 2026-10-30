@@ -305,7 +305,7 @@ public static class AcmeEndpointMappings
                 }
 
                 // onlyReturnExisting check
-                if (payload.TryGetProperty("onlyReturnExisting", out var ore) && ore.GetBoolean())
+                if (AcmeJson.OptionalBool(payload, "onlyReturnExisting", "payload"))
                     return AcmeProblem("accountDoesNotExist", "No account found for this key.");
 
                 // External account binding (RFC 8555 §7.3.4). Checked only for registrations that
@@ -338,7 +338,7 @@ public static class AcmeEndpointMappings
                     JwkThumbprint = jws.JwkThumbprint,
                     PublicKeyJwk = jws.EmbeddedJwk,
                     ExternalAccountKid = boundCredential?.Kid,
-                    TermsOfServiceAgreed = payload.TryGetProperty("termsOfServiceAgreed", out var tos) && tos.GetBoolean(),
+                    TermsOfServiceAgreed = AcmeJson.OptionalBool(payload, "termsOfServiceAgreed", "payload"),
                     ContactsJson = ValidatedContactsJson(payload)
                 };
                 db.AcmeAccounts.Add(account);
@@ -392,9 +392,9 @@ public static class AcmeEndpointMappings
 
                 var update = payload.Value;
 
-                if (update.TryGetProperty("status", out var statusEl))
+                if (update.TryGetProperty("status", out _))
                 {
-                    var requested = statusEl.GetString();
+                    var requested = AcmeJson.OptionalString(update, "status", "payload");
 
                     // §7.3.6 gives the client exactly one status it may set. "revoked" is the server's
                     // to assign, and "valid" would let a holder undo the only kill switch they have.
@@ -491,8 +491,9 @@ public static class AcmeEndpointMappings
                 var payload = jws.Payload?.RootElement
                     ?? throw new AcmeException("malformed", "POST-as-GET not valid for new-order.");
 
-                var identifiers = payload.GetProperty("identifiers").EnumerateArray()
-                    .Select(i => (Type: i.GetProperty("type").GetString()!, Value: i.GetProperty("value").GetString()!))
+                var identifiers = AcmeJson.RequiredArray(payload, "identifiers", "payload").EnumerateArray()
+                    .Select(i => (Type: AcmeJson.RequiredString(i, "type", "identifier"),
+                                  Value: AcmeJson.RequiredString(i, "value", "identifier")))
                     .ToList();
 
                 if (identifiers.Count == 0)
@@ -707,8 +708,7 @@ public static class AcmeEndpointMappings
                 // validated, which is what stops a client from validating one name and having a
                 // certificate issued for another. This is not an oversight; do not "fix" it by
                 // reading names out of the CSR.
-                var csrB64 = payload.GetProperty("csr").GetString()
-                    ?? throw new AcmeException("malformed", "Missing 'csr' in payload.");
+                var csrB64 = AcmeJson.RequiredString(payload, "csr", "payload");
 
                 order.CsrPem = csrB64;
 
@@ -950,9 +950,7 @@ public static class AcmeEndpointMappings
 
                     // The inner payload names the account being moved. Without this check an inner
                     // JWS captured from one account could be replayed to re-key a different one.
-                    var claimedAccount = innerPayload.TryGetProperty("account", out var accountEl)
-                        ? accountEl.GetString()
-                        : null;
+                    var claimedAccount = AcmeJson.OptionalString(innerPayload, "account", "inner payload");
                     var accountUrl = $"{baseUrl}/acme/account/{account.Id}";
                     if (!string.Equals(claimedAccount, accountUrl, StringComparison.OrdinalIgnoreCase))
                         return AcmeProblem("malformed", "Inner payload 'account' does not match the requesting account.");
@@ -1010,7 +1008,7 @@ public static class AcmeEndpointMappings
                 var payload = jws.Payload?.RootElement
                     ?? throw new AcmeException("malformed", "Missing payload.");
 
-                if (!payload.TryGetProperty("certificate", out var certProp) || certProp.GetString() is not string certB64)
+                if (AcmeJson.OptionalString(payload, "certificate", "payload") is not string certB64)
                     return AcmeProblem("malformed", "Missing 'certificate' in payload.");
 
                 byte[] derBytes;
@@ -1187,10 +1185,9 @@ public static class AcmeEndpointMappings
                 }
 
                 int reasonCode = 0;
-                if (payload.TryGetProperty("reason", out var reasonProp) && reasonProp.ValueKind == JsonValueKind.Number)
-                {
-                    reasonCode = reasonProp.GetInt32();
-                }
+                if (payload.TryGetProperty("reason", out var reasonProp) && reasonProp.ValueKind == JsonValueKind.Number
+                    && !reasonProp.TryGetInt32(out reasonCode))
+                    return AcmeProblem("malformed", "'reason' must be a whole number.");
 
                 var mappedReason = MapAcmeRevocationReason(reasonCode);
 
@@ -1235,12 +1232,15 @@ public static class AcmeEndpointMappings
             // The problem document is all the client gets, and ACME clients rarely show its detail.
             // Without this the cause of a 500 was recorded nowhere an operator could find it.
             // AcmeException above is deliberately not logged: it is the client's error, answered
-            // as normal operation.
+            // as normal operation. The endpoint's name (verb and route template), not the decoded
+            // request path: a path may carry a client-chosen %0A, which the console log would print
+            // as a forged line.
             ctx.RequestServices.GetRequiredService<ILoggerFactory>()
                 .CreateLogger(LogCategory)
-                .LogError(ex, "ACME {Method} {Path} failed with an unexpected server error.",
-                    ctx.Request.Method, ctx.Request.Path);
-            return AcmeProblem("serverInternal", ex.Message);
+                .LogError(ex, "ACME {Endpoint} failed with an unexpected server error.",
+                    ctx.GetEndpoint()?.DisplayName);
+            // The message stays in the log: it can name tables, files or other internals.
+            return AcmeProblem("serverInternal", "The server could not process this request.");
         }
     }
 
@@ -1250,6 +1250,11 @@ public static class AcmeEndpointMappings
         {
             "badNonce" => 400,
             "malformed" => 400,
+            // RFC 8555 §6.7: an algorithm, key or identifier type the server does not take is the
+            // client's to change; unmapped, these fell through to 500.
+            "badSignatureAlgorithm" => 400,
+            "badPublicKey" => 400,
+            "unsupportedIdentifier" => 400,
             "unauthorized" => 401,
             "accountDoesNotExist" => 400,
             // §7.3: both are the client's to fix, so they are 400s rather than the 500 an

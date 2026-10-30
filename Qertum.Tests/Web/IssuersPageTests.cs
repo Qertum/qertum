@@ -38,6 +38,159 @@ public sealed class IssuersPageTests
     }
 
     [Fact]
+    public async Task ShowsOnlyValidCasByDefault_AndUntickingAsksForAll()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.Add(IssuerApiStub.Issuer("Root"));
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-test='issuer-row']")));
+        Assert.True(cut.Find("[data-test='valid-only']").HasAttribute("checked"));
+        Assert.Contains("/v1/issuers?validOnly=true", api.Queries);
+
+        cut.Find("[data-test='valid-only']").Change(false);
+
+        cut.WaitForAssertion(() => Assert.Contains("/v1/issuers", api.Queries));
+        Assert.False(cut.Find("[data-test='valid-only']").HasAttribute("checked"));
+    }
+
+    [Fact]
+    public async Task RenewIsOfferedForActiveAndRevokedIntermediates_NotForRoots()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        var root = IssuerApiStub.Issuer("Root");
+        api.Issuers.AddRange([
+            root,
+            IssuerApiStub.Issuer("Active", kind: IssuerKind.Intermediate, parent: root.Id),
+            IssuerApiStub.Issuer("Revoked", status: IssuerStatus.Retired, kind: IssuerKind.Intermediate, parent: root.Id) with { RevokedAtUtc = DateTime.UtcNow },
+            IssuerApiStub.Issuer("Retired", status: IssuerStatus.Retired, kind: IssuerKind.Intermediate, parent: root.Id)]);
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Equal(4, cut.FindAll("[data-test='issuer-row']").Count));
+        Assert.Equal(2, cut.FindAll("[data-test='action-renew']").Count);
+    }
+
+    [Fact]
+    public async Task ValidZeroInTheUrl_ShowsEveryIssuer()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.Add(IssuerApiStub.Issuer("Root"));
+        context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("http://localhost/issuers?valid=0");
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-test='issuer-row']")));
+        Assert.False(cut.Find("[data-test='valid-only']").HasAttribute("checked"));
+        Assert.Contains("/v1/issuers", api.Queries);
+        Assert.DoesNotContain("/v1/issuers?validOnly=true", api.Queries);
+    }
+
+    [Fact]
+    public async Task AnImmediateRenewal_SaysSoWithTheNewExpiry()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        var intermediate = IssuerApiStub.Issuer("Issuing", kind: IssuerKind.Intermediate);
+        api.Issuers.Add(intermediate);
+        var replacement = intermediate with { Id = new IssuerId(Guid.NewGuid()), RenewalOfIssuerId = intermediate.Id };
+        api.Override = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/renew")
+            ? Json(new CreateIntermediateResponse(replacement, null)) : null;
+
+        var cut = context.Render<IssuersPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-renew']")));
+        cut.Find("[data-test='action-renew']").Click();
+        cut.Find("[data-test='confirm-panel'] .btn-danger").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains("Renewed", cut.Find("[data-test='notification']").TextContent));
+        Assert.Contains(replacement.ValidTo!.Value.ToString("yyyy-MM-dd"), cut.Find("[data-test='notification']").TextContent);
+    }
+
+    [Fact]
+    public async Task RenewIsNotOfferedOnceAReplacementExists()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        var old = IssuerApiStub.Issuer("Issuing", status: IssuerStatus.Retired, kind: IssuerKind.Intermediate) with { RevokedAtUtc = DateTime.UtcNow };
+        api.Issuers.AddRange([old, IssuerApiStub.Issuer("Issuing", kind: IssuerKind.Intermediate) with { RenewalOfIssuerId = old.Id }]);
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Equal(2, cut.FindAll("[data-test='issuer-row']").Count));
+        Assert.Single(cut.FindAll("[data-test='action-renew']")); // only on the replacement
+    }
+
+    [Fact]
+    public async Task Renew_AsksFirst_ThenPostsAndReloads()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        var intermediate = IssuerApiStub.Issuer("Issuing", kind: IssuerKind.Intermediate);
+        api.Issuers.Add(intermediate);
+        api.Override = request => request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/renew")
+            ? Json(new CreateIntermediateResponse(intermediate, null)) : null;
+
+        var cut = context.Render<IssuersPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-renew']")));
+        cut.Find("[data-test='action-renew']").Click();
+
+        Assert.Contains("new key", cut.Find("[data-test='confirm-panel']").TextContent);
+        Assert.DoesNotContain(api.Requests, r => r.Path.EndsWith("/renew"));
+        cut.Find("[data-test='confirm-panel'] .btn-danger, [data-test='confirm-panel'] .btn-primary").Click();
+        cut.WaitForAssertion(() => Assert.Contains(api.Requests, r => r.Method == HttpMethod.Post && r.Path == $"/v1/issuers/{intermediate.Id}/renew"));
+    }
+
+    [Fact]
+    public async Task ARoundTripRenewal_OpensTheCeremonyOnThePendingReplacement()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        var intermediate = IssuerApiStub.Issuer("Issuing", kind: IssuerKind.Intermediate);
+        var replacement = IssuerApiStub.Issuer("Issuing", status: IssuerStatus.PendingCertificate, kind: IssuerKind.Intermediate) with { RenewalOfIssuerId = intermediate.Id };
+        api.Issuers.Add(intermediate);
+        var file = new IntermediateRequestFile(IntermediateRequestFile.CurrentFormat, replacement.Id, "Issuing", "csr", 365, 0, [], [], [], []);
+        api.Override = request =>
+        {
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/renew"))
+            {
+                api.Issuers.Add(replacement);
+                return Json(new CreateIntermediateResponse(replacement, file));
+            }
+            return request.RequestUri!.AbsolutePath.EndsWith("/request") ? Json(file) : null;
+        };
+
+        var cut = context.Render<IssuersPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-renew']")));
+        cut.Find("[data-test='action-renew']").Click();
+        cut.Find("[data-test='confirm-panel'] .btn-danger, [data-test='confirm-panel'] .btn-primary").Click();
+
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='issuer-ceremony']")));
+    }
+
+    [Fact]
+    public async Task APendingReplacement_SaysItIsARenewal()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.Add(IssuerApiStub.Issuer("Issuing", status: IssuerStatus.PendingCertificate, kind: IssuerKind.Intermediate)
+            with { RenewalOfIssuerId = new IssuerId(Guid.NewGuid()) });
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Contains("Renewal of Issuing", cut.Find("[data-test='renewal-of']").TextContent));
+    }
+
+    private static HttpResponseMessage Json<T>(T value) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent(JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            System.Text.Encoding.UTF8, "application/json")
+    };
+
+    [Fact]
     public async Task PendingIssuer_OffersResumeAndDelete_ButNotMakeDefault()
     {
         var (context, api) = NewContext();

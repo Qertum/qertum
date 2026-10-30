@@ -372,11 +372,12 @@ public sealed class JsonUserStore
 
         if (admin.MustChangePassword)
         {
+            // The value itself stays out of the log (no password is ever logged); the first-run
+            // documentation names it.
             _logger.LogWarning(
-                "Seeded the admin user with the well-known bootstrap password \"{Password}\" " +
-                "because IdentityService:SeedAdminPassword is not configured. The first login " +
-                "must change it before the account can be used.",
-                DefaultAdminPassword);
+                "Seeded the admin user with the well-known bootstrap password from the first-run " +
+                "documentation because IdentityService:SeedAdminPassword is not configured. The " +
+                "first login must change it before the account can be used.");
         }
         else
         {

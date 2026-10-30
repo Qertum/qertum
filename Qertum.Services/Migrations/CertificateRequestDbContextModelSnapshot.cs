@@ -1163,6 +1163,9 @@ namespace Qertum.Services.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("RenewalOfIssuerId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("RequestedConstraintsJson")
                         .HasColumnType("TEXT");
 
@@ -1215,10 +1218,13 @@ namespace Qertum.Services.Migrations
                         .IsUnique()
                         .HasFilter("\"IsDefault\" = 1");
 
-                    b.HasIndex("Name")
-                        .IsUnique();
+                    b.HasIndex("Name");
 
                     b.HasIndex("ParentIssuerId");
+
+                    b.HasIndex("RenewalOfIssuerId")
+                        .IsUnique()
+                        .HasFilter("\"RenewalOfIssuerId\" IS NOT NULL");
 
                     b.HasIndex("SpkiSha256")
                         .IsUnique();

@@ -79,6 +79,7 @@ public sealed class RevokedRootTests
         Assert.Null(await host.Registry.GetDefaultAsync(Ct));
         var status = await host.Admin().GetFromJsonAsync<CaStatusResponse>("/v1/ca/status", Ct);
         Assert.False(status!.IsInitialized);
+        Assert.True(status.IssuerRevoked);
         var create = await host.Admin().PostAsJsonAsync("/v1/certificate-requests", new { commonName = "after.example", type = "WebServer" }, Ct);
         Assert.Equal(HttpStatusCode.Conflict, create.StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await host.Anonymous().GetAsync($"/crl/{rootId}", Ct)).StatusCode);
@@ -144,6 +145,7 @@ public sealed class RevokedRootTests
         Assert.Equal(IssuerStatus.Retired, (await IssuerAsync(host, rootId)).Status);
         Assert.Equal(HttpStatusCode.OK, (await host.Anonymous().GetAsync($"/crl/{rootId}", Ct)).StatusCode);
         Assert.True((await host.Admin().GetFromJsonAsync<CaStatusResponse>("/v1/ca/status", Ct))!.IsInitialized);
+        Assert.False((await host.Admin().GetFromJsonAsync<CaStatusResponse>("/v1/ca/status", Ct))!.IssuerRevoked);
     }
 
     [Fact]

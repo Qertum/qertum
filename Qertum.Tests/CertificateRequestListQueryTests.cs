@@ -211,7 +211,7 @@ public sealed class CertificateRequestListQueryTests
         await using var scope = await CreateScopeAsync();
         await SeedIssuedAsync(scope);
 
-        var counts = await scope.Service.GetIssuedValidityCountsAsync("revoked.", ct);
+        var counts = await scope.Service.GetIssuedValidityCountsAsync("revoked.", cancellationToken: ct);
 
         Assert.Equal(1, counts.Total);
         Assert.Equal(1, counts.CountFor(IssuedCertificateFilter.Revoked));

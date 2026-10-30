@@ -107,9 +107,51 @@ public sealed class MultiContainerContractTests
         Assert.Contains("Acme__BaseUrl=\"${ACME_SCHEME}://", entrypoint);
         Assert.Contains("Enrollment__AcmeDirectoryUrl=\"${ACME_SCHEME}://", entrypoint);
         Assert.DoesNotContain("TRUSTED_PROXIES", entrypoint);
-        Assert.DoesNotContain("ForwardedHeaders", entrypoint);
         Assert.DoesNotContain("TRUSTED_PROXIES", Read("docker-compose.yml"));
         Assert.Contains("ACME_SCHEME", Read("docker-compose.yml"));
+    }
+
+    /// <summary>
+    /// Behind the TLS proxy that QERTUM_SCHEME=https stands for, web, identity and API must honour
+    /// X-Forwarded-Proto, or identity refuses every request as not https (found by the browser check,
+    /// 2026-10-29). ACME and EST are never behind a proxy and must never trust the header, whatever is set.
+    /// Runs the entrypoint's own block with sh.
+    /// </summary>
+    [Theory]
+    [InlineData("webfrontend", "https", "true")]
+    [InlineData("identityservice", "https", "true")]
+    [InlineData("apiservice", "https", "true")]
+    [InlineData("webfrontend", "http", "unset")]
+    [InlineData("apiservice", "http", "unset")]
+    [InlineData("acmeservice", "https", "unset")]
+    [InlineData("estservice", "https", "unset")]
+    [InlineData("queueconsumer", "https", "unset")]
+    public void ForwardedHeaders_AreTrustedOnlyByTheProxiedServices_InHttpsMode(string service, string scheme, string expected)
+    {
+        var entrypoint = Read("entrypoint.sh");
+        var start = entrypoint.IndexOf("case \"${SERVICE}\" in\n  webfrontend|identityservice|apiservice)", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the forwarded-headers block is missing");
+        var block = entrypoint[start..(entrypoint.IndexOf("esac", start, StringComparison.Ordinal) + 4)];
+
+        // ACME and EST start with the variable already set, as a careless override would leave it.
+        var preset = service is "acmeservice" or "estservice" ? "export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true\n" : "";
+        var result = RunSh($"SERVICE={service}\nQERTUM_SCHEME={scheme}\n{preset}{block}\nprintf %s \"${{ASPNETCORE_FORWARDEDHEADERS_ENABLED-unset}}\"");
+
+        Assert.Equal(expected, result);
+    }
+
+    internal static string RunSh(string script)
+    {
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("sh", ["-c", script])
+        {
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            Environment = { ["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = null }
+        })!;
+        var output = process.StandardOutput.ReadToEnd();
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
+        return output;
     }
 
     [Fact]

@@ -122,7 +122,7 @@ public sealed class UserAdministrationService(
             return new AdminOutcome(result);
         }
 
-        audit.Write(IdentityAuditActions.UserPasswordReset, actor.Username, target.Id, target.Username);
+        audit.Write(IdentityAuditActions.UserCredentialReset, actor.Username, target.Id, target.Username);
         return new AdminOutcome(AdminResult.Success, password);
     }
 
