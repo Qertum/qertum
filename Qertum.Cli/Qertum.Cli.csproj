@@ -3,6 +3,10 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>qca</AssemblyName>
     <RootNamespace>Qertum.Cli</RootNamespace>
+    <!-- The released qca is a self-contained single file that must also run where libicu is not installed
+         (minimal containers, CI runners): without this it stops at start with "Couldn't find a valid ICU
+         package". qca prints no culture-specific text; IDN conversion and time zones work without ICU. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>

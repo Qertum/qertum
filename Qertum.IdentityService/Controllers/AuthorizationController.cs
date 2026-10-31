@@ -11,7 +11,8 @@ using static OpenIddict.Abstractions.OpenIddictConstants;
 
 namespace Qertum.IdentityService.Controllers;
 
-public sealed class AuthorizationController(JsonUserStore userStore, JsonClientStore clientStore) : Controller
+public sealed class AuthorizationController(JsonUserStore userStore, JsonClientStore clientStore,
+    Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery) : Controller
 {
     [HttpGet("~/connect/authorize")]
     [HttpPost("~/connect/authorize")]
@@ -157,8 +158,14 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
                 return RedirectToForcedPasswordChange();
             }
 
-            return Content(DeviceConfirmationHtml(user.Username, request.UserCode), "text/html");
+            var tokens = antiforgery.GetAndStoreTokens(HttpContext);
+            return Content(DeviceConfirmationHtml(user.Username, request.UserCode, tokens.FormFieldName, tokens.RequestToken!), "text/html");
         }
+
+        // POST: only the confirmation page's own forms may decide. Without this, any page on a same-site
+        // origin could post a known user_code and approve an attacker's device for the signed-in user.
+        if (!await antiforgery.IsRequestValidAsync(HttpContext))
+            return BadRequest("The confirmation form has expired or did not come from this page. Open the device link again.");
 
         // POST: user denied — mark as access_denied and let the event handler show the result page.
         if (Request.Form.TryGetValue("deny", out var denyVal) && denyVal == "true")
@@ -287,8 +294,12 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
             CookieAuthenticationDefaults.AuthenticationScheme));
     }
 
-    private static string DeviceConfirmationHtml(string username, string userCode) =>
-        $$"""
+    /// <summary>The device confirmation page. Every interpolated value is HTML-encoded.</summary>
+    internal static string DeviceConfirmationHtml(string username, string userCode, string tokenField, string tokenValue)
+    {
+        var enc = System.Text.Encodings.Web.HtmlEncoder.Default;
+        var (user, code, field, token) = (enc.Encode(username), enc.Encode(userCode), enc.Encode(tokenField), enc.Encode(tokenValue));
+        return $$"""
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -303,25 +314,27 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
                     <a class="card-brand" href="/">
                         <span class="brand-mark" aria-hidden="true"></span>
                         <span class="brand-text">
-                            <span class="brand-name">Custom<em>CA</em></span>
+                            <span class="brand-name">Qer<em>tum</em></span>
                             <span class="brand-sub">Identity</span>
                         </span>
                     </a>
                     <h1>Authorize <em>Device</em></h1>
-                    <p class="card-sub">Signed in as <strong>{{username}}</strong>. Allow CLI access?</p>
+                    <p class="card-sub">Signed in as <strong>{{user}}</strong>. Allow CLI access?</p>
                     <div class="field">
                         <label>Device Code</label>
-                        <div class="readonly mono">{{userCode}}</div>
+                        <div class="readonly mono">{{code}}</div>
                     </div>
                     <form method="post" action="/connect/verify">
-                        <input type="hidden" name="user_code" value="{{userCode}}" />
+                        <input type="hidden" name="user_code" value="{{code}}" />
+                        <input type="hidden" name="{{field}}" value="{{token}}" />
                         <button type="submit">
                             <span class="bi bi-check-circle"></span>
                             Allow Access
                         </button>
                     </form>
                     <form method="post" action="/connect/verify" style="margin-top:0.75rem">
-                        <input type="hidden" name="user_code" value="{{userCode}}" />
+                        <input type="hidden" name="user_code" value="{{code}}" />
+                        <input type="hidden" name="{{field}}" value="{{token}}" />
                         <input type="hidden" name="deny" value="true" />
                         <button type="submit" class="button secondary" style="width:100%">Deny</button>
                     </form>
@@ -330,6 +343,7 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
         </body>
         </html>
         """;
+    }
 
     [HttpGet("~/connect/logout"), HttpPost("~/connect/logout")]
     public async Task<IActionResult> Logout()

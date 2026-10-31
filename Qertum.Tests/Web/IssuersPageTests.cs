@@ -104,7 +104,7 @@ public sealed class IssuersPageTests
         var cut = context.Render<IssuersPage>();
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-renew']")));
         cut.Find("[data-test='action-renew']").Click();
-        cut.Find("[data-test='confirm-panel'] .btn-danger").Click();
+        cut.Find("[data-test='issuer-apply']").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("Renewed", cut.Find("[data-test='notification']").TextContent));
         Assert.Contains(replacement.ValidTo!.Value.ToString("yyyy-MM-dd"), cut.Find("[data-test='notification']").TextContent);
@@ -138,9 +138,9 @@ public sealed class IssuersPageTests
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-renew']")));
         cut.Find("[data-test='action-renew']").Click();
 
-        Assert.Contains("new key", cut.Find("[data-test='confirm-panel']").TextContent);
+        Assert.Contains("new key", cut.Find("[data-test='issuer-confirm']").TextContent);
         Assert.DoesNotContain(api.Requests, r => r.Path.EndsWith("/renew"));
-        cut.Find("[data-test='confirm-panel'] .btn-danger, [data-test='confirm-panel'] .btn-primary").Click();
+        cut.Find("[data-test='issuer-apply']").Click();
         cut.WaitForAssertion(() => Assert.Contains(api.Requests, r => r.Method == HttpMethod.Post && r.Path == $"/v1/issuers/{intermediate.Id}/renew"));
     }
 
@@ -166,7 +166,7 @@ public sealed class IssuersPageTests
         var cut = context.Render<IssuersPage>();
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-renew']")));
         cut.Find("[data-test='action-renew']").Click();
-        cut.Find("[data-test='confirm-panel'] .btn-danger, [data-test='confirm-panel'] .btn-primary").Click();
+        cut.Find("[data-test='issuer-apply']").Click();
 
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='issuer-ceremony']")));
     }
@@ -205,6 +205,22 @@ public sealed class IssuersPageTests
     }
 
     [Fact]
+    public async Task RowActions_SitInAGappedFlexRow()
+    {
+        // Blazor drops the whitespace between buttons rendered from @if blocks, so without the gap they touched.
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.AddRange([IssuerApiStub.Issuer("Root", isDefault: true), IssuerApiStub.Issuer("Second")]);
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-test='action-make-default']")));
+        var actions = cut.Find("[data-test='action-make-default']").ParentElement!;
+        Assert.Equal("row-actions", actions.GetAttribute("data-test"));
+        Assert.Contains("gap-2", actions.ClassList);
+    }
+
+    [Fact]
     public async Task Retire_AsksForConfirmation_BeforeCallingTheApi()
     {
         var (context, api) = NewContext();
@@ -216,9 +232,48 @@ public sealed class IssuersPageTests
 
         cut.Find("[data-test='action-retire']").Click();
         Assert.DoesNotContain(api.Requests, r => r.Method == HttpMethod.Post);
-        cut.Find("[data-test='confirm-panel'] button.btn-danger").Click();
+        cut.Find("[data-test='issuer-apply']").Click();
 
         cut.WaitForAssertion(() => Assert.Contains(api.Requests, r => r.Method == HttpMethod.Post && r.Path == $"/v1/issuers/{old.Id}/retire"));
+    }
+
+    [Fact]
+    public async Task RowActions_AskInAModalDialog_AndCancelCallsNothing()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.AddRange([IssuerApiStub.Issuer("Current", isDefault: true), IssuerApiStub.Issuer("Second")]);
+        var cut = context.Render<IssuersPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-make-default']")));
+
+        cut.Find("[data-test='action-make-default']").Click();
+
+        var dialog = cut.Find("[data-test='issuer-confirm'] [role='dialog']");
+        Assert.Equal("true", dialog.GetAttribute("aria-modal"));
+        Assert.Contains("\"Second\" the default issuer", dialog.TextContent);
+        Assert.Equal("Make default", cut.Find("[data-test='issuer-apply']").TextContent.Trim());
+
+        cut.Find("[data-test='issuer-cancel']").Click();
+
+        Assert.Empty(cut.FindAll("[data-test='issuer-confirm']"));
+        Assert.DoesNotContain(api.Requests, r => r.Method == HttpMethod.Post);
+    }
+
+    [Fact]
+    public async Task PfxExport_StaysDisabledUntilAPasswordIsTyped()
+    {
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.Add(IssuerApiStub.Issuer("Root", isDefault: true));
+        var cut = context.Render<IssuersPage>();
+        cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-export-pfx']")));
+
+        cut.Find("[data-test='action-export-pfx']").Click();
+
+        Assert.NotEmpty(cut.FindAll("[data-test='issuer-confirm'] [data-test='key-export-warning']"));
+        Assert.True(cut.Find("[data-test='issuer-apply']").HasAttribute("disabled"));
+        cut.Find("[data-test='pfx-password']").Input("secret");
+        Assert.False(cut.Find("[data-test='issuer-apply']").HasAttribute("disabled"));
     }
 
     [Fact]
@@ -234,7 +289,7 @@ public sealed class IssuersPageTests
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='action-archive']")));
 
         cut.Find("[data-test='action-archive']").Click();
-        cut.Find("[data-test='confirm-panel'] button.btn-danger").Click();
+        cut.Find("[data-test='issuer-apply']").Click();
 
         cut.WaitForAssertion(() => Assert.Contains("3 unexpired", cut.Find("[data-test='issuer-error']").TextContent));
     }

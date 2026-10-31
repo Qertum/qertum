@@ -2832,8 +2832,11 @@ main {
     color: var(--text-primary);
 }
 
-/* Inline confirmation for a one-row action (Issuers); a dialog is for system-wide decisions. */
+/* Inline confirmation beside the item it acts on (a timeline note).
+   Bootstrap's .card resets the text colour to its light-theme body colour, so set ours. */
 .confirm-panel {
+    --bs-card-color: var(--text-primary);
+    color: var(--text-primary);
     background: var(--bg-glass);
     border: 1px solid var(--accent-rose);
     border-radius: var(--radius-lg);

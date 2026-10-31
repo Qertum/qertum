@@ -347,6 +347,116 @@ public sealed class CertificateGeneratorTests : IDisposable
         Assert.Equal(CertificateKeyAlgorithm.MlDsa65, detected);
     }
 
+    [Theory]
+    [InlineData("x.example.test, O=Bank, C=US")]
+    [InlineData("x.example.test+OU=Admins")]
+    [InlineData("#0c0141")]
+    public void GenerateCertificate_CommonNameIsOneValue_NeverMoreSubjectAttributes(string commonName)
+    {
+        // EST takes the CN from the client's CSR. The subject used to be built as "CN=..., O=..." text
+        // and parsed, so a comma, plus or leading '#' in the CN added attributes or raw DER.
+        var request = new CertificateRequest { CommonName = commonName, Type = "WebServer" };
+
+        var generated = _generator.GenerateCertificate(request, new CaSettings { PqcStage = PqcStage.Off, OrganizationName = "Real Org" });
+
+        var subject = ReadCertificate(generated.CertificatePem).SubjectDN;
+        Assert.Equal([commonName], subject.GetValueList(X509Name.CN).Cast<string>());
+        Assert.Equal(["Real Org"], subject.GetValueList(X509Name.O).Cast<string>());
+        Assert.Empty(subject.GetValueList(X509Name.C));
+        Assert.Empty(subject.GetValueList(X509Name.OU));
+    }
+
+    [Theory]
+    [InlineData(1024, 65537, "2048")]
+    [InlineData(2048, 3, "65537")]
+    public void DetectAlgorithmFromCsr_WeakRsaKey_IsRefused(int bits, int exponent, string named)
+    {
+        // ACME and EST accepted any RSA modulus and exponent from a client CSR.
+        var generator = new Org.BouncyCastle.Crypto.Generators.RsaKeyPairGenerator();
+        generator.Init(new Org.BouncyCastle.Crypto.Parameters.RsaKeyGenerationParameters(
+            Org.BouncyCastle.Math.BigInteger.ValueOf(exponent), new SecureRandom(), bits, 100));
+        var csr = TestCsrBuilder.BuildBase64Url("weak.example.test", [], generator.GenerateKeyPair(), "SHA256WITHRSA");
+
+        var ex = Assert.Throws<NotSupportedException>(() => CertificateGenerator.DetectAlgorithmFromCsr(csr));
+        Assert.Contains(named, ex.Message);
+        Assert.Throws<NotSupportedException>(() => _generator.GenerateFromCsr(csr,
+            new CertificateRequest { CommonName = "weak.example.test", Type = "WebServer", CsrPem = csr },
+            new CaSettings { PqcStage = PqcStage.Off }));
+    }
+
+    [Fact]
+    public void DetectAlgorithmFromCsr_Rsa2048WithF4_IsAccepted() =>
+        Assert.Equal(CertificateKeyAlgorithm.Rsa,
+            CertificateGenerator.DetectAlgorithmFromCsr(TestCsrBuilder.BuildBase64Url("ok.example.test", [])));
+
+    [Fact]
+    public void CaSubjectName_IsBuiltFromValues_NotParsedText()
+    {
+        var name = Qertum.Services.Issuers.CaCertificateBuilder.SubjectName("Root, O=Evil", "Org", null, "FI", null, null);
+
+        Assert.Equal(["Root, O=Evil"], name.GetValueList(X509Name.CN).Cast<string>());
+        Assert.Equal(["Org"], name.GetValueList(X509Name.O).Cast<string>());
+        Assert.Equal(["FI"], name.GetValueList(X509Name.C).Cast<string>());
+        // Country stays a PrintableString, as the parsed form encoded it.
+        Assert.IsType<Org.BouncyCastle.Asn1.DerPrintableString>(
+            ((Org.BouncyCastle.Asn1.Asn1Sequence)((Org.BouncyCastle.Asn1.Asn1Set)((Org.BouncyCastle.Asn1.Asn1Sequence)name.ToAsn1Object())[2])[0])[1]);
+    }
+
+    [Theory]
+    [InlineData(nameof(CertificateTemplate.ExtendedKeyUsagesJson))]
+    [InlineData(nameof(CertificateTemplate.KeyUsagesJson))]
+    [InlineData(nameof(CertificateTemplate.SanTypesJson))]
+    [InlineData(nameof(CertificateTemplate.CustomExtensionsJson))]
+    public void GenerateCertificate_TemplateFieldThatCannotBeRead_RefusesToIssue(string field)
+    {
+        // A template stored before its fields were validated could hold malformed JSON. Issuing
+        // anyway used to drop the extension silently (no EKU means any purpose); refusing makes the
+        // consumer reject the request with this message as its FailureReason.
+        var template = new CertificateTemplate
+        {
+            TypeKey = "Broken",
+            Name = "Broken",
+            KeyUsagesJson = field == nameof(CertificateTemplate.KeyUsagesJson) ? "[\"DigitalSignature\"" : "[\"DigitalSignature\"]",
+            ExtendedKeyUsagesJson = field == nameof(CertificateTemplate.ExtendedKeyUsagesJson) ? "[\"1.3.6.1.5.5.7.3.1\"" : "[\"1.3.6.1.5.5.7.3.1\"]",
+            SanTypesJson = field == nameof(CertificateTemplate.SanTypesJson) ? "[\"dns\"" : "[\"dns\"]",
+            CustomExtensionsJson = field == nameof(CertificateTemplate.CustomExtensionsJson) ? "[{\"oid\":" : null
+        };
+        var request = new CertificateRequest { CommonName = "broken.example.test", Type = "Broken" };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            _generator.GenerateCertificate(request, new CaSettings { PqcStage = PqcStage.Off }, template));
+
+        Assert.Contains(field, ex.Message);
+    }
+
+    [Fact]
+    public void GenerateCertificate_TemplateExtensions_AreAllWritten()
+    {
+        var template = new CertificateTemplate
+        {
+            TypeKey = "Full",
+            Name = "Full",
+            KeyUsagesJson = """["DigitalSignature"]""",
+            ExtendedKeyUsagesJson = """["1.3.6.1.5.5.7.3.2"]""",
+            SanTypesJson = """["dns"]""",
+            CustomExtensionsJson = """[{"oid":"1.3.6.1.4.1.99999.1","value":"v","critical":false}]"""
+        };
+        var request = new CertificateRequest
+        {
+            CommonName = "full.example.test",
+            Type = "Full",
+            PropertiesJson = """{"dnsNames":["alt.example.test"]}"""
+        };
+
+        var generated = _generator.GenerateCertificate(request, new CaSettings { PqcStage = PqcStage.Off }, template);
+
+        var cert = X509Certificate2.CreateFromPem(generated.CertificatePem);
+        var eku = cert.Extensions.OfType<X509EnhancedKeyUsageExtension>().Single();
+        Assert.Equal(["1.3.6.1.5.5.7.3.2"], eku.EnhancedKeyUsages.Cast<System.Security.Cryptography.Oid>().Select(o => o.Value));
+        Assert.Contains(cert.Extensions, e => e.Oid?.Value == "2.5.29.17");
+        Assert.Contains(cert.Extensions, e => e.Oid?.Value == "1.3.6.1.4.1.99999.1");
+    }
+
     [Fact]
     public void GenerateFromCsr_MlDsaRequest_OmitsEnciphermentUsageEvenWhenTheTemplateAsksForIt()
     {

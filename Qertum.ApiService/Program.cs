@@ -93,6 +93,9 @@ using (var scope = app.Services.CreateScope())
                 missingTables, db.Database.GetConnectionString());
             Environment.Exit(1);
         }
+        var reencrypted = PrivateKeyAtRest.EncryptPlainKeysAsync(db).GetAwaiter().GetResult();
+        if (reencrypted > 0)
+            startupLogger.LogInformation("Encrypted the stored private keys of {Count} certificate requests that an older version kept in plain text.", reencrypted);
         var policy = scope.ServiceProvider.GetRequiredService<IWebhookDestinationPolicyService>();
         var policyOptions = scope.ServiceProvider.GetRequiredService<IOptions<WebhookDestinationPolicyOptions>>().Value;
         policy.ReconcileAsync(policyOptions).GetAwaiter().GetResult();
@@ -192,7 +195,12 @@ app.UseExceptionHandler(exHandler =>
                                                => (bad.StatusCode, bad.StatusCode == 400 ? "Bad Request" : "Request Rejected"),
             _                                  => (500, "Internal Server Error")
         };
-        await ctx.Response.WriteAsJsonAsync(new { title, detail = ex?.Message, traceId = Qertum.Services.CorrelationIds.For(ctx) });
+        // A 500's message is the server's, not the caller's: it can name paths, tables or settings, and
+        // some routes are anonymous. The exception is logged under the correlation id the body carries.
+        var detail = ctx.Response.StatusCode == 500
+            ? "An unexpected error occurred. Quote the correlation id when reporting it."
+            : ex?.Message;
+        await ctx.Response.WriteAsJsonAsync(new { title, detail, traceId = Qertum.Services.CorrelationIds.For(ctx) });
     });
 });
 

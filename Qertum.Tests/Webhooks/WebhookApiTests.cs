@@ -41,6 +41,40 @@ public sealed class WebhookApiTests
     }
 
     [Fact]
+    public async Task TheSigningSecretIsNeverReadBack_OnlyWhetherOneIsSet()
+    {
+        // A settings.edit holder could read every receiver's HMAC secret and forge deliveries to it
+        // without changing anything. Like ACME EAB keys: write-only, no read-back.
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = ApiServiceTests.CreateFactory();
+        await ApiServiceTests.EnsureDbAsync(factory, ct);
+        using var admin = Admin(factory);
+        const string secret = "s3cr3t-hmac-key-value";
+
+        var response = await admin.PostAsJsonAsync("/v1/webhooks", new
+        {
+            name = "signed-hook",
+            url = "https://h.invalid/s",
+            family = "CertificateRequest",
+            eventsJson = "[]",
+            secret,
+            isEnabled = true
+        }, ct);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var createdBody = await response.Content.ReadAsStringAsync(ct);
+        var created = System.Text.Json.JsonSerializer.Deserialize<Webhook>(createdBody, System.Text.Json.JsonSerializerOptions.Web)!;
+
+        var list = await admin.GetStringAsync("/v1/webhooks", ct);
+        var single = await admin.GetStringAsync($"/v1/webhooks/{(Guid)created.Id}", ct);
+
+        foreach (var body in new[] { createdBody, list, single })
+        {
+            Assert.DoesNotContain(secret, body);
+            Assert.Contains("\"hasSecret\":true", body);
+        }
+    }
+
+    [Fact]
     public async Task PostEventFromAnotherFamily_IsRejectedAndNamesTheFamilysEvents()
     {
         var ct = TestContext.Current.CancellationToken;

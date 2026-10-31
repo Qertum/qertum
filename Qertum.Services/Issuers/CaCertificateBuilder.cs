@@ -18,16 +18,38 @@ namespace Qertum.Services.Issuers;
 /// </summary>
 public static class CaCertificateBuilder
 {
+    /// <summary>
+    /// The subject of every certificate Qertum issues, CA or leaf. Built from (attribute, value) pairs,
+    /// never from "CN=..., O=..." text: a common name comes from a client's CSR on the EST path, and
+    /// parsing text let a comma or plus add attributes and a leading '#' insert raw DER.
+    /// </summary>
     public static X509Name SubjectName(string commonName, string? organization, string? organizationalUnit,
         string? country, string? state, string? locality)
     {
-        var attrs = new List<string> { $"CN={commonName}" };
-        if (!string.IsNullOrWhiteSpace(organization)) attrs.Add($"O={organization}");
-        if (!string.IsNullOrWhiteSpace(organizationalUnit)) attrs.Add($"OU={organizationalUnit}");
-        if (!string.IsNullOrWhiteSpace(country)) attrs.Add($"C={country}");
-        if (!string.IsNullOrWhiteSpace(state)) attrs.Add($"ST={state}");
-        if (!string.IsNullOrWhiteSpace(locality)) attrs.Add($"L={locality}");
-        return new X509Name(string.Join(", ", attrs));
+        var oids = new List<DerObjectIdentifier> { X509Name.CN };
+        var values = new List<string> { commonName };
+        void Add(DerObjectIdentifier oid, string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            oids.Add(oid);
+            values.Add(value);
+        }
+        Add(X509Name.O, organization);
+        Add(X509Name.OU, organizationalUnit);
+        Add(X509Name.C, country);
+        Add(X509Name.ST, state);
+        Add(X509Name.L, locality);
+        return new X509Name(oids, values, LiteralValues.Instance);
+    }
+
+    // The default converter reads a value starting with '#' as hex-encoded DER; these are always text.
+    // Same string types as the parsed form: PrintableString for the country, UTF8String otherwise.
+    private sealed class LiteralValues : X509NameEntryConverter
+    {
+        public static readonly LiteralValues Instance = new();
+
+        public override Asn1Object GetConvertedValue(DerObjectIdentifier oid, string value) =>
+            oid.Equals(X509Name.C) ? new DerPrintableString(value) : new DerUtf8String(value);
     }
 
     public static X509Certificate BuildRoot(ICaSigner signer, X509Name subject, DateTime notBefore, DateTime notAfter)

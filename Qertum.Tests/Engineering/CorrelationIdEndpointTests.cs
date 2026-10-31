@@ -158,7 +158,11 @@ public sealed class CorrelationIdEndpointTests : IDisposable
         var header = CorrelationId(response);
         Assert.Matches(ThirtyTwoHex, header);
         Assert.Equal(header, await BodyTraceIdAsync(response, ct));
-        Assert.DoesNotContain("   at ", await response.Content.ReadAsStringAsync(ct), StringComparison.Ordinal);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        Assert.DoesNotContain("   at ", body, StringComparison.Ordinal);
+        // Nor the exception message: it can name paths, tables or settings, and some routes are public.
+        Assert.DoesNotContain("blew up", body, StringComparison.Ordinal);
+        Assert.Contains("correlation id", body, StringComparison.Ordinal);
     }
 
     [Fact]

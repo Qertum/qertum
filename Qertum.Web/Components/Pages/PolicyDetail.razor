@@ -230,6 +230,12 @@ else
                 {
                     <div class="form-help mt-2">No draft exists yet. Save one to enable publishing.</div>
                 }
+                @if (draftError is not null)
+                {
+                    <div class="alert alert-danger mt-3" role="alert" data-test="draft-error">
+                        <span class="bi bi-exclamation-triangle-fill me-2"></span>@draftError
+                    </div>
+                }
             </div>
         </div>
 
@@ -302,6 +308,12 @@ else
                     Archiving is refused while a template still links to the policy. Deleting is refused as well while
                     any issued request still records one of its versions — archive it instead.
                 </div>
+                @if (lifecycleError is not null)
+                {
+                    <div class="alert alert-danger mt-3" role="alert" data-test="lifecycle-error">
+                        <span class="bi bi-exclamation-triangle-fill me-2"></span>@lifecycleError
+                    </div>
+                }
             </div>
         </div>
     </div>
@@ -327,6 +339,9 @@ else
     private string? newRequesterRole;
     private bool busy;
     private string? notification;
+    // A refused action is shown beside its buttons: they sit at the bottom of a long page, where the
+    // notification at the top is out of view, so a refused publish looked like a button that did nothing.
+    private string? draftError, lifecycleError;
     private string notificationType = "success";
 
     protected override async Task OnParametersSetAsync() => await LoadAsync();
@@ -380,7 +395,7 @@ else
         else algorithms.Remove(algorithm);
     }
 
-    private async Task SaveDraftAsync() => await RunAsync(async () =>
+    private async Task SaveDraftAsync() => await RunDraftActionAsync(async () =>
     {
         policy = await CertificateRequestsApiClient.SaveIssuancePolicyDraftAsync(new IssuancePolicyId(PolicyId),
             new SaveIssuancePolicyDraftRequest
@@ -395,13 +410,13 @@ else
         Notify("Draft saved. It is not enforced until published.", "success");
     });
 
-    private async Task DiscardDraftAsync() => await RunAsync(async () =>
+    private async Task DiscardDraftAsync() => await RunDraftActionAsync(async () =>
     {
         await CertificateRequestsApiClient.DiscardIssuancePolicyDraftAsync(new IssuancePolicyId(PolicyId));
         Notify("Draft discarded.", "success");
     });
 
-    private async Task PublishAsync() => await RunAsync(async () =>
+    private async Task PublishAsync() => await RunDraftActionAsync(async () =>
     {
         var draft = policy!.Draft!;
         // The id and timestamp are the draft as this page rendered it: if someone edited it since,
@@ -411,13 +426,13 @@ else
         Notify($"Published v{policy.Published?.VersionNumber}. It is enforced from now on.", "success");
     });
 
-    private async Task ArchiveAsync() => await RunAsync(async () =>
+    private async Task ArchiveAsync() => await RunLifecycleActionAsync(async () =>
     {
         await CertificateRequestsApiClient.ArchiveIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
         Notify("Policy archived.", "success");
     });
 
-    private async Task UnarchiveAsync() => await RunAsync(async () =>
+    private async Task UnarchiveAsync() => await RunLifecycleActionAsync(async () =>
     {
         await CertificateRequestsApiClient.UnarchiveIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
         Notify("Policy unarchived.", "success");
@@ -426,6 +441,7 @@ else
     private async Task DeleteAsync()
     {
         busy = true;
+        draftError = lifecycleError = null;
         try
         {
             await CertificateRequestsApiClient.DeleteIssuancePolicyAsync(new IssuancePolicyId(PolicyId));
@@ -433,7 +449,7 @@ else
         }
         catch (ApiProblemException ex)
         {
-            Notify(ex.WithCorrelationId(ex.Message), "danger");
+            lifecycleError = ex.WithCorrelationId(ex.Message);
         }
         finally
         {
@@ -441,9 +457,14 @@ else
         }
     }
 
-    private async Task RunAsync(Func<Task> action)
+    private Task RunDraftActionAsync(Func<Task> action) => RunAsync(action, message => draftError = message);
+
+    private Task RunLifecycleActionAsync(Func<Task> action) => RunAsync(action, message => lifecycleError = message);
+
+    private async Task RunAsync(Func<Task> action, Action<string> showError)
     {
         busy = true;
+        draftError = lifecycleError = null;
         try
         {
             await action();
@@ -451,7 +472,7 @@ else
         }
         catch (ApiProblemException ex)
         {
-            Notify(ex.WithCorrelationId(ex.Message), "danger");
+            showError(ex.WithCorrelationId(ex.Message));
         }
         finally
         {

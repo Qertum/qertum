@@ -55,6 +55,11 @@ internal static partial class IdentityHostTestKit
         return await client.PostAsync(postUrl, new FormUrlEncodedContent(body), ct);
     }
 
+    /// <summary>Opens the device confirmation page for <paramref name="userCode"/> and posts its Allow form.</summary>
+    public static Task<HttpResponseMessage> ApproveDeviceAsync(HttpClient client, string userCode, CancellationToken ct) =>
+        PostFormAsync(client, $"/connect/verify?user_code={Uri.EscapeDataString(userCode)}", "/connect/verify",
+            [KeyValuePair.Create("user_code", userCode)], ct);
+
     public static async Task LoginAsync(HttpClient client, string username, string password, CancellationToken ct)
     {
         using var response = await PostFormAsync(client, "/login", "/login",
@@ -83,11 +88,8 @@ internal static partial class IdentityHostTestKit
 
         await LoginAsync(client, username, password, ct);
 
-        using var verify = await client.PostAsync("/connect/verify",
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["user_code"] = codes.GetProperty("user_code").GetString()!
-            }), ct);
+        // Approve through the confirmation page, which carries the antiforgery token the POST needs.
+        using var verify = await ApproveDeviceAsync(client, codes.GetProperty("user_code").GetString()!, ct);
         Assert.Equal(HttpStatusCode.OK, verify.StatusCode);
 
         using var token = await client.PostAsync("/connect/token",

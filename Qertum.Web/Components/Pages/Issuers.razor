@@ -35,36 +35,31 @@
     <IssuerCeremony @key="ceremonyKey" Issuers="issuers" ResumeIssuerId="resumeIssuerId" OnChanged="LoadAsync" OnClosed="CloseCeremony" />
 }
 
-@if (pending is not null)
+@if (pending is { } ask)
 {
-    <div class="card confirm-panel mb-3" data-test="confirm-panel">
-        <div class="card-body">
-            <p class="mb-2">@ConfirmText(pending.Value.Action, pending.Value.Issuer)</p>
-            @if (pending.Value.Action is "export-key" or "export-pfx")
-            {
-                <div class="alert alert-warning" role="alert" data-test="key-export-warning">
-                    <span class="bi bi-exclamation-triangle-fill me-2"></span><strong>This is not a safe way to manage a CA private key.</strong>
-                    Whoever holds the file can sign certificates that every client trusting this CA will accept, and this CA cannot tell them apart from its own.
-                    A CA key belongs in an HSM or an offline ceremony, not on a laptop or in a download folder. Export it only for a backup you will
-                    store offline or a migration you control, then delete every other copy. The download is audited.
-                </div>
-            }
-            @if (pending.Value.Action == "export-pfx")
-            {
-                <input type="password" class="form-control mb-2" data-test="pfx-password" placeholder="PFX password" autocomplete="new-password" @bind="pfxPassword" @bind:event="oninput" />
-            }
-            @if (pending.Value.Action == "upload-crl")
-            {
-                <InputFile data-test="crl-file" class="form-control mb-2" accept=".crl,.der,.pem" OnChange="ReadCrlAsync" />
-            }
-            <div class="d-flex gap-2">
-                <button type="button" class="btn btn-danger" disabled="@(busy || (pending.Value.Action == "upload-crl" && crlBytes is null) || (pending.Value.Action == "export-pfx" && string.IsNullOrEmpty(pfxPassword)))" @onclick="ConfirmAsync">
-                    @ConfirmLabel(pending.Value.Action)
-                </button>
-                <button type="button" class="btn btn-outline-secondary" @onclick="CancelPending">Cancel</button>
+    <ConfirmDialog TestId="issuer" Tone="@ConfirmTone(ask.Action)" Title="@ConfirmTitle(ask.Action, ask.Issuer)"
+                   ConfirmLabel="@ConfirmLabel(ask.Action)" Busy="busy" MaxWidthPx="@(ask.Action is "export-key" or "export-pfx" ? 560 : 480)"
+                   ConfirmDisabled="@((ask.Action == "upload-crl" && crlBytes is null) || (ask.Action == "export-pfx" && string.IsNullOrEmpty(pfxPassword)))"
+                   OnConfirm="ConfirmAsync" OnCancel="CancelPending">
+        <p class="mb-3" data-test="issuer-confirm-text">@ConfirmText(ask.Action, ask.Issuer)</p>
+        @if (ask.Action is "export-key" or "export-pfx")
+        {
+            <div class="alert alert-warning" role="alert" data-test="key-export-warning">
+                <span class="bi bi-exclamation-triangle-fill me-2"></span><strong>This is not a safe way to manage a CA private key.</strong>
+                Whoever holds the file can sign certificates that every client trusting this CA will accept, and this CA cannot tell them apart from its own.
+                A CA key belongs in an HSM or an offline ceremony, not on a laptop or in a download folder. Export it only for a backup you will
+                store offline or a migration you control, then delete every other copy. The download is audited.
             </div>
-        </div>
-    </div>
+        }
+        @if (ask.Action == "export-pfx")
+        {
+            <input type="password" class="form-control" data-test="pfx-password" placeholder="PFX password" autocomplete="new-password" @bind="pfxPassword" @bind:event="oninput" />
+        }
+        @if (ask.Action == "upload-crl")
+        {
+            <InputFile data-test="crl-file" class="form-control" accept=".crl,.der,.pem" OnChange="ReadCrlAsync" />
+        }
+    </ConfirmDialog>
 }
 
 <label class="form-check list-toggle mb-2">
@@ -143,44 +138,46 @@ else
                             }
                         </td>
                         <td class="text-end text-nowrap">
-                            @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired)
-                            {
-                                <button type="button" class="btn btn-sm btn-link" data-test="action-certificate" @onclick="() => DownloadCertificateAsync(issuer)">Certificate</button>
-                                <button type="button" class="btn btn-sm btn-link" data-test="action-chain" @onclick="() => DownloadChainAsync(issuer)">Chain</button>
-                            }
-                            @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired && issuer.KeyCustody == IssuerKeyCustody.Online)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-export-key" @onclick='() => Ask("export-key", issuer)'>Private key</button>
-                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-export-pfx" @onclick='() => Ask("export-pfx", issuer)'>PFX</button>
-                            }
-                            @if (issuer.Status == IssuerStatus.Active && issuer.KeyCustody == IssuerKeyCustody.Online && !issuer.IsDefault)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-make-default" @onclick='() => Ask("make-default", issuer)'>Make default</button>
-                                <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
-                            }
-                            @if (issuer.Status == IssuerStatus.Active && issuer.KeyCustody == IssuerKeyCustody.Offline && !issuer.IsDefault)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
-                            }
-                            @if (issuer.Kind == IssuerKind.Intermediate && issuer.KeyCustody == IssuerKeyCustody.Online &&
-                                 (issuer.Status == IssuerStatus.Active || issuer.RevokedAtUtc is not null) &&
-                                 !issuers.Any(r => r.RenewalOfIssuerId == issuer.Id))
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-renew" @onclick='() => Ask("renew", issuer)'>Renew</button>
-                            }
-                            @if (issuer.Status == IssuerStatus.Retired)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-archive" @onclick='() => Ask("archive", issuer)'>Archive</button>
-                            }
-                            @if (issuer.Status == IssuerStatus.PendingCertificate)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-resume" @onclick="() => OpenCeremony(issuer.Id)">Resume</button>
-                                <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-delete" @onclick='() => Ask("delete", issuer)'>Delete</button>
-                            }
-                            @if ((issuer.Status is IssuerStatus.Active or IssuerStatus.Retired) && issuer.KeyCustody == IssuerKeyCustody.Offline)
-                            {
-                                <button type="button" class="btn btn-sm btn-outline-secondary" data-test="action-upload-crl" @onclick='() => Ask("upload-crl", issuer)'>Upload CRL</button>
-                            }
+                            <div class="d-flex gap-2 justify-content-end" data-test="row-actions">
+                                @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired)
+                                {
+                                    <button type="button" class="btn btn-sm btn-link" data-test="action-certificate" @onclick="() => DownloadCertificateAsync(issuer)">Certificate</button>
+                                    <button type="button" class="btn btn-sm btn-link" data-test="action-chain" @onclick="() => DownloadChainAsync(issuer)">Chain</button>
+                                }
+                                @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired && issuer.KeyCustody == IssuerKeyCustody.Online)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-export-key" @onclick='() => Ask("export-key", issuer)'>Private key</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-export-pfx" @onclick='() => Ask("export-pfx", issuer)'>PFX</button>
+                                }
+                                @if (issuer.Status == IssuerStatus.Active && issuer.KeyCustody == IssuerKeyCustody.Online && !issuer.IsDefault)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-make-default" @onclick='() => Ask("make-default", issuer)'>Make default</button>
+                                    <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
+                                }
+                                @if (issuer.Status == IssuerStatus.Active && issuer.KeyCustody == IssuerKeyCustody.Offline && !issuer.IsDefault)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-warning" data-test="action-retire" @onclick='() => Ask("retire", issuer)'>Retire</button>
+                                }
+                                @if (issuer.Kind == IssuerKind.Intermediate && issuer.KeyCustody == IssuerKeyCustody.Online &&
+                                     (issuer.Status == IssuerStatus.Active || issuer.RevokedAtUtc is not null) &&
+                                     !issuers.Any(r => r.RenewalOfIssuerId == issuer.Id))
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-renew" @onclick='() => Ask("renew", issuer)'>Renew</button>
+                                }
+                                @if (issuer.Status == IssuerStatus.Retired)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-archive" @onclick='() => Ask("archive", issuer)'>Archive</button>
+                                }
+                                @if (issuer.Status == IssuerStatus.PendingCertificate)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-primary" data-test="action-resume" @onclick="() => OpenCeremony(issuer.Id)">Resume</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" data-test="action-delete" @onclick='() => Ask("delete", issuer)'>Delete</button>
+                                }
+                                @if ((issuer.Status is IssuerStatus.Active or IssuerStatus.Retired) && issuer.KeyCustody == IssuerKeyCustody.Offline)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-test="action-upload-crl" @onclick='() => Ask("upload-crl", issuer)'>Upload CRL</button>
+                                }
+                            </div>
                         </td>
                     </tr>
                 }
@@ -350,6 +347,24 @@ else
         "export-pfx" => $"Download \"{issuer.Name}\" with its private key as a password-protected PKCS#12 file?",
         _ => action
     };
+
+    private static string ConfirmTitle(string action, IssuerResponse issuer) => action switch
+    {
+        "renew" when issuer.RevokedAtUtc is not null => "Renew the revoked CA?",
+        "renew" => "Renew this CA?",
+        "make-default" => "Make this the default issuer?",
+        "retire" => "Retire this CA?",
+        "archive" => "Archive this CA?",
+        "delete" => "Delete the pending CA?",
+        "upload-crl" => "Upload a CRL?",
+        "export-key" => "Download the CA private key?",
+        "export-pfx" => "Download the CA as PFX?",
+        _ => "Confirm"
+    };
+
+    // Danger for what cannot be taken back or puts the CA key in a file; the rest are routine changes.
+    private static ConfirmDialogTone ConfirmTone(string action) =>
+        action is "retire" or "archive" or "delete" or "export-key" or "export-pfx" ? ConfirmDialogTone.Danger : ConfirmDialogTone.Neutral;
 
     private static string ConfirmLabel(string action) => action switch
     {

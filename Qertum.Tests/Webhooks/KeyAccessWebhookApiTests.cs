@@ -123,6 +123,26 @@ public sealed class KeyAccessWebhookApiTests
     }
 
     [Fact]
+    public async Task KeyAndCertificateDownloads_WorkWithoutThePqcQueryParameter()
+    {
+        // The documented routes are GET .../private-key and GET .../certificate; `pqc` only selects the
+        // second certificate of a pair. A required bool answered 400 to every caller that left it out
+        // (the web UI and qca always send it; found by the 1.0.0-rc3 upgrade test).
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = ApiServiceTests.CreateFactory();
+        await ApiServiceTests.EnsureDbAsync(factory, ct);
+        using var admin = Admin(factory);
+        var (id, _) = await SeedIssuedAsync(factory, "nopqc-param.example.com", ct);
+
+        using var key = await admin.GetAsync($"/v1/certificate-requests/{(Guid)id}/private-key", ct);
+        using var certificate = await admin.GetAsync($"/v1/certificate-requests/{(Guid)id}/certificate", ct);
+
+        Assert.Equal(HttpStatusCode.OK, key.StatusCode);
+        Assert.Contains("PRIVATE KEY", await key.Content.ReadAsStringAsync(ct));
+        Assert.Equal(HttpStatusCode.OK, certificate.StatusCode);
+    }
+
+    [Fact]
     public async Task PrivateKeyDownload_EnqueuesKeyAccessWithoutTheCommonName()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -20,9 +20,15 @@ public sealed class Webhook
 
     /// <summary>
     /// Optional HMAC-SHA256 signing secret. When set, deliveries include an
-    /// <c>X-Webhook-Signature: sha256=&lt;hex&gt;</c> header. Stored encrypted at rest.
+    /// <c>X-Webhook-Signature: sha256=&lt;hex&gt;</c> header. Stored encrypted at rest and never
+    /// serialized: set it through <c>SaveWebhookRequest</c>, read only <see cref="HasSecret"/>.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? Secret { get; set; }
+
+    /// <summary>Whether a signing secret is set; the secret itself is never returned.</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public bool HasSecret => !string.IsNullOrEmpty(Secret);
 
     /// <summary>
     /// JSON array naming the subset of <see cref="Family"/> to deliver (e.g. <c>["Issued","Revoked"]</c>).

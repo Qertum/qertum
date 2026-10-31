@@ -447,6 +447,7 @@ else
     private List<string> customEkus = new();
     private string customEkuInput = string.Empty;
     private HashSet<string> selectedSanTypes = new();
+    private string? customExtensionsJson;
 
     private static readonly Dictionary<string, string> AllKeyUsages = new()
     {
@@ -538,6 +539,8 @@ else
                     .Where(o => !WellKnownEkus.ContainsKey(o))
                     .ToList();
                 selectedSanTypes = ParseJsonArray(template.SanTypesJson);
+                // No field edits these; sent back unchanged so a save does not erase them.
+                customExtensionsJson = template.CustomExtensionsJson;
             }
             catch (Exception ex)
             {
@@ -637,6 +640,7 @@ else
                 KeyUsagesJson = JsonSerializer.Serialize(selectedKeyUsages.ToList()),
                 ExtendedKeyUsagesJson = JsonSerializer.Serialize(allEkus),
                 SanTypesJson = JsonSerializer.Serialize(selectedSanTypes.ToList()),
+                CustomExtensionsJson = customExtensionsJson,
                 ValidityDays = validityDays
             };
 

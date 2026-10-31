@@ -73,11 +73,29 @@ public static partial class CertificateRequestValidator
             errorMessage = "TypeKey cannot be empty.";
             return false;
         }
+        if (IsReservedType(typeKey))
+        {
+            errorMessage = ReservedTypeMessage;
+            return false;
+        }
         if (TypeKeyPattern().IsMatch(typeKey)) return true;
 
         errorMessage = "TypeKey must start with a letter and contain only letters, digits, hyphens, or underscores (max 50 chars).";
         return false;
     }
+
+    /// <summary>
+    /// True for <see cref="WellKnownCertificateTypes.RootCa"/> in any casing. Only the CA-generation
+    /// route files that type (settings.edit, step-up, independent approval); policy evaluation treats
+    /// it as unrestricted and the consumer turns it into a new root, so no template and no ordinary
+    /// request may carry it.
+    /// </summary>
+    public static bool IsReservedType(string? type) =>
+        string.Equals(type, WellKnownCertificateTypes.RootCa, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The refusal for <see cref="IsReservedType"/>.</summary>
+    public const string ReservedTypeMessage =
+        "'RootCA' is reserved for the CA's own root certificate, which is created in onboarding (POST /v1/ca/generate).";
 
     /// <summary>Returns true if the name is a syntactically valid DNS hostname (wildcards allowed).</summary>
     private static bool IsValidDnsName(string name)

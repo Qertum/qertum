@@ -291,11 +291,7 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
 
         await LoginAsync(client, username, ct);
 
-        using var verify = await client.PostAsync("/connect/verify",
-            new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["user_code"] = codes.GetProperty("user_code").GetString()!
-            }), ct);
+        using var verify = await IdentityHostTestKit.ApproveDeviceAsync(client, codes.GetProperty("user_code").GetString()!, ct);
         Assert.Equal(HttpStatusCode.OK, verify.StatusCode);
 
         using var token = await client.PostAsync("/connect/token",

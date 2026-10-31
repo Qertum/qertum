@@ -10,10 +10,13 @@ public sealed class TemplateEditorIssuerTests
 {
     private static readonly CertificateTemplateId TemplateId = new(Guid.NewGuid());
 
-    private static (BunitContext Context, IssuerApiStub Api) NewContext(IssuerId? pinned = null)
+    private static (BunitContext Context, IssuerApiStub Api) NewContext(IssuerId? pinned = null, string? customExtensionsJson = null)
     {
         var api = new IssuerApiStub();
-        var template = new CertificateTemplate { Id = TemplateId, Name = "Web", TypeKey = "WebServer", IssuerId = pinned };
+        var template = new CertificateTemplate
+        {
+            Id = TemplateId, Name = "Web", TypeKey = "WebServer", IssuerId = pinned, CustomExtensionsJson = customExtensionsJson
+        };
         var templatePath = $"/v1/certificate-templates/{TemplateId}";
         api.Override = r => r.RequestUri!.AbsolutePath == templatePath || r.RequestUri.AbsolutePath == templatePath + "/issuer"
             ? new HttpResponseMessage(System.Net.HttpStatusCode.OK)
@@ -71,6 +74,25 @@ public sealed class TemplateEditorIssuerTests
 
         cut.WaitForAssertion(() => Assert.Contains(api.Requests, r => r.Method == HttpMethod.Put));
         Assert.DoesNotContain(api.Requests, r => r.Path.EndsWith("/issuer", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SavingATemplate_KeepsItsCustomExtensions()
+    {
+        // The editor has no field for custom extensions; it used to send none, and the update copied
+        // that null over the stored list, so one save in the web UI erased them.
+        const string custom = """[{"oid":"1.3.6.1.4.1.99999.1","value":"v","critical":false}]""";
+        var (context, api) = NewContext(customExtensionsJson: custom);
+        await using var _ = context;
+        var cut = context.Render<TemplateEditor>(p => p.Add(x => x.Id, (Guid)TemplateId));
+        GoToLastStep(cut);
+
+        cut.Find("[data-test='template-save']").Click();
+
+        cut.WaitForAssertion(() => Assert.Contains(api.Requests, r => r.Method == HttpMethod.Put));
+        var put = api.Requests.Single(r => r.Method == HttpMethod.Put && r.Path == $"/v1/certificate-templates/{TemplateId}");
+        var sent = JsonSerializer.Deserialize<SaveCertificateTemplateRequest>(put.Body!, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(custom, sent.CustomExtensionsJson);
     }
 
     [Fact]

@@ -150,27 +150,22 @@ public sealed class CertificateGenerator(
             throw new ArgumentException("CSR signature verification failed.");
 
         var csrPublicKey = QertumKeyCodec.PublicKeyOf(csr);
+        // ACME and EST check this when the CSR arrives; checked again here, at signing, for any other path.
+        RequireSupportedAlgorithm(csrPublicKey);
         var random = new SecureRandom();
         return BuildSingleCertificate(algorithm, request, caSettings, template, random, externalPublicKey: csrPublicKey, urls: urls);
     }
 
     private GeneratedCertificate BuildSingleCertificate(CertificateKeyAlgorithm algorithm, CertificateRequest request, CaSettings? caSettings, CertificateTemplate? template, SecureRandom random, AsymmetricKeyParameter? externalPublicKey = null, Issuers.IssuerUrls? urls = null, DateTime? issuedAtUtc = null)
     {
+        // Before any key is made: a template that cannot be read refuses issuance (never drops an extension).
+        var extensions = template is null ? null : TemplateExtensionSettings.Read(template);
         var strategy = AlgorithmStrategyFactory.Create(algorithm);
         AsymmetricCipherKeyPair? leafKeyPair = externalPublicKey is null ? strategy.GenerateLeafKeyPair(random) : null;
         var leafPublicKey = externalPublicKey ?? leafKeyPair!.Public;
 
-        var nameAttrs = new List<string> { $"CN={request.CommonName}" };
-        if (caSettings != null)
-        {
-            if (!string.IsNullOrWhiteSpace(caSettings.OrganizationName)) nameAttrs.Add($"O={caSettings.OrganizationName}");
-            if (!string.IsNullOrWhiteSpace(caSettings.OrganizationalUnit)) nameAttrs.Add($"OU={caSettings.OrganizationalUnit}");
-            if (!string.IsNullOrWhiteSpace(caSettings.Country)) nameAttrs.Add($"C={caSettings.Country}");
-            if (!string.IsNullOrWhiteSpace(caSettings.State)) nameAttrs.Add($"ST={caSettings.State}");
-            if (!string.IsNullOrWhiteSpace(caSettings.Locality)) nameAttrs.Add($"L={caSettings.Locality}");
-        }
-
-        var subjectName = new X509Name(string.Join(", ", nameAttrs));
+        var subjectName = Issuers.CaCertificateBuilder.SubjectName(request.CommonName, caSettings?.OrganizationName,
+            caSettings?.OrganizationalUnit, caSettings?.Country, caSettings?.State, caSettings?.Locality);
         var serialNumber = GenerateSerialNumber(random);
 
         // One reading of the clock per certificate, or per pair: both bounds, and both certificates of a
@@ -224,11 +219,12 @@ public sealed class CertificateGenerator(
             certGen.AddExtension(X509Extensions.AuthorityInfoAccess, false,
                 AuthorityInformationAccess.GetInstance(new DerSequence(accessDescriptions.ToArray<Asn1Encodable>())));
 
-        if (template is not null)
+        if (extensions is not null)
         {
-            var usages = DeserializeUsages(template.KeyUsagesJson);
-            certGen.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(strategy.BuildKeyUsageBits(usages)));
-            AddEkuFromJson(certGen, template.ExtendedKeyUsagesJson);
+            certGen.AddExtension(X509Extensions.KeyUsage, true, new KeyUsage(strategy.BuildKeyUsageBits(extensions.KeyUsages)));
+            if (extensions.ExtendedKeyUsages.Count > 0)
+                certGen.AddExtension(X509Extensions.ExtendedKeyUsage, false,
+                    new DerSequence(extensions.ExtendedKeyUsages.Select(o => (Asn1Encodable)new DerObjectIdentifier(o)).ToArray()));
         }
         else
         {
@@ -245,11 +241,11 @@ public sealed class CertificateGenerator(
             certGen.AddExtension(X509Extensions.CrlDistributionPoints, false, new CrlDistPoint([dp]));
         }
 
-        if (template is not null)
+        if (extensions is not null)
         {
-            AddSanFromTemplate(certGen, request, template.SanTypesJson);
-            if (!string.IsNullOrWhiteSpace(template.CustomExtensionsJson))
-                AddCustomExtensions(certGen, template.CustomExtensionsJson);
+            AddSanFromTemplate(certGen, request, extensions.SanTypes);
+            foreach (var ext in extensions.CustomExtensions)
+                certGen.AddExtension(new DerObjectIdentifier(ext.Oid), ext.Critical, new DerUtf8String(ext.Value));
         }
         else if (request.Type == "WebServer" && !string.IsNullOrWhiteSpace(request.PropertiesJson))
         {
@@ -281,91 +277,56 @@ public sealed class CertificateGenerator(
     }
 
 
-    private static List<string> DeserializeUsages(string keyUsagesJson)
+    private static void AddSanFromTemplate(X509V3CertificateGenerator certGen, CertificateRequest request, IReadOnlyList<string> sanTypes)
     {
-        try { return JsonSerializer.Deserialize<List<string>>(keyUsagesJson, AppJsonOptions.Default) ?? []; }
-        catch (JsonException) { return []; }
-    }
+        if (sanTypes.Count == 0 || string.IsNullOrWhiteSpace(request.PropertiesJson)) return;
 
-    private static void AddEkuFromJson(X509V3CertificateGenerator certGen, string ekuJson)
-    {
-        try
+        CertificateProperties? props;
+        try { props = JsonSerializer.Deserialize<CertificateProperties>(request.PropertiesJson, AppJsonOptions.Default); }
+        catch (JsonException ex)
         {
-            var oids = JsonSerializer.Deserialize<List<string>>(ekuJson, AppJsonOptions.Default) ?? [];
-            var oidEncodables = oids
-                .Where(o => !string.IsNullOrWhiteSpace(o))
-                .Select<string, Asn1Encodable>(o => new DerObjectIdentifier(o))
-                .ToArray();
-            if (oidEncodables.Length > 0)
-                certGen.AddExtension(X509Extensions.ExtendedKeyUsage, false, new DerSequence(oidEncodables));
+            // Validated when the request was filed; unreadable here means the names would be lost.
+            throw new InvalidOperationException($"The request's properties cannot be read, so its subject alternative names would be lost: {ex.Message}", ex);
         }
-        catch (JsonException) { }
-    }
+        if (props is null) return;
 
-    private static void AddSanFromTemplate(X509V3CertificateGenerator certGen, CertificateRequest request, string sanTypesJson)
-    {
-        try
+        var names = new List<GeneralName>();
+
+        if (sanTypes.Contains("dns"))
         {
-            var sanTypes = JsonSerializer.Deserialize<List<string>>(sanTypesJson, AppJsonOptions.Default) ?? [];
-            if (sanTypes.Count == 0 || string.IsNullOrWhiteSpace(request.PropertiesJson)) return;
-
-            var props = JsonSerializer.Deserialize<CertificateProperties>(request.PropertiesJson, AppJsonOptions.Default);
-            if (props is null) return;
-
-            var names = new List<GeneralName>();
-
-            if (sanTypes.Contains("dns"))
-            {
-                names.Add(new GeneralName(GeneralName.DnsName, request.CommonName));
-                names.AddRange(props.DnsNames
-                    .Where(d => !string.Equals(d, request.CommonName, StringComparison.OrdinalIgnoreCase))
-                    .Select(dns => new GeneralName(GeneralName.DnsName, dns)));
-            }
-
-            if (sanTypes.Contains("ip"))
-            {
-                foreach (var ip in props.IpAddresses)
-                {
-                    if (IPAddress.TryParse(ip, out var parsed))
-                        names.Add(new GeneralName(GeneralName.IPAddress, new DerOctetString(parsed.GetAddressBytes())));
-                }
-            }
-
-            if (sanTypes.Contains("email"))
-            {
-                names.AddRange(props.EmailAddresses
-                    .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(email => new GeneralName(GeneralName.Rfc822Name, email)));
-            }
-
-            if (sanTypes.Contains("upn"))
-            {
-                var upnOid = new DerObjectIdentifier("1.3.6.1.4.1.311.20.2.3");
-                names.AddRange(props.UserPrincipalNames
-                    .Where(u => !string.IsNullOrWhiteSpace(u))
-                    .Select(upn => new GeneralName(GeneralName.OtherName,
-                        new DerSequence(upnOid, new DerTaggedObject(true, 0, new DerUtf8String(upn))))));
-            }
-
-            if (names.Count > 0)
-                certGen.AddExtension(X509Extensions.SubjectAlternativeName, false, new GeneralNames(names.ToArray()));
+            names.Add(new GeneralName(GeneralName.DnsName, request.CommonName));
+            names.AddRange(props.DnsNames
+                .Where(d => !string.Equals(d, request.CommonName, StringComparison.OrdinalIgnoreCase))
+                .Select(dns => new GeneralName(GeneralName.DnsName, dns)));
         }
-        catch (JsonException) { }
-    }
 
-    private static void AddCustomExtensions(X509V3CertificateGenerator certGen, string customExtensionsJson)
-    {
-        try
+        if (sanTypes.Contains("ip"))
         {
-            var extensions = JsonSerializer.Deserialize<List<CustomExtension>>(customExtensionsJson, AppJsonOptions.Default);
-            if (extensions is null) return;
-            foreach (var ext in extensions.Where(e => !string.IsNullOrWhiteSpace(e.Oid) && !string.IsNullOrWhiteSpace(e.Value)))
+            foreach (var ip in props.IpAddresses)
             {
-                var oid = new DerObjectIdentifier(ext.Oid);
-                certGen.AddExtension(oid, ext.Critical, new DerUtf8String(ext.Value));
+                if (IPAddress.TryParse(ip, out var parsed))
+                    names.Add(new GeneralName(GeneralName.IPAddress, new DerOctetString(parsed.GetAddressBytes())));
             }
         }
-        catch (JsonException) { }
+
+        if (sanTypes.Contains("email"))
+        {
+            names.AddRange(props.EmailAddresses
+                .Where(e => !string.IsNullOrWhiteSpace(e))
+                .Select(email => new GeneralName(GeneralName.Rfc822Name, email)));
+        }
+
+        if (sanTypes.Contains("upn"))
+        {
+            var upnOid = new DerObjectIdentifier("1.3.6.1.4.1.311.20.2.3");
+            names.AddRange(props.UserPrincipalNames
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .Select(upn => new GeneralName(GeneralName.OtherName,
+                    new DerSequence(upnOid, new DerTaggedObject(true, 0, new DerUtf8String(upn))))));
+        }
+
+        if (names.Count > 0)
+            certGen.AddExtension(X509Extensions.SubjectAlternativeName, false, new GeneralNames(names.ToArray()));
     }
 
     public byte[] GenerateCrl(IReadOnlyList<CertificateRequest> revokedRequests, CaSettings? caSettings = null, long crlNumber = 0, DateTime? thisUpdateUtc = null)
@@ -904,7 +865,29 @@ public sealed class CertificateGenerator(
         ("P-384", CertificateKeyAlgorithm.EcdsaP384)
     ];
 
-    private static CertificateKeyAlgorithm RequireSupportedAlgorithm(AsymmetricKeyParameter key) =>
+    // A client-supplied RSA key (ACME, EST, an imported CA) must be one nobody can factor or forge
+    // cheaply: 2048 to 16384 bits (the upper bound only stops absurd keys) and an odd public exponent
+    // of at least 65537 (CA/Browser Forum Baseline Requirements 6.1.6).
+    private const int MinRsaModulusBits = 2048;
+    private const int MaxRsaModulusBits = 16384;
+
+    private static void RequireStrongRsa(RsaKeyParameters rsa)
+    {
+        var bits = rsa.Modulus.BitLength;
+        if (bits < MinRsaModulusBits || bits > MaxRsaModulusBits)
+            throw new NotSupportedException(
+                $"The RSA key is {bits} bits; this CA issues for RSA keys of {MinRsaModulusBits} to {MaxRsaModulusBits} bits.");
+        if (!rsa.Exponent.TestBit(0) || rsa.Exponent.CompareTo(Org.BouncyCastle.Math.BigInteger.ValueOf(65537)) < 0)
+            throw new NotSupportedException("The RSA key's public exponent must be odd and at least 65537.");
+    }
+
+    private static CertificateKeyAlgorithm RequireSupportedAlgorithm(AsymmetricKeyParameter key)
+    {
+        if (key is RsaKeyParameters rsa) RequireStrongRsa(rsa);
+        return RequireSupportedAlgorithmCore(key);
+    }
+
+    private static CertificateKeyAlgorithm RequireSupportedAlgorithmCore(AsymmetricKeyParameter key) =>
         GetAlgorithmFromPublicKey(key)
         ?? throw new NotSupportedException(
             $"The key type '{key.GetType().Name}' is not an algorithm this CA can issue for. " +

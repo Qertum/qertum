@@ -14,7 +14,9 @@ internal sealed class CreateCertificateRequestValidator : AbstractValidator<Crea
 
         RuleFor(r => r.Type)
             .NotEmpty()
-            .MaximumLength(50);
+            .MaximumLength(50)
+            .Must(t => !CertificateRequestValidator.IsReservedType(t))
+            .WithMessage(CertificateRequestValidator.ReservedTypeMessage);
 
         RuleFor(r => r.PropertiesJson)
             .NotEmpty()

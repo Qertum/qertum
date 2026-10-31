@@ -51,6 +51,22 @@ public sealed class OcspEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task Post_BodyLargerThanAnyOcspRequest_Is413WithoutBeingBuffered()
+    {
+        // The endpoint is public; it used to copy any body up to Kestrel's 30 MB limit into memory.
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = CreateFactory();
+
+        var response = await factory.CreateClient().PostAsync("/ocsp",
+            new ByteArrayContent(new byte[OcspRequestLimits.MaxBodyBytes + 1])
+            {
+                Headers = { ContentType = new MediaTypeHeaderValue("application/ocsp-request") }
+            }, ct);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Post_RevokedSerial_IsReportedRevokedWithoutAuthentication()
     {
         var ct = TestContext.Current.CancellationToken;

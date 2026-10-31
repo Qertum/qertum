@@ -207,8 +207,19 @@ internal static class OidcLogin
         throw new InvalidOperationException("Device code expired while waiting. Run login again.");
     }
 
+    /// <summary>
+    /// Only an absolute http(s) URL is handed to the shell. The value comes from the identity
+    /// provider's device response, and on Windows ShellExecute would also open a file path, a UNC
+    /// share or a registered protocol handler.
+    /// </summary>
+    internal static bool IsBrowserUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) &&
+        !uri.IsUnc && !string.IsNullOrEmpty(uri.Host);
+
     private static void OpenBrowser(string url)
     {
+        if (!IsBrowserUrl(url)) return; // printed above; the user can still open it by hand
         try
         {
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });

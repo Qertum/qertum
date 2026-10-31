@@ -422,9 +422,11 @@ public static class ApiEndpointMappings
             return updated is null ? ApiProblem.NotFound() : Results.Ok(updated.Metadata);
         }).RequireAuthorization(AppPermissions.CertificatesView);
 
+        // `pqc` is optional (default false): it only selects the second key of a pair, and a required bool
+        // answered 400 to every caller that left it out.
         certificateRequests.MapGet("/{id:guid}/private-key", async (
             Guid id,
-            [FromQuery] bool pqc,
+            [FromQuery] bool? pqc,
             CertificateRequestApiService service,
             ICertificateAccessEvaluator accessEvaluator,
             IAuditLogService auditLog,
@@ -441,18 +443,18 @@ public static class ApiEndpointMappings
             if (request.Status is not (CertificateRequestStatus.Issued or CertificateRequestStatus.Revoked))
                 return ApiProblem.NotFound();
 
-            var keyPem = pqc ? request.PqcPrivateKeyPem : request.PrivateKeyPem;
+            var keyPem = pqc == true ? request.PqcPrivateKeyPem : request.PrivateKeyPem;
             // ACME-issued requests store an empty key: the client generated it and the CA never saw it.
             if (string.IsNullOrWhiteSpace(keyPem))
                 return ApiProblem.NotFound();
 
             var performedBy = claimsMapper.GetName(httpContext.User);
             await auditLog.LogAsync("PrivateKeyDownloaded", performedBy, id, request.CommonName,
-                KeyAccessAudit.PrivateKeyDetail(request.KeyAlgorithm, pqc), cancellationToken);
+                KeyAccessAudit.PrivateKeyDetail(request.KeyAlgorithm, pqc == true), cancellationToken);
 
             // KeyAccess deliberately carries no common name and no request id — WebhookService
             // suppresses both — so the thumbprint is what identifies the key that left.
-            var downloadedCertPem = pqc ? request.PqcCertificatePem : request.CertificatePem;
+            var downloadedCertPem = pqc == true ? request.PqcCertificatePem : request.CertificatePem;
             await webhookService.EnqueueEventAsync(new WebhookEvent(
                 WellKnownWebhookEvents.PrivateKeyDownloaded,
                 PerformedBy: performedBy,
@@ -528,14 +530,14 @@ public static class ApiEndpointMappings
         certificateRequests.MapGet("/{id:guid}/certificate", async (
             Guid id,
             [FromQuery] string? format,
-            [FromQuery] bool pqc,
+            [FromQuery] bool? pqc, // optional, as on /private-key
             CertificateRequestApiService service,
             CancellationToken cancellationToken) =>
         {
             var request = await service.GetByIdAsync(new CertificateRequestId(id), cancellationToken);
             if (request is null) return ApiProblem.NotFound();
 
-            var certPem = pqc ? request.PqcCertificatePem : request.CertificatePem;
+            var certPem = pqc == true ? request.PqcCertificatePem : request.CertificatePem;
             if (string.IsNullOrWhiteSpace(certPem))
                 return ApiProblem.NotFound();
 
@@ -1377,9 +1379,10 @@ public static class ApiEndpointMappings
             IIssuerRegistry issuers,
             CancellationToken cancellationToken) =>
         {
-            using var buffer = new MemoryStream();
-            await httpRequest.Body.CopyToAsync(buffer, cancellationToken);
-            return await BuildOcspResponseAsync(buffer.ToArray(), service, issuers, cancellationToken);
+            var derRequest = await OcspRequestLimits.ReadBodyAsync(httpRequest.Body, cancellationToken);
+            if (derRequest is null)
+                return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+            return await BuildOcspResponseAsync(derRequest, service, issuers, cancellationToken);
         });
 
         group.MapGet($"{path}/{{encodedRequest}}", async (

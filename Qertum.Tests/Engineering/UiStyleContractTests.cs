@@ -35,6 +35,16 @@ public sealed partial class UiStyleContractTests
         Assert.Contains("padding-right: 20px", Rule(@"\.table-card \.table-dashboard (?:th|td):last-child(?:,\s*\.table-card \.table-dashboard (?:th|td):last-child)*"), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AnInlineConfirmPanelKeepsLightText()
+    {
+        // .card sets color: var(--bs-body-color), Bootstrap's dark grey, which was unreadable on the dark panel.
+        var rule = Rule(@"\.confirm-panel");
+
+        Assert.Contains("--bs-card-color: var(--text-primary)", rule, StringComparison.Ordinal);
+        Assert.Matches(@"(?m)^\s*color: var\(--text-primary\);", rule);
+    }
+
     private static string Rule(string selectorPattern)
     {
         var match = Regex.Match(AppCss, @"(?m)^" + selectorPattern + @"\s*\{([^}]*)\}");

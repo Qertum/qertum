@@ -178,6 +178,9 @@ public sealed class CertificateRequestDbContext(
             v => v == null ? null : protector.Protect(v),
             v => DecryptOrPassThrough(protector, v));
         certificateRequest.Property(r => r.PrivateKeyPem).HasConversion(privateKeyConverter);
+        // The second key of a paired or hybrid pair, under the same protector. Written as plain PEM
+        // before 1.0.0-rc3; PrivateKeyAtRest.EncryptPlainKeysAsync rewrites such rows at API start.
+        certificateRequest.Property(r => r.PqcPrivateKeyPem).HasConversion(privateKeyConverter);
 
         var caSettings = modelBuilder.Entity<CaSettings>();
         caSettings.ToTable(t => t.HasCheckConstraint("CK_CaSettings_Id", "\"Id\" = 1"));
