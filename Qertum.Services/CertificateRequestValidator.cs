@@ -54,6 +54,19 @@ public static partial class CertificateRequestValidator
                 errorMessage = $"Invalid SAN DNS name: {invalidDns}";
                 return false;
             }
+            // Emitted verbatim as rfc822Name and UPN otherName SANs; they must at least be local@domain.
+            var invalidEmail = props?.EmailAddresses?.FirstOrDefault(e => !IsValidAddress(e));
+            if (invalidEmail != null)
+            {
+                errorMessage = $"Invalid SAN email address: {invalidEmail}";
+                return false;
+            }
+            var invalidUpn = props?.UserPrincipalNames?.FirstOrDefault(u => !IsValidAddress(u));
+            if (invalidUpn != null)
+            {
+                errorMessage = $"Invalid SAN user principal name: {invalidUpn}";
+                return false;
+            }
         }
         catch
         {
@@ -62,6 +75,21 @@ public static partial class CertificateRequestValidator
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// <c>local@domain</c>: one '@', a local part of 1-64 visible ASCII characters other than '@', and a DNS domain
+    /// without wildcards. Used for email and UPN SANs.
+    /// </summary>
+    internal static bool IsValidAddress(string? value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length > 320) return false;
+        var at = value.IndexOf('@');
+        if (at <= 0 || at > 64 || at != value.LastIndexOf('@')) return false;
+        var local = value[..at];
+        var domain = value[(at + 1)..];
+        return local.All(c => c > ' ' && c < 0x7f)
+               && domain.Length > 0 && !domain.Contains('*') && IsValidDnsName(domain);
     }
 
     /// <summary>Validates a certificate template TypeKey against its naming rules.</summary>

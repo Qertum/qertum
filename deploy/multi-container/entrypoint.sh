@@ -124,7 +124,10 @@ export Enrollment__AcmeDirectoryUrl="${ACME_SCHEME}://${QERTUM_HOST}:${ACME_PORT
 export Enrollment__EstBaseUrl="https://${QERTUM_HOST}:${EST_PORT}/.well-known/est"
 export "Services__webfrontend__${QERTUM_SCHEME}__0=${QERTUM_SCHEME}://${QERTUM_HOST}:${WEB_PORT}"
 export IdentityService__EnableServiceDiscoveryRedirectUris="${IdentityService__EnableServiceDiscoveryRedirectUris:-true}"
-export IdentityService__DisableTransportSecurity="${IdentityService__DisableTransportSecurity:-true}"
+# OpenIddict's https rule is off only for plain http. With QERTUM_SCHEME=https a request reaching the published identity
+# port directly over http is refused; through the proxy it is https (forwarded headers from QERTUM_TRUSTED_PROXIES).
+if [ "${QERTUM_SCHEME}" = "https" ]; then insecure_default=false; else insecure_default=true; fi
+export IdentityService__DisableTransportSecurity="${IdentityService__DisableTransportSecurity:-${insecure_default}}"
 export OpenIdConnect__RequireHttpsMetadata="${OpenIdConnect__RequireHttpsMetadata:-false}"
 
 # ---------------------------------------------------------------------------

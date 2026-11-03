@@ -13,7 +13,14 @@ public enum PasswordAttemptPurpose
     ChangePassword,
 
     /// <summary>Sign-in, keyed by username alone, with the looser <see cref="PasswordAttemptLimiter.AccountCeiling"/>: slows a guess spread across addresses.</summary>
-    LoginAccount
+    LoginAccount,
+
+    /// <summary>
+    /// Sign-in, keyed by client address alone, with <see cref="PasswordAttemptLimiter.AddressCeiling"/>: a new username on
+    /// every attempt meets neither other limit, and each attempt costs a password hash. A successful sign-in is
+    /// refunded, so many people signing in behind one address do not use it up.
+    /// </summary>
+    LoginAddress
 }
 
 public interface IPasswordAttemptLimiter
@@ -23,6 +30,9 @@ public interface IPasswordAttemptLimiter
 
     /// <summary>Clears attempts after a successful password check.</summary>
     Task ClearAsync(PasswordAttemptPurpose purpose, string identity, CancellationToken cancellationToken);
+
+    /// <summary>Gives back one reserved attempt (never below zero), for a bucket that counts only failures but is shared by many identities.</summary>
+    Task RefundAsync(PasswordAttemptPurpose purpose, string identity, CancellationToken cancellationToken);
 }
 
 public sealed class PasswordAttemptLimiter(
@@ -34,6 +44,9 @@ public sealed class PasswordAttemptLimiter(
 
     /// <summary>Failed sign-ins per username across every client address in <see cref="LoginWindow"/>.</summary>
     public const int AccountCeiling = 50;
+
+    /// <summary>Failed sign-ins per client address across every username in <see cref="LoginWindow"/>.</summary>
+    public const int AddressCeiling = 100;
     public static readonly TimeSpan LoginWindow = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan AccountWindow = TimeSpan.FromSeconds(60);
 
@@ -45,6 +58,12 @@ public sealed class PasswordAttemptLimiter(
             redis.call('PEXPIRE', KEYS[1], ARGV[2])
         end
         return count
+        """;
+
+    private const string RefundScript = """
+        local count = tonumber(redis.call('GET', KEYS[1]) or '0')
+        if count > 0 then return redis.call('DECR', KEYS[1]) end
+        return 0
         """;
 
     private readonly object _memoryGate = new();
@@ -97,12 +116,36 @@ public sealed class PasswordAttemptLimiter(
         lock (_memoryGate) memoryCache.Remove(key);
     }
 
-    private static int Limit(PasswordAttemptPurpose purpose) =>
-        purpose == PasswordAttemptPurpose.LoginAccount ? AccountCeiling : MaxAttempts;
+    public async Task RefundAsync(
+        PasswordAttemptPurpose purpose, string identity, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(identity);
+        var key = Key(purpose, identity);
+        if (redis is not null)
+        {
+            await redis.GetDatabase().ScriptEvaluateAsync(RefundScript, [key]).WaitAsync(cancellationToken);
+            return;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_memoryGate)
+        {
+            if (memoryCache.TryGetValue(key, out AttemptState? tracked) && tracked!.Count > 0 && tracked.ExpiresAt > timeProvider.GetUtcNow())
+                memoryCache.Set(key, tracked with { Count = tracked.Count - 1 },
+                    new MemoryCacheEntryOptions { AbsoluteExpiration = tracked.ExpiresAt + Window(purpose) });
+        }
+    }
+
+    private static int Limit(PasswordAttemptPurpose purpose) => purpose switch
+    {
+        PasswordAttemptPurpose.LoginAccount => AccountCeiling,
+        PasswordAttemptPurpose.LoginAddress => AddressCeiling,
+        _ => MaxAttempts
+    };
 
     private static TimeSpan Window(PasswordAttemptPurpose purpose) => purpose switch
     {
-        PasswordAttemptPurpose.Login or PasswordAttemptPurpose.LoginAccount => LoginWindow,
+        PasswordAttemptPurpose.Login or PasswordAttemptPurpose.LoginAccount or PasswordAttemptPurpose.LoginAddress => LoginWindow,
         PasswordAttemptPurpose.StepUp or PasswordAttemptPurpose.ChangePassword => AccountWindow,
         _ => throw new ArgumentOutOfRangeException(nameof(purpose))
     };

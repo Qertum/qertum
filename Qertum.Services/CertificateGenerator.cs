@@ -183,8 +183,12 @@ public sealed class CertificateGenerator(
         certGen.SetSubjectDN(subjectName);
         certGen.SetSubjectPublicKeyInfo(QertumKeyCodec.ToSubjectPublicKeyInfo(leafPublicKey));
 
+        // A CA issued from a template signs leaf certificates only (pathLenConstraint 0): with no limit it could create
+        // further CA levels. Deeper hierarchies and name constraints come from the issuer ceremony (CaCertificateBuilder),
+        // which sets both (#346, 1.0.0-rc4.3).
         var isSubordinateCa = CaCapableTemplate.IsCaCapable(template);
-        certGen.AddExtension(X509Extensions.BasicConstraints, true, new BasicConstraints(isSubordinateCa));
+        certGen.AddExtension(X509Extensions.BasicConstraints, true,
+            isSubordinateCa ? new BasicConstraints(0) : new BasicConstraints(false));
 
         // RFC 5280 §4.2.1.2/4.2.1.1. Without these, chain builders fall back to matching by
         // Distinguished Name, which becomes ambiguous the moment the CA rotates its key: two CA certs

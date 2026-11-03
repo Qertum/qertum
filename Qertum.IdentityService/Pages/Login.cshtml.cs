@@ -26,6 +26,7 @@ public sealed class LoginModel(
     /// <summary>Password checks allowed per username inside <see cref="Window"/>.</summary>
     public const int MaxAttempts = PasswordAttemptLimiter.MaxAttempts;
     public const int AccountCeiling = PasswordAttemptLimiter.AccountCeiling;
+    public const int AddressCeiling = PasswordAttemptLimiter.AddressCeiling;
 
     /// <summary>How long attempts are counted for, and so how long a throttle lasts.</summary>
     public static readonly TimeSpan Window = PasswordAttemptLimiter.LoginWindow;
@@ -40,8 +41,9 @@ public sealed class LoginModel(
 
     public void OnGet() { }
 
-    private string AttemptKey(string username) =>
-        $"{username}|{HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+    private string ClientAddress => HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+    private string AttemptKey(string username) => $"{username}|{ClientAddress}";
 
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
@@ -55,8 +57,10 @@ public sealed class LoginModel(
         // Counted per username and client address, so wrong passwords from one address cannot lock the account for
         // everyone else, and per username under a looser ceiling, so a guess spread across addresses is still slowed.
         // Behind a TLS proxy the address is the client's only from QERTUM_TRUSTED_PROXIES, which cannot be faked.
+        // The address alone has a ceiling too, so a new username on every attempt is not free of limits.
         var perAddress = AttemptKey(Input.Username!);
-        if (await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.Login, perAddress, cancellationToken) == 0
+        if (await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.LoginAddress, ClientAddress, cancellationToken) == 0
+            || await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.Login, perAddress, cancellationToken) == 0
             || await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.LoginAccount, Input.Username!, cancellationToken) == 0)
         {
             // Same message as a wrong password: the limiter must not say which accounts exist.
@@ -74,6 +78,8 @@ public sealed class LoginModel(
 
         await attemptLimiter.ClearAsync(PasswordAttemptPurpose.Login, perAddress, cancellationToken);
         await attemptLimiter.ClearAsync(PasswordAttemptPurpose.LoginAccount, Input.Username!, cancellationToken);
+        // Refunded, not cleared: clearing would let anyone holding one account reset the address's ceiling at will.
+        await attemptLimiter.RefundAsync(PasswordAttemptPurpose.LoginAddress, ClientAddress, cancellationToken);
 
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,

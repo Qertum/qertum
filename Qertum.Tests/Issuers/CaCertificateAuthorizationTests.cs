@@ -89,6 +89,26 @@ public sealed class CaCertificateAuthorizationTests
     }
 
     [Fact]
+    public async Task ARootRenewal_NeedsAnApproverOtherThanItsRequester()
+    {
+        // Root requests skipped the independent-approver rule, so one certificates.ca holder could replace the trust
+        // anchor alone while RequireIndependentCaApproval was on (AI Scan #332 on 1.0.0-rc4.2).
+        await using var host = new IssuerApiHost();
+        var (_, rootRequest) = await SetUpAsync(host);
+        var renewed = await host.Sub("alice", "ca-op").PostAsync($"/v1/certificate-requests/{(Guid)rootRequest}/renew", null, Ct);
+        Assert.Equal(HttpStatusCode.Created, renewed.StatusCode);
+        var renewal = (await renewed.Content.ReadFromJsonAsync<CertificateRequest>(Ct))!;
+
+        var self = await host.Sub("alice", "ca-op").PostAsync($"/v1/certificate-requests/{(Guid)renewal.Id}/approve", null, Ct);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, self.StatusCode);
+        Assert.Contains("selfApproval", await self.Content.ReadAsStringAsync(Ct));
+        Assert.Equal(CertificateRequestStatus.Pending, (await StatusAsync(host, (Guid)renewal.Id)).Status);
+
+        var other = await host.Sub("bob", "ca-op").PostAsync($"/v1/certificate-requests/{(Guid)renewal.Id}/approve", null, Ct);
+        Assert.True(other.IsSuccessStatusCode, await other.Content.ReadAsStringAsync(Ct));
+    }
+
+    [Fact]
     public async Task RevokingACaCertificate_NeedsTheCaPermission_AndLeavesTheIssuerAloneWithout()
     {
         await using var host = new IssuerApiHost();

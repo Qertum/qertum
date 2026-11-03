@@ -32,13 +32,18 @@ public static class CaPermissionRule
 public static class IndependentApprovalRule
 {
     /// <summary>
-    /// Subjects compare when the request has one; legacy rows without a subject compare
-    /// <c>RequestedBy</c> to the approver's mapped name, as key access does.
+    /// The approver filed the request, or filed this renewal of it (a renewal keeps the original owner, #332). Subjects
+    /// compare when the row has one; legacy rows without a subject compare the name to the approver's mapped name, as
+    /// key access does.
     /// </summary>
     public static bool IsSelfApproval(CertificateRequest request, CallerContext approver) =>
-        request.RequestedBySubject is { Length: > 0 } owner
-            ? approver.Subject is { } subject && string.Equals(owner, subject, StringComparison.Ordinal)
-            : string.Equals(request.RequestedBy, approver.Name, StringComparison.Ordinal);
+        Same(request.RequestedBySubject, request.RequestedBy, approver)
+        || (request.RenewedBy is not null && Same(request.RenewedBySubject, request.RenewedBy, approver));
+
+    private static bool Same(string? subject, string? name, CallerContext approver) =>
+        subject is { Length: > 0 }
+            ? approver.Subject is { } approverSubject && string.Equals(subject, approverSubject, StringComparison.Ordinal)
+            : string.Equals(name, approver.Name, StringComparison.Ordinal);
 }
 
 /// <summary>Builds a <see cref="CallerContext"/> from already-mapped claims. Takes primitives: only hosts with JWT authentication have an <c>IIdentityClaimsMapper</c>.</summary>

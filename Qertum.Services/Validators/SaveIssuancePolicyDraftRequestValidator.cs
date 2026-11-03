@@ -26,6 +26,22 @@ internal sealed class SaveIssuancePolicyDraftRequestValidator : AbstractValidato
             .Must(entry => AcmeAddressPolicy.TryParseNetwork(entry, out _))
             .WithMessage("'{PropertyValue}' is not a valid CIDR range or IP address.");
 
+        RuleFor(r => r.AllowedEmailDomains)
+            .Cascade(CascadeMode.Stop)
+            .NotNull()
+            .Must(l => l.Count <= MaxEntries).WithMessage($"At most {MaxEntries} email domains are allowed.");
+        RuleForEach(r => r.AllowedEmailDomains)
+            .Must(BeValidSuffix)
+            .WithMessage("'{PropertyValue}' is not a valid email domain. Use a plain domain such as corp.example.com, without '@' or wildcards.");
+
+        RuleFor(r => r.AllowedUpnSuffixes)
+            .Cascade(CascadeMode.Stop)
+            .NotNull()
+            .Must(l => l.Count <= MaxEntries).WithMessage($"At most {MaxEntries} UPN suffixes are allowed.");
+        RuleForEach(r => r.AllowedUpnSuffixes)
+            .Must(BeValidSuffix)
+            .WithMessage("'{PropertyValue}' is not a valid UPN suffix. Use a plain domain such as corp.example.com, without '@' or wildcards.");
+
         RuleFor(r => r.AllowedKeyAlgorithms)
             .Cascade(CascadeMode.Stop)
             .NotNull()

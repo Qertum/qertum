@@ -74,6 +74,8 @@ public sealed class IssuancePolicyEvaluator : IIssuancePolicyEvaluator
 
         CheckDnsSuffixes(request, properties, publishedVersion, violations);
         CheckIpRanges(properties, publishedVersion, violations);
+        CheckAddressDomains(properties.EmailAddresses, publishedVersion.AllowedEmailDomainsJson, PolicyRules.EmailDomain, "email domain", violations);
+        CheckAddressDomains(properties.UserPrincipalNames, publishedVersion.AllowedUpnSuffixesJson, PolicyRules.UpnSuffix, "UPN suffix", violations);
         CheckKeyAlgorithm(request, publishedVersion, violations);
         CheckKeyCapability(request, template, violations);
         CheckCaPermission(template, caller, violations);
@@ -125,6 +127,27 @@ public sealed class IssuancePolicyEvaluator : IIssuancePolicyEvaluator
             if (!IsWithinSuffix(name, suffixes))
                 violations.Add(new IssuancePolicyViolation(PolicyRules.DnsSuffix, name,
                     $"'{name}' is not within an allowed DNS suffix ({string.Join(", ", rawSuffixes)})."));
+        }
+    }
+
+    /// <summary>
+    /// Email and UPN SANs name a principal, not a host: a client-authentication certificate carrying another person's UPN
+    /// signs in as them (smart-card logon, mTLS). The part after the last '@' must be an allowed domain or below one.
+    /// </summary>
+    private static void CheckAddressDomains(IEnumerable<string> values, string allowedJson, string rule, string what,
+        List<IssuancePolicyViolation> violations)
+    {
+        var raw = ReadList(allowedJson);
+        if (raw.Count == 0) return;
+
+        var allowed = raw.Select(NormalizeDns).OfType<string>().ToList();
+        foreach (var value in values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var at = value.LastIndexOf('@');
+            var domain = at > 0 ? value[(at + 1)..] : string.Empty;
+            if (domain.Length == 0 || domain.Contains('*') || !IsWithinSuffix(domain, allowed))
+                violations.Add(new IssuancePolicyViolation(rule, value,
+                    $"'{value}' is not within an allowed {what} ({string.Join(", ", raw)})."));
         }
     }
 

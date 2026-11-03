@@ -55,6 +55,16 @@ else
                     </div>
                     <div class="form-row cols-2 mt-3">
                         <div class="form-field">
+                            <label class="form-label">Allowed email domains</label>
+                            <div class="form-help" data-test="published-email-domains">@Describe(current.AllowedEmailDomains)</div>
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Allowed UPN suffixes</label>
+                            <div class="form-help" data-test="published-upn-suffixes">@Describe(current.AllowedUpnSuffixes)</div>
+                        </div>
+                    </div>
+                    <div class="form-row cols-2 mt-3">
+                        <div class="form-field">
                             <label class="form-label">Allowed key algorithms</label>
                             <div class="form-help">@Describe(current.AllowedKeyAlgorithms)</div>
                         </div>
@@ -142,6 +152,62 @@ else
                             <input id="ip-entry" class="form-control" @bind="newIpRange" placeholder="10.1.0.0/16" />
                             <button class="btn-outline-detail" type="button" @onclick="AddIpRange">Add</button>
                         </div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-1 mt-4">
+                    <div class="form-field">
+                        <label class="form-label" for="email-entry">Allowed email domains</label>
+                        @if (emailDomains.Count == 0)
+                        {
+                            <div class="form-help mb-2">Empty — every email SAN is allowed.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                @foreach (var entry in emailDomains)
+                                {
+                                    <span class="badge badge-chip">
+                                        @entry
+                                        <button type="button" class="btn-close btn-close-white btn-close-sm ms-2"
+                                                aria-label="Remove" @onclick="() => emailDomains.Remove(entry)"></button>
+                                    </span>
+                                }
+                            </div>
+                        }
+                        <div class="d-flex gap-2">
+                            <input id="email-entry" class="form-control" @bind="newEmailDomain" placeholder="corp.example.com" />
+                            <button class="btn-outline-detail" type="button" @onclick="AddEmailDomain">Add</button>
+                        </div>
+                        <div class="form-help mt-2">The part after <code>@@</code> must be the domain or below it: <code>corp.example.com</code> allows <code>a@@corp.example.com</code> and <code>a@@eu.corp.example.com</code>.</div>
+                    </div>
+                </div>
+
+                <div class="form-row cols-1 mt-4">
+                    <div class="form-field">
+                        <label class="form-label" for="upn-entry">Allowed UPN suffixes</label>
+                        @if (upnSuffixes.Count == 0)
+                        {
+                            <div class="form-help mb-2">Empty — every UPN SAN is allowed.</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2 mb-2">
+                                @foreach (var entry in upnSuffixes)
+                                {
+                                    <span class="badge badge-chip">
+                                        @entry
+                                        <button type="button" class="btn-close btn-close-white btn-close-sm ms-2"
+                                                aria-label="Remove" @onclick="() => upnSuffixes.Remove(entry)"></button>
+                                    </span>
+                                }
+                            </div>
+                        }
+                        <div class="d-flex gap-2">
+                            <input id="upn-entry" class="form-control" @bind="newUpnSuffix" placeholder="corp.example.com" />
+                            <button class="btn-outline-detail" type="button" @onclick="AddUpnSuffix">Add</button>
+                        </div>
+                        <div class="form-help mt-2">UPN SANs sign in as a user (smart-card logon, mTLS). The part after <code>@@</code> must be the suffix or below it.</div>
                     </div>
                 </div>
 
@@ -268,6 +334,7 @@ else
                                     <td>@version.Status</td>
                                     <td class="text-xs text-soft">
                                         DNS: @Describe(version.AllowedDnsSuffixes) · IP: @Describe(version.AllowedIpRanges) ·
+                                        Email: @Describe(version.AllowedEmailDomains) · UPN: @Describe(version.AllowedUpnSuffixes) ·
                                         Algorithms: @Describe(version.AllowedKeyAlgorithms) ·
                                         Roles: @DescribeRoles(version.AllowedRequesterRoles) ·
                                         Max validity: @(version.MaxValidityDays is int m ? $"{m} days" : "none")
@@ -330,6 +397,10 @@ else
     private IReadOnlyList<IssuancePolicyVersionResponse> versions = [];
     private List<string> dnsSuffixes = [];
     private List<string> ipRanges = [];
+    private List<string> emailDomains = [];
+    private List<string> upnSuffixes = [];
+    private string? newEmailDomain;
+    private string? newUpnSuffix;
     private HashSet<string> algorithms = [];
     private int? maxValidityDays;
     private string? newDnsSuffix;
@@ -364,6 +435,8 @@ else
             var source = policy.Draft ?? policy.Published;
             dnsSuffixes = [.. source?.AllowedDnsSuffixes ?? []];
             ipRanges = [.. source?.AllowedIpRanges ?? []];
+            emailDomains = [.. source?.AllowedEmailDomains ?? []];
+            upnSuffixes = [.. source?.AllowedUpnSuffixes ?? []];
             algorithms = [.. source?.AllowedKeyAlgorithms ?? []];
             requesterRoles = [.. source?.AllowedRequesterRoles ?? []];
             maxValidityDays = source?.MaxValidityDays;
@@ -389,6 +462,20 @@ else
         newIpRange = null;
     }
 
+    private void AddEmailDomain()
+    {
+        if (!string.IsNullOrWhiteSpace(newEmailDomain) && !emailDomains.Contains(newEmailDomain.Trim()))
+            emailDomains.Add(newEmailDomain.Trim());
+        newEmailDomain = null;
+    }
+
+    private void AddUpnSuffix()
+    {
+        if (!string.IsNullOrWhiteSpace(newUpnSuffix) && !upnSuffixes.Contains(newUpnSuffix.Trim()))
+            upnSuffixes.Add(newUpnSuffix.Trim());
+        newUpnSuffix = null;
+    }
+
     private void ToggleAlgorithm(string algorithm, bool selected)
     {
         if (selected) algorithms.Add(algorithm);
@@ -402,6 +489,8 @@ else
             {
                 AllowedDnsSuffixes = dnsSuffixes,
                 AllowedIpRanges = ipRanges,
+                AllowedEmailDomains = emailDomains,
+                AllowedUpnSuffixes = upnSuffixes,
                 AllowedRequesterRoles = requesterRoles,
                 AllowedKeyAlgorithms = [.. algorithms],
                 MaxValidityDays = maxValidityDays,

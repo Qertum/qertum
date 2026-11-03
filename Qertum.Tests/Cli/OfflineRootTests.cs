@@ -27,12 +27,12 @@ public sealed class OfflineRootTests : IDisposable
         return root;
     }
 
-    private static IntermediateRequestFile RequestFile(int validityDays = 1825)
+    private static IntermediateRequestFile RequestFile(int validityDays = 1825, string name = "Issuing CA")
     {
         var key = AlgorithmStrategyFactory.CreateIssuer(CertificateKeyAlgorithm.EcdsaP256).GenerateCaKeyPair(new Org.BouncyCastle.Security.SecureRandom());
         var profile = new SubordinateCaProfile(0, ["corp.example"], [], [], []);
         var csr = CaCertificateBuilder.BuildRequest(key, CaCertificateBuilder.SubjectName("Issuing CA", null, null, null, null, null), profile);
-        return new IntermediateRequestFile(IntermediateRequestFile.CurrentFormat, new IssuerId(Guid.NewGuid()), "Issuing CA",
+        return new IntermediateRequestFile(IntermediateRequestFile.CurrentFormat, new IssuerId(Guid.NewGuid()), name,
             QertumKeyCodec.WriteCertificationRequestPem(csr), validityDays, 0, ["corp.example"], [], [], []);
     }
 
@@ -47,6 +47,45 @@ public sealed class OfflineRootTests : IDisposable
         Assert.True(facts.IsSelfSigned);
         Assert.Equal(CertificateKeyAlgorithm.EcdsaP384, facts.KeyAlgorithm);
         Assert.True(File.Exists(Path.Combine(_dir, OfflineRoot.StateFile)));
+    }
+
+    [Fact]
+    public void Init_WritesTheKeyOwnerOnly()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        InitializedRoot();
+
+        // The umask's 0644 let any local user copy the encrypted root key for offline guessing.
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path.Combine(_dir, OfflineRoot.KeyFile)));
+    }
+
+    [Theory]
+    [InlineData("root")]
+    [InlineData("ROOT")]
+    [InlineData("chain")]
+    [InlineData("root?")]
+    public void Sign_RefusesANameThatWouldReplaceTheRootsFiles(string name)
+    {
+        var root = InitializedRoot();
+        var before = File.ReadAllText(Path.Combine(_dir, OfflineRoot.CertificateFile));
+        var request = RequestFile(name: name);
+
+        Assert.Throws<InvalidOperationException>(() => root.Preview(request));
+        Assert.Throws<InvalidOperationException>(() => root.Sign(request, "root-pass"));
+        Assert.Equal(before, File.ReadAllText(Path.Combine(_dir, OfflineRoot.CertificateFile)));
+    }
+
+    [Fact]
+    public void Sign_NeverOverwritesAnEarlierCertificate_AndThePreviewNamesTheFile()
+    {
+        var root = InitializedRoot();
+        var request = RequestFile(name: "Issuing CA");
+        Assert.Equal("Issuing-CA.pem", root.Preview(request).CertificateFile);
+        var (first, _) = root.Sign(request, "root-pass");
+        var written = File.ReadAllText(first);
+
+        Assert.Throws<InvalidOperationException>(() => root.Sign(RequestFile(name: "Issuing CA"), "root-pass"));
+        Assert.Equal(written, File.ReadAllText(first));
     }
 
     [Fact]

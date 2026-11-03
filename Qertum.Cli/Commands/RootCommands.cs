@@ -117,6 +117,7 @@ internal static class RootCommands
             Console.WriteLine($"Algorithm:   {preview.Algorithm}");
             Console.WriteLine($"Validity:    {preview.ValidityDays} days (until {preview.NotAfterUtc:yyyy-MM-dd})");
             Console.WriteLine($"Constraints: {preview.Constraints}");
+            Console.WriteLine($"Writes:      {Path.Combine(result.GetValue(dir)!, preview.CertificateFile)}");
             if (!result.GetValue(yes))
             {
                 Console.Write("Sign this intermediate? [y/N] ");

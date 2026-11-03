@@ -148,6 +148,25 @@ public sealed class MultiContainerContractTests
         RunSh($"SERVICE={service}\nQERTUM_SCHEME=https\n{ForwardedHeadersBlock()}", expectedExit: 64);
     }
 
+    /// <summary>
+    /// OpenIddict's https rule follows QERTUM_SCHEME: with https the published identity port refuses plain http, which
+    /// was accepted whatever the scheme until 1.0.0-rc4.3. An explicit value still wins.
+    /// </summary>
+    [Theory]
+    [InlineData("https", "", "false")]
+    [InlineData("http", "", "true")]
+    [InlineData("https", "export IdentityService__DisableTransportSecurity=true\n", "true")]
+    public void IdentityTransportSecurity_FollowsTheScheme(string scheme, string preset, string expected)
+    {
+        var entrypoint = Read("entrypoint.sh");
+        var start = entrypoint.IndexOf("if [ \"${QERTUM_SCHEME}\" = \"https\" ]; then insecure_default=false", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the transport-security block is missing");
+        var end = entrypoint.IndexOf('\n', entrypoint.IndexOf("export IdentityService__DisableTransportSecurity=", start, StringComparison.Ordinal));
+        var result = RunSh($"QERTUM_SCHEME={scheme}\n{preset}{entrypoint[start..end]}\nprintf %s \"$IdentityService__DisableTransportSecurity\"");
+
+        Assert.Equal(expected, result);
+    }
+
     private static string ForwardedHeadersBlock()
     {
         var entrypoint = Read("entrypoint.sh");

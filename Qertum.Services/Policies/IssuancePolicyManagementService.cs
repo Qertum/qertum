@@ -194,6 +194,10 @@ internal sealed class IssuancePolicyManagementService(
             .Select(IssuancePolicyEvaluator.NormalizeDns).OfType<string>().Distinct().ToList());
         draft.AllowedIpRangesJson = JsonSerializer.Serialize(request.AllowedIpRanges
             .Select(r => r.Trim()).Where(r => r.Length > 0).Distinct().ToList());
+        draft.AllowedEmailDomainsJson = JsonSerializer.Serialize(request.AllowedEmailDomains
+            .Select(IssuancePolicyEvaluator.NormalizeDns).OfType<string>().Distinct().ToList());
+        draft.AllowedUpnSuffixesJson = JsonSerializer.Serialize(request.AllowedUpnSuffixes
+            .Select(IssuancePolicyEvaluator.NormalizeDns).OfType<string>().Distinct().ToList());
         draft.AllowedKeyAlgorithmsJson = JsonSerializer.Serialize(request.AllowedKeyAlgorithms
             .Select(a => (CertificateKeyAlgorithmExtensions.Parse(a.Trim())
                           ?? throw new ArgumentException($"Unsupported key algorithm '{a}'.")).ToCanonicalString())
@@ -485,6 +489,8 @@ internal sealed class IssuancePolicyManagementService(
                 Status = version.Status,
                 AllowedDnsSuffixes = IssuancePolicyEvaluator.ReadList(version.AllowedDnsSuffixesJson),
                 AllowedIpRanges = IssuancePolicyEvaluator.ReadList(version.AllowedIpRangesJson),
+                AllowedEmailDomains = IssuancePolicyEvaluator.ReadList(version.AllowedEmailDomainsJson),
+                AllowedUpnSuffixes = IssuancePolicyEvaluator.ReadList(version.AllowedUpnSuffixesJson),
                 AllowedKeyAlgorithms = IssuancePolicyEvaluator.ReadList(version.AllowedKeyAlgorithmsJson),
                 AllowedRequesterRoles = IssuancePolicyEvaluator.ReadList(version.AllowedRequesterRolesJson),
                 KeyCustody = version.KeyCustody,

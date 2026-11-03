@@ -53,6 +53,11 @@ public sealed class MigrationUpgradePathTests
         }
         db.RolePermissions.Add(new RolePermission { Role = "keep-me", Permission = AppPermissions.CertificatesView });
         await db.SaveChangesAsync(ct);
+        // A published policy version, for the rule columns later migrations add (AddEmailUpnPolicyRules).
+        const string policyId = "8f0c4f5e-0000-4000-8000-000000000001";
+        await InsertMinimalAsync(connection, "IssuancePolicies", new() { ["Id"] = $"'{policyId}'", ["Name"] = "'keep-policy'" }, ct);
+        await InsertMinimalAsync(connection, "IssuancePolicyVersions",
+            new() { ["Id"] = "'8f0c4f5e-0000-4000-8000-000000000002'", ["PolicyId"] = $"'{policyId}'", ["Status"] = "'Published'", ["VersionNumber"] = "1" }, ct);
 
         var later = db.Database.GetMigrations().SkipWhile(id => id != Baseline).Skip(1).ToList();
         foreach (var id in later)
@@ -77,5 +82,24 @@ public sealed class MigrationUpgradePathTests
         await using var readColumn = connection.CreateCommand();
         readColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Issuers') WHERE name = 'RevokedAtUtc'";
         Assert.Equal(1L, (long)(await readColumn.ExecuteScalarAsync(ct))!);
+
+        // AddEmailUpnPolicyRules back-fills "[]" (unrestricted), so a published policy keeps issuing as before.
+        await using var readRules = connection.CreateCommand();
+        readRules.CommandText = "SELECT \"AllowedEmailDomainsJson\" || '|' || \"AllowedUpnSuffixesJson\" FROM \"IssuancePolicyVersions\"";
+        Assert.Equal("[]|[]", (string)(await readRules.ExecuteScalarAsync(ct))!);
+        Assert.Equal(1, await CountAsync(connection, "IssuancePolicyVersions", ct));
+    }
+
+    /// <summary>Inserts a row giving every NOT NULL column without a default a placeholder, then the named values.</summary>
+    private static async Task InsertMinimalAsync(SqliteConnection connection, string table, Dictionary<string, string> values, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT name, type FROM pragma_table_info('{table}') WHERE \"notnull\" = 1 AND dflt_value IS NULL";
+        var columns = new Dictionary<string, string>(values);
+        await using (var reader = await command.ExecuteReaderAsync(ct))
+            while (await reader.ReadAsync(ct))
+                columns.TryAdd(reader.GetString(0), reader.GetString(1).Contains("INT", StringComparison.OrdinalIgnoreCase) ? "0" : "''");
+        command.CommandText = $"INSERT INTO \"{table}\" ({string.Join(",", columns.Keys.Select(k => $"\"{k}\""))}) VALUES ({string.Join(",", columns.Values)})";
+        await command.ExecuteNonQueryAsync(ct);
     }
 }

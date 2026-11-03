@@ -45,6 +45,12 @@ public sealed class SaveIssuancePolicyDraftRequest
     /// <summary>Allowed CIDR ranges or single addresses for IP SANs.</summary>
     public List<string> AllowedIpRanges { get; init; } = [];
 
+    /// <summary>Domains allowed in email SANs, e.g. <c>corp.example.com</c> (that domain or below it).</summary>
+    public List<string> AllowedEmailDomains { get; init; } = [];
+
+    /// <summary>UPN suffixes allowed in UPN SANs, e.g. <c>corp.example.com</c> (that suffix or below it).</summary>
+    public List<string> AllowedUpnSuffixes { get; init; } = [];
+
     /// <summary>Allowed canonical key algorithm strings, e.g. <c>ECDSA-P256</c>.</summary>
     public List<string> AllowedKeyAlgorithms { get; init; } = [];
 
@@ -91,6 +97,12 @@ public sealed class IssuancePolicyVersionResponse
 
     /// <summary>Allowed IP ranges.</summary>
     public IReadOnlyList<string> AllowedIpRanges { get; init; } = [];
+
+    /// <summary>Domains allowed in email SANs.</summary>
+    public IReadOnlyList<string> AllowedEmailDomains { get; init; } = [];
+
+    /// <summary>UPN suffixes allowed in UPN SANs.</summary>
+    public IReadOnlyList<string> AllowedUpnSuffixes { get; init; } = [];
 
     /// <summary>Allowed key algorithms.</summary>
     public IReadOnlyList<string> AllowedKeyAlgorithms { get; init; } = [];

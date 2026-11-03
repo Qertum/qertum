@@ -709,6 +709,12 @@ namespace Qertum.Services.Migrations
                     b.Property<string>("PropertiesJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("RenewedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RenewedBySubject")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("RenewedFromId")
                         .HasColumnType("TEXT");
 
@@ -1008,6 +1014,10 @@ namespace Qertum.Services.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AllowedEmailDomainsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("AllowedIpRangesJson")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -1017,6 +1027,10 @@ namespace Qertum.Services.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("AllowedRequesterRolesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AllowedUpnSuffixesJson")
                         .IsRequired()
                         .HasColumnType("TEXT");
 

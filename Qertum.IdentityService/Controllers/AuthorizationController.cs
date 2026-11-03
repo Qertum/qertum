@@ -310,6 +310,63 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
     }
 
     /// <summary>The device confirmation page. Every interpolated value is HTML-encoded.</summary>
+    private async Task<bool> LogoutIsConfirmedAsync(ClaimsPrincipal cookieUser)
+    {
+        if (HttpMethods.IsPost(Request.Method) && Request.HasFormContentType && Request.Form.ContainsKey("confirm"))
+            return await antiforgery.IsRequestValidAsync(HttpContext);
+
+        // On the end-session endpoint the server scheme's principal is the validated id_token_hint, if one was sent.
+        var hint = await HttpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        var hintSubject = hint.Principal?.GetClaim(Claims.Subject);
+        var cookieSubject = cookieUser.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return hintSubject is { Length: > 0 } && string.Equals(hintSubject, cookieSubject, StringComparison.Ordinal);
+    }
+
+    internal static string LogoutConfirmationHtml(string username, IEnumerable<(string Key, string Value)> parameters,
+        string tokenField, string tokenValue)
+    {
+        var enc = System.Text.Encodings.Web.HtmlEncoder.Default;
+        var hidden = string.Concat(parameters.Select(p =>
+            $"""<input type="hidden" name="{enc.Encode(p.Key)}" value="{enc.Encode(p.Value)}" />"""));
+        var (user, field, token) = (enc.Encode(username), enc.Encode(tokenField), enc.Encode(tokenValue));
+        return $$"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Sign Out · Qertum IDM</title>
+            <link rel="stylesheet" href="/identity.css" />
+        </head>
+        <body class="centered">
+            <main class="shell-main">
+                <div class="card">
+                    <a class="card-brand" href="/">
+                        <span class="brand-mark" aria-hidden="true"></span>
+                        <span class="brand-text">
+                            <span class="brand-name">Qer<em>tum</em></span>
+                            <span class="brand-sub">Identity</span>
+                        </span>
+                    </a>
+                    <h1>Sign <em>out</em>?</h1>
+                    <p class="card-sub">Signed in as <strong>{{user}}</strong>. Sign out of Qertum Identity?</p>
+                    <form method="post" action="/connect/logout">
+                        {{hidden}}
+                        <input type="hidden" name="confirm" value="true" />
+                        <input type="hidden" name="{{field}}" value="{{token}}" />
+                        <button type="submit">
+                            <span class="bi bi-box-arrow-right"></span>
+                            Sign out
+                        </button>
+                    </form>
+                    <a class="button secondary" href="/" style="width:100%;margin-top:0.75rem">Stay signed in</a>
+                </div>
+            </main>
+        </body>
+        </html>
+        """;
+    }
+
     internal static string DeviceConfirmationHtml(string username, string userCode, string tokenField, string tokenValue)
     {
         var enc = System.Text.Encodings.Web.HtmlEncoder.Default;
@@ -360,9 +417,28 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
         """;
     }
 
+    /// <summary>
+    /// RP-initiated logout. A signed-in user is signed out at once only when the request carries an id_token_hint for that
+    /// same user (OpenIddict has validated it; what the web app's sign-out sends) or when it is the confirmation form's own
+    /// POST. Anything else gets the confirmation page: a bare GET from another site ended the session (logout CSRF, #348).
+    /// </summary>
     [HttpGet("~/connect/logout"), HttpPost("~/connect/logout")]
     public async Task<IActionResult> Logout()
     {
+        var cookie = await HttpContext.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        if (cookie.Succeeded && !await LogoutIsConfirmedAsync(cookie.Principal!))
+        {
+            var parameters = (HttpMethods.IsPost(Request.Method) && Request.HasFormContentType
+                    ? Request.Form.Select(p => (p.Key, p.Value.ToString()))
+                    : Request.Query.Select(p => (p.Key, p.Value.ToString())))
+                .Where(p => p.Key is not ("confirm" or "id_token_hint") && !p.Key.StartsWith("__", StringComparison.Ordinal))
+                .ToList();
+            var tokens = antiforgery.GetAndStoreTokens(HttpContext);
+            Response.Headers.CacheControl = "no-store";
+            return Content(LogoutConfirmationHtml(cookie.Principal!.Identity?.Name ?? "", parameters, tokens.FormFieldName, tokens.RequestToken!),
+                "text/html");
+        }
+
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
         return SignOut(

@@ -16,6 +16,19 @@ internal static class SecretFile
     /// </summary>
     public static async Task WriteAsync(string path, byte[] bytes, bool overwrite, CancellationToken ct)
     {
+        await using var stream = Open(path, overwrite);
+        await stream.WriteAsync(bytes, ct);
+    }
+
+    /// <summary>As <see cref="WriteAsync"/>, synchronously.</summary>
+    public static void Write(string path, byte[] bytes, bool overwrite)
+    {
+        using var stream = Open(path, overwrite);
+        stream.Write(bytes);
+    }
+
+    private static FileStream Open(string path, bool overwrite)
+    {
         if (overwrite && !OperatingSystem.IsWindows() && File.Exists(path))
             File.SetUnixFileMode(path, OwnerOnly);
 
@@ -27,7 +40,6 @@ internal static class SecretFile
         };
         if (!OperatingSystem.IsWindows())
             options.UnixCreateMode = OwnerOnly;
-        await using var stream = new FileStream(path, options);
-        await stream.WriteAsync(bytes, ct);
+        return new FileStream(path, options);
     }
 }

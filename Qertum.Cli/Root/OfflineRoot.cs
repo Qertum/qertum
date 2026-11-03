@@ -12,7 +12,7 @@ namespace Qertum.Cli.Root;
 internal sealed record OfflineRootState(long CrlNumber, List<OfflineRootIssued> Issued, List<OfflineRootRevoked> Revoked);
 internal sealed record OfflineRootIssued(string SerialHex, string SubjectDn, DateTime NotAfterUtc, string FileName);
 internal sealed record OfflineRootRevoked(string SerialHex, DateTime RevokedAtUtc, string? Reason);
-internal sealed record SignPreview(string SubjectDn, string Algorithm, int ValidityDays, DateTime NotAfterUtc, string Constraints);
+internal sealed record SignPreview(string SubjectDn, string Algorithm, int ValidityDays, DateTime NotAfterUtc, string Constraints, string CertificateFile);
 
 /// <summary>
 /// An offline root CA in a directory: <c>root.key</c> (PKCS#8, PBES2-encrypted with the operator's
@@ -25,6 +25,7 @@ internal sealed class OfflineRoot(string directory, TimeProvider clock)
     public const string CertificateFile = "root.pem";
     public const string StateFile = "state.json";
     public const string CrlFile = "root.crl";
+    public const string ChainFile = "chain.pem";
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
@@ -32,13 +33,17 @@ internal sealed class OfflineRoot(string directory, TimeProvider clock)
     {
         if (Directory.Exists(directory) && Directory.EnumerateFileSystemEntries(directory).Any())
             throw new InvalidOperationException($"'{directory}' is not empty; refusing to overwrite an existing root.");
-        Directory.CreateDirectory(directory);
+        // Owner-only, like every other key file qca writes: the key is passphrase-encrypted, but a copy invites unlimited
+        // offline guessing.
+        if (OperatingSystem.IsWindows()) Directory.CreateDirectory(directory);
+        else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
         var keyPair = AlgorithmStrategyFactory.CreateIssuer(algorithm).GenerateCaKeyPair(new SecureRandom());
         var now = clock.GetUtcNow().UtcDateTime;
         var certificate = CaCertificateBuilder.BuildRoot(new LocalKeyPairCaSigner(keyPair), subject, now.AddMinutes(-5), now.AddDays(validityDays));
 
-        File.WriteAllText(Path.Combine(directory, KeyFile), QertumKeyCodec.WriteEncryptedPrivateKeyPem(keyPair.Private, passphrase));
+        SecretFile.Write(Path.Combine(directory, KeyFile),
+            System.Text.Encoding.UTF8.GetBytes(QertumKeyCodec.WriteEncryptedPrivateKeyPem(keyPair.Private, passphrase)), overwrite: false);
         File.WriteAllText(Path.Combine(directory, CertificateFile), QertumKeyCodec.WriteCertificatePem(certificate));
         WriteState(new OfflineRootState(0, [], []));
     }
@@ -48,7 +53,7 @@ internal sealed class OfflineRoot(string directory, TimeProvider clock)
         var (csr, algorithm) = ReadRequest(request);
         var notAfter = clock.GetUtcNow().UtcDateTime.AddDays(request.ValidityDays);
         return new SignPreview(csr.GetCertificationRequestInfo().Subject.ToString(), algorithm.ToCanonicalString(),
-            request.ValidityDays, notAfter, IssuerCeremonyText.Describe(Profile(request)));
+            request.ValidityDays, notAfter, IssuerCeremonyText.Describe(Profile(request)), CertificateFileName(request));
     }
 
     public (string CertificatePath, string ChainPath) Sign(IntermediateRequestFile request, string passphrase)
@@ -56,6 +61,10 @@ internal sealed class OfflineRoot(string directory, TimeProvider clock)
         if (request.Format != IntermediateRequestFile.CurrentFormat)
             throw new InvalidOperationException($"Unsupported request file format '{request.Format}'.");
         var (csr, _) = ReadRequest(request);
+        var fileName = CertificateFileName(request);
+        var certificatePath = Path.Combine(directory, fileName);
+        if (File.Exists(certificatePath))
+            throw new InvalidOperationException($"'{certificatePath}' already exists; refusing to overwrite it. Rename the request or move the file.");
         var rootCertificate = ReadCertificate();
         var signer = new LocalKeyPairCaSigner(LoadKeyPair(passphrase, rootCertificate));
         var now = clock.GetUtcNow().UtcDateTime;
@@ -69,10 +78,10 @@ internal sealed class OfflineRoot(string directory, TimeProvider clock)
         var certificate = CaCertificateBuilder.IssueSubordinate(signer, rootCertificate, info.SubjectPublicKeyInfo, info.Subject,
             Profile(request), now.AddMinutes(-5), notAfter);
 
-        var fileName = SafeFileName(request.Name) + ".pem";
-        var certificatePath = Path.Combine(directory, fileName);
-        var chainPath = Path.Combine(directory, "chain.pem");
-        File.WriteAllText(certificatePath, QertumKeyCodec.WriteCertificatePem(certificate));
+        var chainPath = Path.Combine(directory, ChainFile);
+        using (var output = new FileStream(certificatePath, FileMode.CreateNew, FileAccess.Write))
+        using (var writer = new StreamWriter(output))
+            writer.Write(QertumKeyCodec.WriteCertificatePem(certificate));
         File.WriteAllText(chainPath, QertumKeyCodec.WriteCertificatePem(rootCertificate));
 
         state.Issued.Add(new OfflineRootIssued(certificate.SerialNumber.ToString(16).ToUpperInvariant(),
@@ -133,6 +142,18 @@ internal sealed class OfflineRoot(string directory, TimeProvider clock)
     private void WriteState(OfflineRootState state) =>
         File.WriteAllText(Path.Combine(directory, StateFile), JsonSerializer.Serialize(state, Json));
 
-    private static string SafeFileName(string name) =>
-        string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-')).Trim('-') is { Length: > 0 } safe ? safe : "intermediate";
+    /// <summary>
+    /// The signed certificate's file, from the request's (unauthenticated) name. A name that would land on the root's own
+    /// files (root.pem, chain.pem; compared ignoring case for case-insensitive file systems) is refused, and Sign never
+    /// overwrites, so a crafted request cannot replace the root certificate.
+    /// </summary>
+    internal static string CertificateFileName(IntermediateRequestFile request)
+    {
+        var stem = string.Concat(request.Name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '-')).Trim('-') is { Length: > 0 } safe
+            ? safe : "intermediate";
+        var fileName = stem + ".pem";
+        if (fileName.Equals(CertificateFile, StringComparison.OrdinalIgnoreCase) || fileName.Equals(ChainFile, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"The request is named '{request.Name}', which would overwrite {fileName} in the root directory; refusing to sign it.");
+        return fileName;
+    }
 }

@@ -26,7 +26,7 @@ public sealed class JsonUserStore
     private readonly string _filePath;
     private readonly string? _seedAdminPassword;
     private readonly bool _seedAdminPasswordMustChange;
-    private readonly PasswordHasher<StoredUser> _hasher = new();
+    private readonly IPasswordHasher<StoredUser> _hasher;
 
     // Verified for an unknown or disabled username, so every refusal costs one hash and timing does not tell which
     // usernames exist. Made once, from a random value nobody knows.
@@ -40,7 +40,19 @@ public sealed class JsonUserStore
         string? directory = null,
         string? seedAdminPassword = null,
         bool seedAdminPasswordMustChange = false)
+        : this(logger, directory, seedAdminPassword, seedAdminPasswordMustChange, new PasswordHasher<StoredUser>())
     {
+    }
+
+    /// <summary>Tests pass a hasher to act between a self-service read and its write.</summary>
+    internal JsonUserStore(
+        ILogger<JsonUserStore> logger,
+        string? directory,
+        string? seedAdminPassword,
+        bool seedAdminPasswordMustChange,
+        IPasswordHasher<StoredUser> hasher)
+    {
+        _hasher = hasher;
         _logger = logger;
         _seedAdminPassword = string.IsNullOrWhiteSpace(seedAdminPassword) ? null : seedAdminPassword;
         _seedAdminPasswordMustChange = seedAdminPasswordMustChange;
@@ -67,8 +79,16 @@ public sealed class JsonUserStore
 
         if (result == PasswordVerificationResult.SuccessRehashNeeded)
         {
-            user.PasswordHash = _hasher.HashPassword(user, password);
-            await SaveAsync(user, cancellationToken);
+            // Only while the stored hash is still the one just verified: an admin reset or delete meanwhile wins.
+            var verifiedHash = user.PasswordHash;
+            var rehashed = _hasher.HashPassword(user, password);
+            await UpdateCurrentAsync(user.Id, current =>
+            {
+                if (current.PasswordHash != verifiedHash) return false;
+                current.PasswordHash = rehashed;
+                return true;
+            }, cancellationToken);
+            user.PasswordHash = rehashed;
         }
 
         return user;
@@ -120,10 +140,13 @@ public sealed class JsonUserStore
 
     public async Task UpdateProfileAsync(Guid id, string displayName, string email, CancellationToken cancellationToken = default)
     {
-        var user = await FindByIdAsync(id, cancellationToken) ?? throw new InvalidOperationException("User not found.");
-        user.DisplayName = displayName;
-        user.Email = email;
-        await SaveAsync(user, cancellationToken);
+        var found = await UpdateCurrentAsync(id, current =>
+        {
+            current.DisplayName = displayName;
+            current.Email = email;
+            return true;
+        }, cancellationToken);
+        if (!found) throw new InvalidOperationException("User not found.");
     }
 
     public async Task UpdateRolesAsync(Guid id, List<string> roles, CancellationToken cancellationToken = default)
@@ -244,12 +267,6 @@ public sealed class JsonUserStore
         bool mustChangePassword = false,
         CancellationToken cancellationToken = default)
     {
-        var existing = await FindByUsernameAsync(username, cancellationToken);
-        if (existing != null)
-        {
-            throw new InvalidOperationException("Username already exists.");
-        }
-
         var user = new StoredUser
         {
             Username = username,
@@ -261,7 +278,7 @@ public sealed class JsonUserStore
         };
 
         user.PasswordHash = _hasher.HashPassword(user, password);
-        await SaveAsync(user, cancellationToken);
+        await AddAsync(user, cancellationToken);
         return user;
     }
 
@@ -286,30 +303,64 @@ public sealed class JsonUserStore
             return ChangePasswordResult.SameAsCurrent;
         }
 
-        user.PasswordHash = _hasher.HashPassword(user, newPassword);
-        user.MustChangePassword = false;
-        // Ends every other session and grant: each carries the old stamp.
-        user.SecurityStamp = StoredUser.NewSecurityStamp();
-        await SaveAsync(user, cancellationToken);
+        // Hashing happens outside the lock; the write applies only to the record the current password was checked
+        // against. An admin reset, disable or delete in between wins: the user's old password no longer counts.
+        var verifiedHash = user.PasswordHash;
+        var verifiedStamp = user.SecurityStamp;
+        var newHash = _hasher.HashPassword(user, newPassword);
+        var newStamp = StoredUser.NewSecurityStamp();
+        var applied = false;
+        var found = await UpdateCurrentAsync(id, current =>
+        {
+            if (current.IsDisabled || current.PasswordHash != verifiedHash || current.SecurityStamp != verifiedStamp) return false;
+            current.PasswordHash = newHash;
+            current.MustChangePassword = false;
+            // Ends every other session and grant: each carries the old stamp.
+            current.SecurityStamp = newStamp;
+            applied = true;
+            return true;
+        }, cancellationToken);
+        if (!found) return ChangePasswordResult.UserNotFound;
+        if (!applied) return ChangePasswordResult.CurrentPasswordIncorrect;
 
+        user.PasswordHash = newHash;
+        user.MustChangePassword = false;
+        user.SecurityStamp = newStamp;
         return ChangePasswordResult.Success;
     }
 
-    private async Task SaveAsync(StoredUser user, CancellationToken cancellationToken)
+    /// <summary>
+    /// Self-service writes (profile, password change, rehash on sign-in) change the record as it is now, inside the lock.
+    /// Replacing it with a copy read earlier undid a delete, disable, role change or reset made meanwhile, and could add a
+    /// deleted user back. False when the user no longer exists; <paramref name="change"/> returns false to write nothing.
+    /// </summary>
+    private async Task<bool> UpdateCurrentAsync(Guid id, Func<StoredUser, bool> change, CancellationToken cancellationToken)
     {
         await _lock.WaitAsync(cancellationToken);
         try
         {
             var users = await LoadUnlockedAsync(cancellationToken);
-            var idx = users.FindIndex(u => u.Id == user.Id);
-            if (idx < 0)
-            {
-                users.Add(user);
-            }
-            else
-            {
-                users[idx] = user;
-            }
+            var current = users.FirstOrDefault(u => u.Id == id);
+            if (current is null) return false;
+            if (change(current)) WriteUnlocked(users);
+            return true;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    /// <summary>Adds a new user; the username check sits inside the lock so two creates cannot both pass it.</summary>
+    private async Task AddAsync(StoredUser user, CancellationToken cancellationToken)
+    {
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            var users = await LoadUnlockedAsync(cancellationToken);
+            if (users.Any(u => string.Equals(u.Username, user.Username, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Username already exists.");
+            users.Add(user);
             WriteUnlocked(users);
         }
         finally

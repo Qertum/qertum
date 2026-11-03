@@ -86,6 +86,14 @@ internal static partial class IdentityHostTestKit
     public static async Task<(string AccessToken, string RefreshToken)> ObtainTokensViaDeviceFlowAsync(
         HttpClient client, string username, string password, CancellationToken ct, string scope = DeviceFlowScope)
     {
+        var tokens = await ObtainTokenResponseViaDeviceFlowAsync(client, username, password, ct, scope);
+        return (tokens.GetProperty("access_token").GetString()!, tokens.GetProperty("refresh_token").GetString()!);
+    }
+
+    /// <summary>The whole token response of a device flow (access, refresh and, with <c>openid</c>, ID token).</summary>
+    public static async Task<JsonElement> ObtainTokenResponseViaDeviceFlowAsync(
+        HttpClient client, string username, string password, CancellationToken ct, string scope = DeviceFlowScope)
+    {
         using var form2 = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "qca",
@@ -112,8 +120,7 @@ internal static partial class IdentityHostTestKit
             form, ct);
         var body = await token.Content.ReadAsStringAsync(ct);
         Assert.True(token.StatusCode == HttpStatusCode.OK, body);
-        var tokens = JsonDocument.Parse(body).RootElement;
-        return (tokens.GetProperty("access_token").GetString()!, tokens.GetProperty("refresh_token").GetString()!);
+        return JsonDocument.Parse(body).RootElement.Clone();
     }
 
     public static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken, CancellationToken ct)

@@ -54,6 +54,15 @@ public sealed class IssuancePolicyVersion
     /// <summary>JSON array of allowed CIDR ranges for IP SANs. Empty means unrestricted.</summary>
     public string AllowedIpRangesJson { get; set; } = "[]";
 
+    /// <summary>
+    /// JSON array of domains allowed in email SANs (rfc822Name): an address's domain must be one of them or below one.
+    /// Empty means unrestricted. Added in 1.0.0-rc4.3; existing versions back-fill to "[]".
+    /// </summary>
+    public string AllowedEmailDomainsJson { get; set; } = "[]";
+
+    /// <summary>JSON array of UPN suffixes allowed in UPN SANs (the part after '@', or below it). Empty means unrestricted.</summary>
+    public string AllowedUpnSuffixesJson { get; set; } = "[]";
+
     /// <summary>JSON array of allowed canonical key algorithm strings. Empty means unrestricted.</summary>
     public string AllowedKeyAlgorithmsJson { get; set; } = "[]";
 

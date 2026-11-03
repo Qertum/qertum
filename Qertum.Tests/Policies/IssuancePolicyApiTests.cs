@@ -73,6 +73,22 @@ public sealed class IssuancePolicyApiTests
     }
 
     [Fact]
+    public async Task EmailDomainsAndUpnSuffixes_RoundTripNormalized()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = ApiServiceTests.CreateFactory();
+        await ApiServiceTests.EnsureDbAsync(factory, ct);
+        using var admin = Admin(factory);
+
+        var policy = await CreateWithDraftAsync(admin, "people",
+            new { allowedEmailDomains = new[] { "Corp.Example.com." }, allowedUpnSuffixes = new[] { "corp" } }, ct);
+        var body = (await (await PublishAsync(admin, policy, ct)).Content.ReadFromJsonAsync<IssuancePolicyResponse>(ct))!;
+
+        Assert.Equal(["corp.example.com"], body.Published!.AllowedEmailDomains);
+        Assert.Equal(["corp"], body.Published.AllowedUpnSuffixes);
+    }
+
+    [Fact]
     public async Task SettingsEditAlone_CanDraftButCannotPublish()
     {
         var ct = TestContext.Current.CancellationToken;

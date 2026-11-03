@@ -88,6 +88,16 @@ public sealed class CertificateRequest
     public CertificateRequestId? RenewedFromId { get; init; }
 
     /// <summary>
+    /// Who filed this renewal (mapped name, or the scheduler's name for auto-renewal). A renewal keeps the original
+    /// requester as its owner, so without this the person who renewed a CA certificate could also approve it.
+    /// Null for first issuance and for renewals filed before 1.0.0-rc4.3.
+    /// </summary>
+    public string? RenewedBy { get; set; }
+
+    /// <summary>The stable subject (<c>sub</c>) of whoever filed this renewal; null for the scheduler and older rows.</summary>
+    public string? RenewedBySubject { get; set; }
+
+    /// <summary>
     /// Facts recorded about the certificate (owner team, contact, purpose, target system, ticket,
     /// compatibility). Never null; all-null means everything is Unknown. A renewal starts with a copy.
     /// </summary>

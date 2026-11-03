@@ -5,6 +5,12 @@ public static class PolicyRules
     public const string Template = "template";
     public const string DnsSuffix = "dnsSuffix";
     public const string IpRange = "ipRange";
+
+    /// <summary>An email SAN's domain is outside the policy's allowed email domains.</summary>
+    public const string EmailDomain = "emailDomain";
+
+    /// <summary>A UPN SAN's suffix is outside the policy's allowed UPN suffixes.</summary>
+    public const string UpnSuffix = "upnSuffix";
     public const string KeyAlgorithm = "keyAlgorithm";
     public const string MaxValidity = "maxValidity";
 

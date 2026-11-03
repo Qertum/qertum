@@ -15,7 +15,7 @@ public interface IIssuancePolicyService
 
     /// <summary>
     /// Evaluates exactly what approval does: the CA permission rule for the approver plus, for a CA-capable
-    /// request, the independent-approver rule when <see cref="CaSettings.RequireIndependentCaApproval"/> is set.
+    /// request or a root renewal, the independent-approver rule when <see cref="CaSettings.RequireIndependentCaApproval"/> is set.
     /// A waived self-approval is allowed and flagged on the decision for the audit text.
     /// </summary>
     Task<PolicyDecision> EvaluateApprovalAsync(CertificateRequest request, CaSettings settings, CallerContext? caller, CancellationToken cancellationToken = default);
@@ -92,11 +92,17 @@ internal sealed class IssuancePolicyService(
     public async Task<PolicyDecision> EvaluateApprovalAsync(CertificateRequest request, CaSettings settings, CallerContext? caller, CancellationToken cancellationToken = default)
     {
         var decision = await EvaluateAsync(request, settings, requester: null, caller, cancellationToken);
-        if (caller is null || request.Type == WellKnownCertificateTypes.RootCa) return decision;
+        if (caller is null) return decision;
 
-        var template = await db.CertificateTemplates.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.TypeKey == request.Type, cancellationToken);
-        if (!CaCapableTemplate.IsCaCapable(template) || !IndependentApprovalRule.IsSelfApproval(request, caller))
+        // A root renewal replaces the trust anchor, so it takes the same second person as a CA-capable template.
+        // The first root (no RenewedFromId) stays with onboarding, where one administrator may be all there is.
+        bool isCa;
+        if (request.Type == WellKnownCertificateTypes.RootCa)
+            isCa = request.RenewedFromId is not null;
+        else
+            isCa = CaCapableTemplate.IsCaCapable(await db.CertificateTemplates.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.TypeKey == request.Type, cancellationToken));
+        if (!isCa || !IndependentApprovalRule.IsSelfApproval(request, caller))
             return decision;
 
         if (!settings.RequireIndependentCaApproval)

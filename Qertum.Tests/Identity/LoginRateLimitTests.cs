@@ -18,8 +18,8 @@ using Qertum.IdentityService.Stores;
 namespace Qertum.Tests.Identity;
 
 /// <summary>
-/// Login attempts share a budget per username and client address, under a looser per-username ceiling, and answer
-/// identically for known and unknown users.
+/// Login attempts share a budget per username and client address, under a looser per-username ceiling and a
+/// per-address ceiling across usernames, and answer identically for known and unknown users.
 /// </summary>
 public sealed class LoginRateLimitTests
 {
@@ -112,6 +112,46 @@ public sealed class LoginRateLimitTests
 
         Assert.Equal("Invalid username or password.", fresh.ErrorMessage);
         Assert.Contains(audit.Entries, e => e.Action == "LoginThrottled");
+    }
+
+    [Fact]
+    public async Task ANewUsernameOnEveryAttempt_MeetsThePerAddressCeiling()
+    {
+        // Neither the username+address nor the username bucket ever filled, and each attempt cost a hash.
+        var ct = TestContext.Current.CancellationToken;
+        var users = await CreateStoreAsync(ct);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var limiter = new PasswordAttemptLimiter(cache, new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 9, 0, 0, TimeSpan.Zero)));
+        var audit = new RecordingAudit();
+
+        for (var attempt = 0; attempt < LoginModel.AddressCeiling; attempt++)
+        {
+            var model = CreateModel(users, limiter, audit, "203.0.113.66");
+            model.Input = new LoginModel.InputModel { Username = $"guess{attempt}", Password = "wrong" };
+            await model.OnPostAsync(ct);
+        }
+        Assert.DoesNotContain(audit.Entries, e => e.Action == IdentityAuditActions.LoginThrottled);
+
+        var sameAddress = await AttemptAsync(users, limiter, audit, "203.0.113.66", GoodPassword, ct);
+        var otherAddress = await AttemptAsync(users, limiter, audit, "198.51.100.7", GoodPassword, ct);
+
+        Assert.Equal("Invalid username or password.", sameAddress.ErrorMessage);
+        Assert.Contains(audit.Entries, e => e.Action == IdentityAuditActions.LoginThrottled);
+        Assert.Null(otherAddress.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task SuccessfulSignIns_DoNotUseUpTheAddressCeiling()
+    {
+        // Many people behind one address sign in all day; only failures count against it.
+        var ct = TestContext.Current.CancellationToken;
+        var users = await CreateStoreAsync(ct);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var limiter = new PasswordAttemptLimiter(cache, new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 9, 0, 0, TimeSpan.Zero)));
+        var audit = new RecordingAudit();
+
+        for (var attempt = 0; attempt < LoginModel.AddressCeiling + 5; attempt++)
+            Assert.Null((await AttemptAsync(users, limiter, audit, "192.0.2.10", GoodPassword, ct)).ErrorMessage);
     }
 
     [Fact]

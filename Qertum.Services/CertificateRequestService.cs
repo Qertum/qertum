@@ -332,6 +332,8 @@ public sealed class CertificateRequestService(
             PqcSerialNumber = r.PqcSerialNumber,
             RevocationReason = r.RevocationReason,
             RenewedFromId = r.RenewedFromId,
+            RenewedBy = r.RenewedBy,
+            RenewedBySubject = r.RenewedBySubject,
             KeyAlgorithm = r.KeyAlgorithm,
             ValidityDays = r.ValidityDays,
             PqcCertificatePem = r.PqcCertificatePem,
@@ -878,6 +880,8 @@ public sealed class CertificateRequestService(
             RequestedBy = existing.RequestedBy,
             // Carry ownership across the renewal so the original requester keeps key access.
             RequestedBySubject = existing.RequestedBySubject,
+            RenewedBy = performedBy,
+            RenewedBySubject = caller?.Subject,
             Type = existing.Type,
             PropertiesJson = existing.Type == WellKnownCertificateTypes.RootCa
                 ? RootRenewalProperties(existing.PropertiesJson)

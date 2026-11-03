@@ -250,6 +250,18 @@ internal static class PolicyCommands
             AllowMultipleArgumentsPerToken = true,
             Arity = ArgumentArity.ZeroOrMore
         };
+        var emailOpt = new Option<string[]>("--email-domain")
+        {
+            Description = "Allowed domain for email SANs (that domain or below it); repeatable (for example --email-domain corp.example.com). Omit to leave email SANs unrestricted.",
+            AllowMultipleArgumentsPerToken = true,
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var upnOpt = new Option<string[]>("--upn-suffix")
+        {
+            Description = "Allowed UPN suffix for UPN SANs, the part after '@' (that suffix or below it); repeatable (for example --upn-suffix corp.example.com). Omit to leave UPN SANs unrestricted.",
+            AllowMultipleArgumentsPerToken = true,
+            Arity = ArgumentArity.ZeroOrMore
+        };
         var algoOpt = new Option<string[]>("--algorithm")
         {
             Description = "Allowed key algorithm; repeatable. Omit to leave key algorithms unrestricted. One of: " +
@@ -284,6 +296,8 @@ internal static class PolicyCommands
         set.Arguments.Add(setIdArg);
         set.Options.Add(dnsOpt);
         set.Options.Add(ipOpt);
+        set.Options.Add(emailOpt);
+        set.Options.Add(upnOpt);
         set.Options.Add(algoOpt);
         set.Options.Add(maxValidityOpt);
         set.Options.Add(roleOpt);
@@ -324,7 +338,8 @@ internal static class PolicyCommands
             else
             {
                 request = DraftFromOptions(result.GetValue(dnsOpt), result.GetValue(ipOpt), result.GetValue(algoOpt),
-                    result.GetValue(maxValidityOpt), result.GetValue(roleOpt), result.GetValue(custodyOpt));
+                    result.GetValue(maxValidityOpt), result.GetValue(roleOpt), result.GetValue(custodyOpt),
+                    result.GetValue(emailOpt), result.GetValue(upnOpt));
             }
 
             return await CliApi.RunAsync(async () =>
@@ -492,6 +507,8 @@ internal static class PolicyCommands
         Console.WriteLine($"{label} v{version.VersionNumber} ({version.Status}):");
         Console.WriteLine($"  DNS suffixes:    {Describe(version.AllowedDnsSuffixes)}");
         Console.WriteLine($"  IP ranges:       {Describe(version.AllowedIpRanges)}");
+        Console.WriteLine($"  Email domains:   {Describe(version.AllowedEmailDomains)}");
+        Console.WriteLine($"  UPN suffixes:    {Describe(version.AllowedUpnSuffixes)}");
         Console.WriteLine($"  Key algorithms:  {Describe(version.AllowedKeyAlgorithms)}");
         Console.WriteLine($"  Requester roles: {(version.AllowedRequesterRoles.Count == 0 ? "any role" : string.Join(", ", version.AllowedRequesterRoles))}");
         Console.WriteLine($"  Key custody:     {DescribeCustody(version.KeyCustody)}");
@@ -504,10 +521,12 @@ internal static class PolicyCommands
     /// <summary>The draft `draft set` sends; every rule is replaced, so an omitted option means unrestricted.</summary>
     internal static SaveIssuancePolicyDraftRequest DraftFromOptions(
         string[]? dns, string[]? ip, string[]? algorithms, int? maxValidityDays, string[]? requesterRoles,
-        string? keyCustody) => new()
+        string? keyCustody, string[]? emailDomains = null, string[]? upnSuffixes = null) => new()
     {
         AllowedDnsSuffixes = [.. dns ?? []],
         AllowedIpRanges = [.. ip ?? []],
+        AllowedEmailDomains = [.. emailDomains ?? []],
+        AllowedUpnSuffixes = [.. upnSuffixes ?? []],
         AllowedKeyAlgorithms = [.. algorithms ?? []],
         MaxValidityDays = maxValidityDays,
         AllowedRequesterRoles = [.. requesterRoles ?? []],
