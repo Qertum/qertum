@@ -25,11 +25,8 @@ public sealed class LocalFileKeySecretProtector : ISecretProtector
         Directory.CreateDirectory(secretStorageDir);
         var keyPath = Path.Combine(secretStorageDir, "local.key");
 
-        KeyFileCreation.EnsureExists(keyPath, temporary =>
-        {
-            File.WriteAllBytes(temporary, RandomNumberGenerator.GetBytes(KeySizeBytes));
-            TrySetOwnerOnlyPermissions(temporary);
-        });
+        KeyFileCreation.EnsureExists(keyPath,
+            temporary => KeyFileCreation.WriteOwnerOnly(temporary, RandomNumberGenerator.GetBytes(KeySizeBytes)));
 
         _key = File.ReadAllBytes(keyPath);
         if (_key.Length != KeySizeBytes)
@@ -66,15 +63,5 @@ public sealed class LocalFileKeySecretProtector : ISecretProtector
         using var aesGcm = new AesGcm(_key, TagSizeBytes);
         aesGcm.Decrypt(nonce, cipherBytes, tag, plaintext);
         return plaintext;
-    }
-
-    private static void TrySetOwnerOnlyPermissions(string path)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-        }
-        // Windows: no direct equivalent without pulling in ACL APIs; the containing directory's
-        // ACLs (inherited from the data volume) are the practical protection there.
     }
 }

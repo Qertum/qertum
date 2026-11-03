@@ -343,16 +343,30 @@ public static class AcmeEndpointMappings
                 };
                 db.AcmeAccounts.Add(account);
 
-                if (boundCredential is not null)
+                if (boundCredential is null)
                 {
-                    // Tracked instance, not the AsNoTracking read above, so the binding is saved in the
-                    // same transaction as the account it belongs to.
-                    var tracked = await db.AcmeExternalAccountKeys.FirstAsync(k => k.Id == boundCredential.Id, ct);
-                    tracked.BoundAccountId = account.Id;
-                    tracked.BoundAtUtc = clock.GetUtcNow().UtcDateTime;
+                    await db.SaveChangesAsync(ct);
                 }
-
-                await db.SaveChangesAsync(ct);
+                else
+                {
+                    // The bound check above and this claim must be one step: registrations racing with one
+                    // credential all saw it unbound and each got an account. The claim only succeeds while the
+                    // credential is still unbound, in the same transaction as the account it binds.
+                    await using var transaction = await db.Database.BeginTransactionAsync(ct);
+                    await db.SaveChangesAsync(ct);
+                    var boundAtUtc = clock.GetUtcNow().UtcDateTime;
+                    var claimed = await db.AcmeExternalAccountKeys
+                        .Where(k => k.Id == boundCredential.Id && k.BoundAccountId == null)
+                        .ExecuteUpdateAsync(update => update
+                            .SetProperty(k => k.BoundAccountId, account.Id)
+                            .SetProperty(k => k.BoundAtUtc, boundAtUtc), ct);
+                    if (claimed == 0)
+                    {
+                        await transaction.RollbackAsync(ct);
+                        return AcmeProblem("unauthorized", "This external account key is already bound to an account.");
+                    }
+                    await transaction.CommitAsync(ct);
+                }
 
                 ctx.Response.Headers.Location = $"{baseUrl}/acme/account/{account.Id}";
                 return Results.Created($"{baseUrl}/acme/account/{account.Id}", MapAccount(account, baseUrl));

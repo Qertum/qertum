@@ -113,6 +113,22 @@ public sealed class RecoveryScriptContractTests
         Assert.True(manifest >= 0 && manifest < archive, "the manifest must be taken before the archive, while the container is stopped");
     }
 
+    [Theory]
+    [InlineData("backup.sh")]
+    [InlineData("backup.ps1")]
+    public void BackupScripts_WriteTheArchiveReadableByItsOwnerOnly(string name)
+    {
+        // The archive holds the CA key and the key that unwraps the key ring. tar ran as root in the helper with the
+        // default umask, so the archive was 0644: any local user could copy it from the output directory.
+        var text = Script(name);
+        var archive = text.IndexOf("tar czf", StringComparison.Ordinal);
+        var umask = text.LastIndexOf("umask 077", archive, StringComparison.Ordinal);
+
+        Assert.True(umask >= 0 && archive - umask < 80, "tar must run under umask 077 in the same helper command");
+        // Root inside the helper owns the file; it is handed to the user who ran the script, or they could not read it.
+        Assert.Contains("chown $OWNER", text);
+    }
+
     [Fact]
     public void BackupPowerShell_WritesTheManifestAsUtf8WithoutABom_AndLfLineEndings()
     {

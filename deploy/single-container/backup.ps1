@@ -55,11 +55,16 @@ try {
         [System.IO.File]::WriteAllText((Join-Path $OutputFullPath $ManifestName), $manifestText, (New-Object System.Text.UTF8Encoding($false)))
     }
 
+    # Only the archive's owner may read it (it holds the CA key): umask 077 in the helper, then the file goes from
+    # root to the user running this script. On Windows there is no uid to hand it to, so OWNER stays empty and the
+    # chown is skipped (test -z with nothing after it is true).
+    $Owner = if ($IsWindows) { '' } else { "$(id -u):$(id -g)" }
     Write-Host "Archiving /data from $Container -> $OutputDir\$ArchiveName"
     docker run --rm `
       --volumes-from $Container `
       -v "${OutputFullPath}:/backup" `
-      alpine tar czf "/backup/$ArchiveName" -C / data
+      -e "ARCHIVE=$ArchiveName" -e "OWNER=$Owner" `
+      alpine sh -c 'set -e; umask 077; tar czf /backup/$ARCHIVE -C / data; test -z $OWNER || chown $OWNER /backup/$ARCHIVE'
     # PowerShell does not stop on a failing native command. Without this check a partial archive
     # would be recorded as a fresh backup.
     if ($LASTEXITCODE -ne 0) {

@@ -30,6 +30,20 @@ internal static class KeyFileCreation
         }
     }
 
+    /// <summary>
+    /// Writes <paramref name="bytes"/> to a new file that only its owner can read or write from the moment it exists
+    /// (Unix mode 0600 at creation, not a chmod after the write, which left a window at the umask's 0644). Windows has
+    /// no mode: the data volume's inherited ACLs are the protection there.
+    /// </summary>
+    public static void WriteOwnerOnly(string path, byte[] bytes)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        using var stream = new FileStream(path, options);
+        stream.Write(bytes);
+    }
+
     private static FileStream AcquireLock(string lockPath)
     {
         var waited = System.Diagnostics.Stopwatch.StartNew();

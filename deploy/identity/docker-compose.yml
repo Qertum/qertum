@@ -30,7 +30,10 @@ services:
       # clients.json alone — edit it on the volume and restart.
       IdentityService__EnableServiceDiscoveryRedirectUris: "false"
     ports:
-      - "8081:8080"
+      # Loopback only, matching the plain-http localhost authority above: sign-in passwords and tokens must not
+      # cross a network unencrypted. To serve other machines, put a TLS proxy in front (README "Behind a reverse
+      # proxy"), set an https Authority and QERTUM_TRUSTED_PROXIES, and publish to the proxy only.
+      - "127.0.0.1:8081:8080"
     volumes:
       # users.json, clients.json, identity.db, keys/. BACK THIS UP —
       # losing keys/ invalidates every issued token and live session.

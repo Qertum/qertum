@@ -1427,6 +1427,45 @@ public sealed class AcmeProtocolTests
     }
 
     [Fact]
+    public async Task NewAccount_ParallelRegistrationsWithOneCredential_BindExactlyOneAccount()
+    {
+        // The bound check and the save were two steps: registrations racing with one credential could all see it
+        // unbound and each get an account, the last save winning the binding.
+        var ct = TestContext.Current.CancellationToken;
+        await using var factory = CreateFactory();
+        await RequireExternalAccountBindingAsync(factory, ct);
+        var (kid, macKey) = await IssueEabCredentialAsync(factory, ct);
+
+        const int racers = 8;
+        var clients = Enumerable.Range(0, racers).Select(_ => new AcmeTestClient(factory.CreateClient())).ToList();
+        try
+        {
+            using var start = new SemaphoreSlim(0, racers);
+            var attempts = clients.Select(async client =>
+            {
+                var body = new { termsOfServiceAgreed = true, externalAccountBinding = client.BuildEab(kid, macKey) };
+                await start.WaitAsync(ct);
+                using var response = await client.PostAsync("/acme/new-account", body, ct);
+                return response.StatusCode;
+            }).ToList();
+            start.Release(racers);
+            var statuses = await Task.WhenAll(attempts);
+
+            Assert.Equal(1, statuses.Count(s => s == HttpStatusCode.Created));
+            Assert.All(statuses.Where(s => s != HttpStatusCode.Created), s => Assert.Equal(HttpStatusCode.Unauthorized, s));
+
+            using var scope = factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<CertificateRequestDbContext>();
+            var account = Assert.Single(await db.AcmeAccounts.ToListAsync(ct));
+            Assert.Equal(account.Id, (await db.AcmeExternalAccountKeys.SingleAsync(ct)).BoundAccountId);
+        }
+        finally
+        {
+            foreach (var client in clients) client.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task NewAccount_WithDisabledCredential_IsRefused()
     {
         var ct = TestContext.Current.CancellationToken;

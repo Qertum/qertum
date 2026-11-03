@@ -68,4 +68,19 @@ public sealed class LocalFileKeySecretProtectorTests : IDisposable
             Assert.Empty(Directory.GetFiles(Path.Combine(dir, "secret-storage"), "*.tmp*"));
         }
     }
+
+    [Fact]
+    public void KeyFile_IsReadableByItsOwnerOnly()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Unix file modes only.");
+            return;
+        }
+
+        _ = new LocalFileKeySecretProtector(_dataDir);
+
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(Path.Combine(_dataDir, "secret-storage", "local.key")));
+    }
 }

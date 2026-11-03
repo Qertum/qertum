@@ -55,11 +55,15 @@ else
   echo "warning: the backup continues, but no integrity manifest could be written, so restore-test.sh cannot verify it" >&2
 fi
 
+# The archive holds the CA key and the key that unwraps the key ring: written under umask 077, so only its owner
+# can read it, and handed from root in the helper to the user running this script. Like the status helper below,
+# the command has no double quotes, so backup.ps1 can share it.
 echo "Archiving /data from ${CONTAINER} -> ${OUT_DIR}/${ARCHIVE_NAME}"
 docker run --rm \
   --volumes-from "${CONTAINER}" \
   -v "$(cd "${OUT_DIR}" && pwd)":/backup \
-  alpine tar czf "/backup/${ARCHIVE_NAME}" -C / data
+  -e ARCHIVE="${ARCHIVE_NAME}" -e OWNER="$(id -u):$(id -g)" \
+  alpine sh -c 'set -e; umask 077; tar czf /backup/$ARCHIVE -C / data; chown $OWNER /backup/$ARCHIVE'
 
 # Tell Qertum's dashboard when this backup finished. The container is stopped, so the data volume is
 # written through the same helper image. A failure here only warns: the archive itself is fine.

@@ -457,5 +457,5 @@ Optional and off by default: an administrator switches it on in Settings → Iss
 ## Image tags
 
 `docker-compose.yml` reads the registry from `QERTUM_REGISTRY` and the tag from `QERTUM_IMAGE_TAG`
-(default `latest`). Pin an exact tag, for example `QERTUM_IMAGE_TAG=1.0.0-rc4`, so you decide when to
+(default `latest`). Pin an exact tag, for example `QERTUM_IMAGE_TAG=1.0.0-rc4.1`, so you decide when to
 upgrade and can roll back; for Docker Hub set `QERTUM_REGISTRY=docker.io/qertum`.

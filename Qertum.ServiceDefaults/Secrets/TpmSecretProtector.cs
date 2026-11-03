@@ -87,7 +87,8 @@ public sealed class TpmSecretProtector : ISecretProtector
         var priv = blobPath + ".priv";
         try
         {
-            File.WriteAllBytes(keyFile, RandomNumberGenerator.GetBytes(KeySizeBytes));
+            // The plain key exists on disk only until tpm2_create has sealed it, and only its owner may read it.
+            KeyFileCreation.WriteOwnerOnly(keyFile, RandomNumberGenerator.GetBytes(KeySizeBytes));
             Run("tpm2_createprimary", "-C", "o", "-c", primaryCtx);
             Run("tpm2_create", "-C", primaryCtx, "-i", keyFile, "-u", pub, "-r", priv);
 
