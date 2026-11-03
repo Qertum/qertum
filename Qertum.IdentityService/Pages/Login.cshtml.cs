@@ -25,6 +25,7 @@ public sealed class LoginModel(
 
     /// <summary>Password checks allowed per username inside <see cref="Window"/>.</summary>
     public const int MaxAttempts = PasswordAttemptLimiter.MaxAttempts;
+    public const int AccountCeiling = PasswordAttemptLimiter.AccountCeiling;
 
     /// <summary>How long attempts are counted for, and so how long a throttle lasts.</summary>
     public static readonly TimeSpan Window = PasswordAttemptLimiter.LoginWindow;
@@ -39,6 +40,9 @@ public sealed class LoginModel(
 
     public void OnGet() { }
 
+    private string AttemptKey(string username) =>
+        $"{username}|{HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown"}";
+
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
         ModelState.AddValidationErrors(_validator.Validate(Input));
@@ -48,7 +52,12 @@ public sealed class LoginModel(
             return Page();
         }
 
-        if (await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.Login, Input.Username!, cancellationToken) == 0)
+        // Counted per username and client address, so wrong passwords from one address cannot lock the account for
+        // everyone else, and per username under a looser ceiling, so a guess spread across addresses is still slowed.
+        // Behind a TLS proxy the address is the client's only from QERTUM_TRUSTED_PROXIES, which cannot be faked.
+        var perAddress = AttemptKey(Input.Username!);
+        if (await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.Login, perAddress, cancellationToken) == 0
+            || await attemptLimiter.ReserveAsync(PasswordAttemptPurpose.LoginAccount, Input.Username!, cancellationToken) == 0)
         {
             // Same message as a wrong password: the limiter must not say which accounts exist.
             audit.Write(IdentityAuditActions.LoginThrottled, Input.Username!);
@@ -63,7 +72,8 @@ public sealed class LoginModel(
             return Page();
         }
 
-        await attemptLimiter.ClearAsync(PasswordAttemptPurpose.Login, Input.Username!, cancellationToken);
+        await attemptLimiter.ClearAsync(PasswordAttemptPurpose.Login, perAddress, cancellationToken);
+        await attemptLimiter.ClearAsync(PasswordAttemptPurpose.LoginAccount, Input.Username!, cancellationToken);
 
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,

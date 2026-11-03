@@ -35,7 +35,7 @@ internal sealed class IssuancePolicyService(
     public async Task<PolicyDecision> EvaluateAsync(CertificateRequest request, CaSettings settings, RequesterRoles? requester, CallerContext? caller, CancellationToken cancellationToken = default)
     {
         if (request.Type == WellKnownCertificateTypes.RootCa)
-            return PolicyDecision.Unrestricted;
+            return RootCaDecision(request, caller);
 
         var template = await db.CertificateTemplates
             .AsNoTracking()
@@ -70,6 +70,23 @@ internal sealed class IssuancePolicyService(
         }
 
         return evaluator.Evaluate(request, template, policy, published, settings, requester, issuerPath, caller);
+    }
+
+    /// <summary>
+    /// Root requests have no template or policy. Creating the first root is guarded by onboarding (and replacing a CA
+    /// by <c>/v1/ca/generate</c>'s own force check), but a root renewal replaces the trust anchor through the ordinary
+    /// renew and approve routes, so it needs <c>certificates.ca</c> like every other CA certificate; protocol callers
+    /// never qualify. Before 1.0.0-rc5 any certificate operator could renew and approve the root.
+    /// </summary>
+    private static PolicyDecision RootCaDecision(CertificateRequest request, CallerContext? caller)
+    {
+        if (request.RenewedFromId is null || caller is null || caller.MayHandleCaRequests)
+            return PolicyDecision.Unrestricted;
+        return new PolicyDecision(false, null, null, null,
+        [
+            new IssuancePolicyViolation(PolicyRules.CaPermission, WellKnownCertificateTypes.RootCa,
+                $"Renewing the root CA gives it a new key and makes it the default issuer; requesting or approving it needs the {AppPermissions.CertificatesCa} permission.")
+        ]);
     }
 
     public async Task<PolicyDecision> EvaluateApprovalAsync(CertificateRequest request, CaSettings settings, CallerContext? caller, CancellationToken cancellationToken = default)

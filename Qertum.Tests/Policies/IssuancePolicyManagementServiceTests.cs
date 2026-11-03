@@ -276,4 +276,56 @@ public sealed class IssuancePolicyManagementServiceTests
 
         Assert.Empty(IssuancePolicyManagementService.ToVersionResponse(version)!.AllowedRequesterRoles);
     }
+
+    [Fact]
+    public async Task Publish_RefusesADraftEditedBetweenItsCheckAndItsSave()
+    {
+        // The publisher's check of the reviewed draft ran before the publish transaction, and the publish saved only
+        // the status columns: an edit landing in between was published, unreviewed, under the publisher's name.
+        var ct = TestContext.Current.CancellationToken;
+        await using var scope = await PolicyTestDb.CreateAsync(ct);
+        var author = scope.CreateManagementService();
+        var created = await CreateWithRulesAsync(author, "corp", ct, dns: ["corp.example"]);
+        await PublishCurrentDraftAsync(author, created.Id, ct);
+        await author.SaveDraftAsync(created.Id, new SaveIssuancePolicyDraftRequest { AllowedDnsSuffixes = ["corp.example", "more.example"] }, Author, ct);
+        var reviewed = (await author.GetAsync(created.Id, ct))!.Draft!;
+
+        // The publisher's own context: on its first save (superseding the current version) an editor's change lands.
+        await using var publisherDb = new CertificateRequestDbContext(
+            new DbContextOptionsBuilder<CertificateRequestDbContext>().UseSqlite(scope.Connection)
+                .AddInterceptors(new EditDraftOnFirstSave(reviewed.Id)).Options,
+            new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
+        var publisher = new IssuancePolicyManagementService(publisherDb, scope.Audit, scope.CreateWebhookService());
+
+        await Assert.ThrowsAsync<IssuancePolicyConflictException>(() => publisher.PublishAsync(created.Id,
+            new PublishIssuancePolicyRequest { DraftVersionId = reviewed.Id, DraftUpdatedAtUtc = reviewed.UpdatedAtUtc }, Publisher, ct));
+
+        await using var check = new CertificateRequestDbContext(
+            new DbContextOptionsBuilder<CertificateRequestDbContext>().UseSqlite(scope.Connection).Options,
+            new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
+        var published = await check.IssuancePolicyVersions.AsNoTracking()
+            .SingleAsync(v => v.PolicyId == created.Id && v.Status == IssuancePolicyVersionStatus.Published, ct);
+        Assert.DoesNotContain("evil.example", published.AllowedDnsSuffixesJson);
+    }
+
+    private sealed class EditDraftOnFirstSave(Guid draftId) : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        private bool _done;
+
+        public override async ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result, CancellationToken cancellationToken = default)
+        {
+            if (!_done)
+            {
+                _done = true;
+                // Through EF (not raw SQL) so the id is bound the way it is stored; ExecuteUpdate does not re-enter SaveChanges.
+                await eventData.Context!.Set<IssuancePolicyVersion>().Where(v => v.Id == draftId)
+                    .ExecuteUpdateAsync(update => update
+                        .SetProperty(v => v.AllowedDnsSuffixesJson, "[\"evil.example\"]")
+                        .SetProperty(v => v.UpdatedAtUtc, new DateTime(2099, 1, 1, 0, 0, 0, DateTimeKind.Utc)), cancellationToken);
+            }
+            return result;
+        }
+    }
 }

@@ -160,7 +160,12 @@ main {
     z-index: 10;
 }
 
-.user-menu-panel ::deep a {
+.user-menu-form {
+    margin: 0;
+}
+
+.user-menu-panel ::deep a,
+.user-menu-item {
     display: flex !important;
     align-items: center;
     padding: 0.55rem 0.75rem;
@@ -172,7 +177,18 @@ main {
     transition: background 150ms ease, color 150ms ease;
 }
 
-.user-menu-panel ::deep a:hover {
+.user-menu-item {
+    width: 100%;
+    background: none;
+    border: 0;
+    font: inherit;
+    font-size: 0.875rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.user-menu-panel ::deep a:hover,
+.user-menu-item:hover {
     background: var(--bg-glass, rgba(255, 255, 255, 0.05));
     color: var(--text-heading, #f1f3f7) !important;
 }

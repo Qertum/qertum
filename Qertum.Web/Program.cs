@@ -139,12 +139,13 @@ app.UseOutputCache();
 
 app.MapStaticAssets();
 
-// Sign-out endpoint — triggers OIDC front-channel logout.
-app.MapGet("/signout", async ctx =>
+// Sign-out endpoint — triggers OIDC front-channel logout. A POST from the menu's form with its antiforgery token: as a
+// GET, any other site could end a user's session with a link or an image (the Lax session cookie goes along).
+app.MapPost("/signout", async ctx =>
 {
     await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     await ctx.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme);
-});
+}).WithMetadata(new Microsoft.AspNetCore.Antiforgery.RequireAntiforgeryTokenAttribute());
 
 // Step-up: send a signed-in user through one more authorization request that asks the identity provider for the
 // authentication class and maximum age the API demanded. The tokens in the response replace the old ones (never a refresh,

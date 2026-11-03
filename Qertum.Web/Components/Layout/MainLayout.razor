@@ -47,9 +47,12 @@
                                 <span class="bi bi-shield-check me-2"></span>My access
                             </a>
                             <div class="user-menu-sep"></div>
-                            <a href="/signout">
-                                <span class="bi bi-box-arrow-right me-2"></span>Sign out
-                            </a>
+                            <form method="post" action="/signout" class="user-menu-form">
+                                <AntiforgeryToken />
+                                <button type="submit" class="user-menu-item">
+                                    <span class="bi bi-box-arrow-right me-2"></span>Sign out
+                                </button>
+                            </form>
                         </div>
                     </details>
                 </Authorized>

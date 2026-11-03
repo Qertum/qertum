@@ -59,8 +59,9 @@ public sealed class UpdateCertificateRequestRequest
     [Required]
     public string PropertiesJson { get; set; } = "{}";
 
-    /// <summary>Desired lifecycle status.</summary>
-    public CertificateRequestStatus Status { get; set; }
+    // Note: there is deliberately no Status here either. The lifecycle moves only through approve, reject and
+    // revoke, which carry their own checks (CA permission, independent approval, step-up, two-person approval);
+    // a status field let PUT approve a request past all of them. A client that still sends one is ignored.
 
     /// <summary>
     /// Requested validity in days, or null for the template's default. A request may shorten its

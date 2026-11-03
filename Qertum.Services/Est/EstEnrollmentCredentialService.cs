@@ -41,6 +41,11 @@ public sealed class EstEnrollmentCredentialService(
 {
     private readonly PasswordHasher<EstEnrollmentCredential> _hasher = new();
 
+    // Verified for an unknown or disabled username, so every refusal costs one hash and timing does not tell which
+    // enrollment usernames exist (the 401 is already identical). Made once, from a random value nobody knows.
+    private static readonly string TimingEqualizerHash =
+        new PasswordHasher<EstEnrollmentCredential>().HashPassword(new EstEnrollmentCredential(), Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+
     public async Task<IReadOnlyList<EstEnrollmentCredentialResponse>> GetAllAsync(CancellationToken cancellationToken = default) =>
         await dbContext.EstEnrollmentCredentials
             .AsNoTracking()
@@ -118,8 +123,13 @@ public sealed class EstEnrollmentCredentialService(
     {
         var credential = await dbContext.EstEnrollmentCredentials
             .FirstOrDefaultAsync(c => c.Username == username, cancellationToken);
-        if (credential is null) return new(EstCredentialOutcome.UnknownUsername, null);
-        if (!credential.IsEnabled) return new(EstCredentialOutcome.Disabled, credential.Id);
+        if (credential is null || !credential.IsEnabled)
+        {
+            _ = _hasher.VerifyHashedPassword(credential ?? new EstEnrollmentCredential(), TimingEqualizerHash, password);
+            return credential is null
+                ? new(EstCredentialOutcome.UnknownUsername, null)
+                : new(EstCredentialOutcome.Disabled, credential.Id);
+        }
 
         var result = _hasher.VerifyHashedPassword(credential, credential.PasswordHash, password);
         return result is PasswordVerificationResult.Success or PasswordVerificationResult.SuccessRehashNeeded

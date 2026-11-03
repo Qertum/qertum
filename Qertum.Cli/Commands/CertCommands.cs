@@ -346,7 +346,8 @@ internal static class CertCommands
                     }
 
                     var filePath = outPath ?? defaultName;
-                    await File.WriteAllBytesAsync(filePath, bytes, ct);
+                    // The bundle holds the private key: owner-only, like every key qca writes.
+                    await SecretFile.WriteAsync(filePath, bytes, overwrite: true, ct);
                     await Console.Out.WriteLineAsync($"written   {filePath}");
                     await DescribeAsync(Console.Out);
                     return 0;
@@ -442,7 +443,7 @@ internal static class CertCommands
                 }
 
                 var filePath = outPath ?? $"{SanitizeFilename(req.CommonName)}{(pqc ? "-pqc" : "")}.key";
-                await File.WriteAllBytesAsync(filePath, pem, ct);
+                await SecretFile.WriteAsync(filePath, pem, overwrite: true, ct);
                 await Console.Out.WriteLineAsync($"written   {filePath}");
                 return 0;
             });

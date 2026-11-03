@@ -410,10 +410,7 @@ internal static class IssuerCommands
     {
         try
         {
-            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
-            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            await using var stream = new FileStream(path, options);
-            await stream.WriteAsync(bytes, ct);
+            await SecretFile.WriteAsync(path, bytes, overwrite: false, ct);
         }
         catch (IOException ex)
         {

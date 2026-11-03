@@ -47,27 +47,29 @@ public sealed class BulkOperationService(
 
         var eligible = matches.Where(r => r.Status == CertificateRequestStatus.Issued);
 
+        // CA certificates (the root included) are never handled in bulk: revoking one retires its issuer, under
+        // HardStop with everything below it, and renewing one is a ceremony. Bulk revoke used to include them.
+        var caTypeKeys = await CaCertificateTypes.KeysAsync(db, ct);
+
+        // Counted in the order the reasons are reported; a request is counted under the first that applies.
+        if (request.Kind == BulkOperationKind.Renew)
+        {
+            var clientKey = await eligible.CountAsync(r => r.CsrPem != null, ct);
+            eligible = eligible.Where(r => r.CsrPem == null);
+            if (clientKey > 0) excluded["client-key"] = clientKey;
+        }
+
+        var ca = await eligible.CountAsync(r => caTypeKeys.Contains(r.Type!), ct);
+        eligible = eligible.Where(r => !caTypeKeys.Contains(r.Type!));
+        if (ca > 0) excluded["ca-capable"] = ca;
+
         if (request.Kind == BulkOperationKind.Renew)
         {
             var activeRenewalSources = db.CertificateRequests
                 .Where(r => r.RenewedFromId.HasValue && r.Status != CertificateRequestStatus.Rejected && r.Status != CertificateRequestStatus.Revoked)
                 .Select(r => r.RenewedFromId!.Value);
-            var caTypeKeys = (await db.CertificateTemplates.AsNoTracking()
-                    .Select(t => new { t.TypeKey, t.KeyUsagesJson }).ToListAsync(ct))
-                .Where(t => CaCapableTemplate.IsCaCapable(t.KeyUsagesJson))
-                .Select(t => t.TypeKey)
-                .ToList();
-
-            // Counted in the order the reasons are reported; a request is counted under the first that applies.
-            var clientKey = await eligible.CountAsync(r => r.CsrPem != null, ct);
-            eligible = eligible.Where(r => r.CsrPem == null);
-            var ca = await eligible.CountAsync(r => caTypeKeys.Contains(r.Type!), ct);
-            eligible = eligible.Where(r => !caTypeKeys.Contains(r.Type!));
             var active = await eligible.CountAsync(r => activeRenewalSources.Contains(r.Id), ct);
             eligible = eligible.Where(r => !activeRenewalSources.Contains(r.Id));
-
-            if (clientKey > 0) excluded["client-key"] = clientKey;
-            if (ca > 0) excluded["ca-capable"] = ca;
             if (active > 0) excluded["active-renewal"] = active;
         }
 

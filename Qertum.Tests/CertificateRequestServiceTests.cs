@@ -150,7 +150,8 @@ public sealed class CertificateRequestServiceTests
         Assert.Equal("modern.contoso.local", updatedRequest.CommonName);
         // An update must not reassign the requester: doing so would also transfer private-key access.
         Assert.Equal("bob@contoso.local", updatedRequest.RequestedBy);
-        Assert.Equal(CertificateRequestStatus.Approved, updatedRequest.Status);
+        // Nor move the lifecycle: approval goes through MarkAsApprovedAsync and its checks.
+        Assert.Equal(CertificateRequestStatus.Pending, updatedRequest.Status);
         Assert.True(updatedRequest.UpdatedAtUtc >= createdRequest.UpdatedAtUtc);
     }
 
@@ -996,6 +997,26 @@ public sealed class CertificateRequestServiceTests
     }
 
     [Fact]
+    public async Task GetCertsNeedingAutoRenewalAsync_NeverIncludesTheRoot()
+    {
+        // The CA exclusion went by CA-capable templates, and the root has none: auto-renewal with auto-approval could
+        // replace the trust anchor unattended.
+        var ct = TestContext.Current.CancellationToken;
+        await using var testScope = await CreateTestScopeAsync();
+        var root = await testScope.Service.CreateAsync(new CertificateRequest
+        {
+            CommonName = "Example Root", RequestedBy = "alice@contoso.local", Type = WellKnownCertificateTypes.RootCa
+        }, TestActor, ct);
+        await testScope.Service.MarkAsApprovedAsync(root.Id, TestActor, ct);
+        await testScope.Service.MarkAsIssuedAsync(root.Id, new GeneratedCertificate
+        {
+            CertificatePem = "pem", PrivateKeyPem = "key", ValidFrom = DateTime.UtcNow, ValidTo = DateTime.UtcNow.AddDays(25)
+        }, TestActor, ct);
+
+        Assert.Empty(await testScope.Service.GetCertsNeedingAutoRenewalAsync(30, ct));
+    }
+
+    [Fact]
     public async Task GetCertsNeedingAutoRenewalAsync_ExcludesCertWithActivePendingRenewal()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -1154,53 +1175,37 @@ public sealed class CertificateRequestServiceTests
     }
 
     [Theory]
-    [InlineData(CertificateRequestStatus.Issued,   CertificateRequestStatus.Pending)]
-    [InlineData(CertificateRequestStatus.Issued,   CertificateRequestStatus.Approved)]
-    [InlineData(CertificateRequestStatus.Revoked,  CertificateRequestStatus.Pending)]
+    [InlineData(CertificateRequestStatus.Pending, CertificateRequestStatus.Approved)]
+    [InlineData(CertificateRequestStatus.Issued, CertificateRequestStatus.Pending)]
+    [InlineData(CertificateRequestStatus.Issued, CertificateRequestStatus.PendingRevocation)]
+    [InlineData(CertificateRequestStatus.Issued, CertificateRequestStatus.Revoked)]
+    [InlineData(CertificateRequestStatus.PendingRevocation, CertificateRequestStatus.Revoked)]
+    [InlineData(CertificateRequestStatus.PendingRevocation, CertificateRequestStatus.Issued)]
     [InlineData(CertificateRequestStatus.Rejected, CertificateRequestStatus.Approved)]
-    public async Task UpdateAsync_InvalidStateTransition_ThrowsInvalidStateTransitionException(
-        CertificateRequestStatus initial, CertificateRequestStatus target)
+    public async Task UpdateAsync_NeverChangesTheStatus(CertificateRequestStatus initial, CertificateRequestStatus target)
     {
+        // The lifecycle moves only through approve, reject and revoke, which carry the CA permission, independent
+        // approval, step-up and two-person approval checks. An update that could set the status let PUT approve a
+        // request (or revoke a certificate) past all of them.
         var ct = TestContext.Current.CancellationToken;
         await using var testScope = await CreateTestScopeAsync();
 
         var created = await testScope.Service.CreateAsync(new CertificateRequest
         {
-            CommonName = "transition-guard.contoso.local",
+            CommonName = "status-stays.contoso.local",
             RequestedBy = "alice@contoso.local",
             Status = initial
-        }, TestActor, ct);
-
-        await Assert.ThrowsAsync<InvalidStateTransitionException>(async () =>
-            await testScope.Service.UpdateAsync(created.Id, new CertificateRequest
-            {
-                CommonName = created.CommonName,
-                RequestedBy = created.RequestedBy,
-                Status = target
-            }, TestActor, ct));
-    }
-
-    [Fact]
-    public async Task UpdateAsync_ValidTransition_Succeeds()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var testScope = await CreateTestScopeAsync();
-
-        var created = await testScope.Service.CreateAsync(new CertificateRequest
-        {
-            CommonName = "valid-transition.contoso.local",
-            RequestedBy = "alice@contoso.local"
         }, TestActor, ct);
 
         var updated = await testScope.Service.UpdateAsync(created.Id, new CertificateRequest
         {
             CommonName = created.CommonName,
             RequestedBy = created.RequestedBy,
-            Status = CertificateRequestStatus.Approved
+            Status = target
         }, TestActor, ct);
 
         Assert.NotNull(updated);
-        Assert.Equal(CertificateRequestStatus.Approved, updated.Status);
+        Assert.Equal(initial, updated.Status);
     }
 
     [Fact]
@@ -1821,54 +1826,6 @@ public sealed class CertificateRequestServiceTests
         var state = dbContext.Entry(entity).State;
         Assert.True(state is EntityState.Detached or EntityState.Unchanged,
             $"Claimed row must carry no pending modification, but its entry state was {state}.");
-    }
-
-    [Theory]
-    [InlineData(CertificateRequestStatus.Issued, CertificateRequestStatus.PendingRevocation)]
-    [InlineData(CertificateRequestStatus.PendingRevocation, CertificateRequestStatus.Revoked)]
-    public async Task UpdateAsync_RevocationTransitions_AreAllowed(
-        CertificateRequestStatus from, CertificateRequestStatus to)
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var testScope = await CreateTestScopeAsync();
-
-        var created = await testScope.Service.CreateAsync(new CertificateRequest
-        {
-            CommonName = $"transition-{from}-{to}.contoso.local",
-            RequestedBy = "alice@contoso.local",
-            Status = from
-        }, TestActor, ct);
-
-        var updated = await testScope.Service.UpdateAsync(created.Id, new CertificateRequest
-        {
-            CommonName = created.CommonName,
-            Status = to
-        }, TestActor, ct);
-
-        Assert.NotNull(updated);
-        Assert.Equal(to, updated.Status);
-    }
-
-    [Fact]
-    public async Task UpdateAsync_PendingRevocationToIssued_IsRejected()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        await using var testScope = await CreateTestScopeAsync();
-
-        var created = await testScope.Service.CreateAsync(new CertificateRequest
-        {
-            CommonName = "no-un-revoke.contoso.local",
-            RequestedBy = "alice@contoso.local",
-            Status = CertificateRequestStatus.PendingRevocation
-        }, TestActor, ct);
-
-        // A queued revocation must not be walked back into an issued certificate.
-        await Assert.ThrowsAsync<InvalidStateTransitionException>(async () =>
-            await testScope.Service.UpdateAsync(created.Id, new CertificateRequest
-            {
-                CommonName = created.CommonName,
-                Status = CertificateRequestStatus.Issued
-            }, TestActor, ct));
     }
 
     [Fact]

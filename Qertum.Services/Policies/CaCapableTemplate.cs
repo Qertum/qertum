@@ -1,4 +1,6 @@
 // Qertum.Services/Policies/CaCapableTemplate.cs
+using Microsoft.EntityFrameworkCore;
+
 namespace Qertum.Services.Policies;
 
 /// <summary>
@@ -19,4 +21,22 @@ public static class CaCapableTemplate
     /// <summary>True when the JSON array of key usages contains <see cref="KeyCertSign"/> (ordinal); malformed JSON is false.</summary>
     public static bool IsCaCapable(string? keyUsagesJson) =>
         IssuancePolicyEvaluator.ReadList(keyUsagesJson).Contains(KeyCertSign, StringComparer.Ordinal);
+}
+
+/// <summary>
+/// The request types whose certificates are CA certificates: every CA-capable template, plus the root, which has no
+/// template. Revoking one retires its issuer (under HardStop with everything below it) and renewing one is a
+/// ceremony, so the paths that treat certificates in general (the revoke route, bulk operations, auto-renewal) ask
+/// this one question instead of each leaving the root out by accident.
+/// </summary>
+public static class CaCertificateTypes
+{
+    /// <summary>The type keys of CA certificates, <see cref="WellKnownCertificateTypes.RootCa"/> included.</summary>
+    public static async Task<List<string>> KeysAsync(CertificateRequestDbContext db, CancellationToken cancellationToken = default)
+    {
+        var templates = await db.CertificateTemplates.AsNoTracking()
+            .Select(t => new { t.TypeKey, t.KeyUsagesJson }).ToListAsync(cancellationToken);
+        return templates.Where(t => CaCapableTemplate.IsCaCapable(t.KeyUsagesJson)).Select(t => t.TypeKey)
+            .Append(WellKnownCertificateTypes.RootCa).ToList();
+    }
 }

@@ -371,8 +371,15 @@ public static class ApiEndpointMappings
             return result is null ? ApiProblem.NotFound() : Results.Ok(result);
         }).RequireAuthorization(AppPermissions.CertificatesManage);
 
-        certificateRequests.MapPost("/{id:guid}/revoke", async (Guid id, RevokeRequest request, CertificateRequestApiService service, ICertificateRevocationQueue revocationQueue, HttpContext httpContext, IIdentityClaimsMapper claimsMapper, CancellationToken cancellationToken) =>
+        certificateRequests.MapPost("/{id:guid}/revoke", async (Guid id, RevokeRequest request, CertificateRequestApiService service, ICertificateRevocationQueue revocationQueue, CertificateRequestDbContext db, HttpContext httpContext, IIdentityClaimsMapper claimsMapper, Policies.ICallerContextResolver callerResolver, CancellationToken cancellationToken) =>
         {
+            // Revoking a CA certificate retires its issuer (under HardStop with everything below it), so it needs
+            // certificates.ca like creating one; certificates.manage alone used to be enough.
+            var existing = await service.GetByIdAsync(new CertificateRequestId(id), cancellationToken);
+            if (existing is null) return ApiProblem.NotFound();
+            if (existing.Type is { } type && (await Policies.CaCertificateTypes.KeysAsync(db, cancellationToken)).Contains(type)
+                && !(await CallerOf(httpContext, claimsMapper, callerResolver, cancellationToken)).MayHandleCaRequests)
+                return ApiProblem.Forbidden($"Revoking a CA certificate retires its issuer; it needs the {AppPermissions.CertificatesCa} permission.");
             var performedBy = claimsMapper.GetName(httpContext.User);
             var result = await service.MarkAsPendingRevocationAsync(new CertificateRequestId(id), request.Reason, performedBy, cancellationToken);
             if (result is null) return ApiProblem.NotFound();
@@ -1718,7 +1725,6 @@ public sealed class CertificateRequestApiService(
             CommonName = request.CommonName,
             Type = request.Type,
             PropertiesJson = request.PropertiesJson,
-            Status = request.Status,
             KeyAlgorithm = request.KeyAlgorithm,
             ValidityDays = request.ValidityDays
         }, performedBy, requester, caller, cancellationToken);

@@ -7,9 +7,13 @@ namespace Qertum.IdentityService.Services;
 
 public enum PasswordAttemptPurpose
 {
+    /// <summary>Sign-in, keyed by username and client address: one address cannot lock the account for another.</summary>
     Login,
     StepUp,
-    ChangePassword
+    ChangePassword,
+
+    /// <summary>Sign-in, keyed by username alone, with the looser <see cref="PasswordAttemptLimiter.AccountCeiling"/>: slows a guess spread across addresses.</summary>
+    LoginAccount
 }
 
 public interface IPasswordAttemptLimiter
@@ -27,6 +31,9 @@ public sealed class PasswordAttemptLimiter(
     IConnectionMultiplexer? redis = null) : IPasswordAttemptLimiter
 {
     public const int MaxAttempts = 5;
+
+    /// <summary>Failed sign-ins per username across every client address in <see cref="LoginWindow"/>.</summary>
+    public const int AccountCeiling = 50;
     public static readonly TimeSpan LoginWindow = TimeSpan.FromMinutes(15);
     public static readonly TimeSpan AccountWindow = TimeSpan.FromSeconds(60);
 
@@ -48,12 +55,13 @@ public sealed class PasswordAttemptLimiter(
         ArgumentException.ThrowIfNullOrWhiteSpace(identity);
         var key = Key(purpose, identity);
         var window = Window(purpose);
-        var sliding = purpose != PasswordAttemptPurpose.Login;
+        var limit = Limit(purpose);
+        var sliding = purpose is PasswordAttemptPurpose.StepUp or PasswordAttemptPurpose.ChangePassword;
 
         if (redis is not null)
         {
             var result = await redis.GetDatabase().ScriptEvaluateAsync(
-                ReserveScript, [key], [MaxAttempts, (long)window.TotalMilliseconds, sliding ? 1 : 0])
+                ReserveScript, [key], [limit, (long)window.TotalMilliseconds, sliding ? 1 : 0])
                 .WaitAsync(cancellationToken);
             return (int)(long)result;
         }
@@ -64,7 +72,7 @@ public sealed class PasswordAttemptLimiter(
             var now = timeProvider.GetUtcNow();
             var entry = memoryCache.TryGetValue(key, out AttemptState? tracked) && tracked!.ExpiresAt > now
                 ? tracked : null;
-            if (entry?.Count >= MaxAttempts) return 0;
+            if (entry?.Count >= limit) return 0;
 
             var count = (entry?.Count ?? 0) + 1;
             var expiresAt = entry is null || sliding ? now + window : entry.ExpiresAt;
@@ -89,9 +97,12 @@ public sealed class PasswordAttemptLimiter(
         lock (_memoryGate) memoryCache.Remove(key);
     }
 
+    private static int Limit(PasswordAttemptPurpose purpose) =>
+        purpose == PasswordAttemptPurpose.LoginAccount ? AccountCeiling : MaxAttempts;
+
     private static TimeSpan Window(PasswordAttemptPurpose purpose) => purpose switch
     {
-        PasswordAttemptPurpose.Login => LoginWindow,
+        PasswordAttemptPurpose.Login or PasswordAttemptPurpose.LoginAccount => LoginWindow,
         PasswordAttemptPurpose.StepUp or PasswordAttemptPurpose.ChangePassword => AccountWindow,
         _ => throw new ArgumentOutOfRangeException(nameof(purpose))
     };

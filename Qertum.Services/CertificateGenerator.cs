@@ -868,8 +868,8 @@ public sealed class CertificateGenerator(
     // A client-supplied RSA key (ACME, EST, an imported CA) must be one nobody can factor or forge
     // cheaply: 2048 to 16384 bits (the upper bound only stops absurd keys) and an odd public exponent
     // of at least 65537 (CA/Browser Forum Baseline Requirements 6.1.6).
-    private const int MinRsaModulusBits = 2048;
-    private const int MaxRsaModulusBits = 16384;
+    internal const int MinRsaModulusBits = 2048;
+    internal const int MaxRsaModulusBits = 16384;
 
     private static void RequireStrongRsa(RsaKeyParameters rsa)
     {

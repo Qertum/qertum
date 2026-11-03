@@ -17,6 +17,9 @@ public static class ApiProblem
     public static IResult BadRequest(string detail) =>
         Results.Problem(detail: detail, statusCode: StatusCodes.Status400BadRequest, title: "Bad Request");
 
+    public static IResult Forbidden(string detail) =>
+        Results.Problem(detail: detail, statusCode: StatusCodes.Status403Forbidden, title: "Forbidden");
+
     public static IResult Conflict(string detail) =>
         Results.Problem(detail: detail, statusCode: StatusCodes.Status409Conflict, title: "Conflict");
 }

@@ -18,7 +18,8 @@ using Qertum.IdentityService.Stores;
 namespace Qertum.Tests.Identity;
 
 /// <summary>
-/// Login attempts share a per-username budget and answer identically for known and unknown users.
+/// Login attempts share a budget per username and client address, under a looser per-username ceiling, and answer
+/// identically for known and unknown users.
 /// </summary>
 public sealed class LoginRateLimitTests
 {
@@ -53,17 +54,64 @@ public sealed class LoginRateLimitTests
         return users;
     }
 
-    private static LoginModel CreateModel(JsonUserStore users, IPasswordAttemptLimiter limiter, RecordingAudit audit)
+    private static LoginModel CreateModel(JsonUserStore users, IPasswordAttemptLimiter limiter, RecordingAudit audit,
+        string? clientAddress = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IAuthenticationService, NoopAuthenticationService>();
+        var http = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+        if (clientAddress is not null) http.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(clientAddress);
 
         return new LoginModel(users, limiter, audit)
         {
             PageContext = new PageContext(new ActionContext(
-                new DefaultHttpContext { RequestServices = services.BuildServiceProvider() },
-                new RouteData(), new ActionDescriptor(), new ModelStateDictionary()))
+                http, new RouteData(), new ActionDescriptor(), new ModelStateDictionary()))
         };
+    }
+
+    private static async Task<LoginModel> AttemptAsync(JsonUserStore users, IPasswordAttemptLimiter limiter, RecordingAudit audit,
+        string address, string password, CancellationToken ct)
+    {
+        var model = CreateModel(users, limiter, audit, address);
+        model.Input = new LoginModel.InputModel { Username = "bob", Password = password };
+        await model.OnPostAsync(ct);
+        return model;
+    }
+
+    [Fact]
+    public async Task WrongPasswordsFromOneAddress_DoNotLockTheAccountForAnotherAddress()
+    {
+        // The budget was per username only, so anyone could lock admin out by typing wrong passwords for it.
+        var ct = TestContext.Current.CancellationToken;
+        var users = await CreateStoreAsync(ct);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var limiter = new PasswordAttemptLimiter(cache, new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 9, 0, 0, TimeSpan.Zero)));
+        var audit = new RecordingAudit();
+
+        for (var attempt = 0; attempt < LoginModel.MaxAttempts; attempt++)
+            await AttemptAsync(users, limiter, audit, "203.0.113.66", "wrong", ct);
+        var attacker = await AttemptAsync(users, limiter, audit, "203.0.113.66", GoodPassword, ct);
+        var owner = await AttemptAsync(users, limiter, audit, "198.51.100.7", GoodPassword, ct);
+
+        Assert.Equal("Invalid username or password.", attacker.ErrorMessage);
+        Assert.Null(owner.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task AGuessSpreadAcrossAddresses_StillMeetsThePerAccountCeiling()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var users = await CreateStoreAsync(ct);
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var limiter = new PasswordAttemptLimiter(cache, new FakeTimeProvider(new DateTimeOffset(2026, 11, 3, 9, 0, 0, TimeSpan.Zero)));
+        var audit = new RecordingAudit();
+
+        for (var attempt = 0; attempt < LoginModel.AccountCeiling; attempt++)
+            await AttemptAsync(users, limiter, audit, $"10.0.{attempt / 250}.{attempt % 250 + 1}", "wrong", ct);
+        var fresh = await AttemptAsync(users, limiter, audit, "198.51.100.7", GoodPassword, ct);
+
+        Assert.Equal("Invalid username or password.", fresh.ErrorMessage);
+        Assert.Contains(audit.Entries, e => e.Action == "LoginThrottled");
     }
 
     [Fact]

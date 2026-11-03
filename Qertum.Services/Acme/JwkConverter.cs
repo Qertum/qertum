@@ -96,6 +96,16 @@ public static class JwkConverter
         var n = Base64UrlDecode(root.GetProperty("n").GetString()!);
         var e = Base64UrlDecode(root.GetProperty("e").GetString()!);
 
+        // The account key signs every request of its account, so it meets the rule CSR keys meet: a short modulus can
+        // be factored and the account impersonated. NotSupportedException becomes ACME badPublicKey.
+        var bits = new System.Numerics.BigInteger(n, isUnsigned: true, isBigEndian: true).GetBitLength();
+        if (bits < CertificateGenerator.MinRsaModulusBits || bits > CertificateGenerator.MaxRsaModulusBits)
+            throw new NotSupportedException(
+                $"The RSA account key is {bits} bits; this server accepts RSA keys of {CertificateGenerator.MinRsaModulusBits} to {CertificateGenerator.MaxRsaModulusBits} bits.");
+        var exponent = new System.Numerics.BigInteger(e, isUnsigned: true, isBigEndian: true);
+        if (exponent.IsEven || exponent < 65537)
+            throw new NotSupportedException("The RSA account key's public exponent must be odd and at least 65537.");
+
         var rsaParams = new RSAParameters { Modulus = n, Exponent = e };
         var rsa = RSA.Create();
         rsa.ImportParameters(rsaParams);

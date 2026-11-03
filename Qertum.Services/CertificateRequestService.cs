@@ -953,12 +953,9 @@ public sealed class CertificateRequestService(
                         r.Status != CertificateRequestStatus.Revoked)
             .Select(r => r.RenewedFromId!.Value);
 
-        // Renewing a CA is a human act (certificates.ca plus an independent approver), never a timer.
-        var caTypeKeys = (await dbContext.CertificateTemplates.AsNoTracking()
-                .Select(t => new { t.TypeKey, t.KeyUsagesJson }).ToListAsync(cancellationToken))
-            .Where(t => CaCapableTemplate.IsCaCapable(t.KeyUsagesJson))
-            .Select(t => t.TypeKey)
-            .ToList();
+        // Renewing a CA is a human act (certificates.ca plus an independent approver), never a timer. The root is
+        // one too: it has no template, and leaving it out let auto-renewal replace the trust anchor unattended.
+        var caTypeKeys = await CaCertificateTypes.KeysAsync(dbContext, cancellationToken);
 
         return await dbContext.CertificateRequests
             .Where(r => r.Status == CertificateRequestStatus.Issued &&
@@ -994,16 +991,12 @@ public sealed class CertificateRequestService(
         var policyDecision = await EnforcePolicyAsync(request, settings, PolicyEnforcementStage.Update,
             (Guid)id, performedBy, requester, caller, cancellationToken);
 
-        // Validate state transition if status is changing
-        if (existingRequest.Status != request.Status)
-            ValidateTransition(existingRequest.Status, request.Status);
 
         existingRequest.CommonName = request.CommonName;
         // RequestedBy and RequestedBySubject are deliberately not updated: an update must not
         // reassign a request to another identity, which would also transfer private-key access.
         existingRequest.Type = request.Type;
         existingRequest.PropertiesJson = request.PropertiesJson;
-        existingRequest.Status = request.Status;
         existingRequest.KeyAlgorithm = request.KeyAlgorithm;
         existingRequest.ValidityDays = request.ValidityDays;
         RecordPolicyDecision(existingRequest, policyDecision);

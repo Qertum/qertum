@@ -27,6 +27,11 @@ public sealed class JsonUserStore
     private readonly string? _seedAdminPassword;
     private readonly bool _seedAdminPasswordMustChange;
     private readonly PasswordHasher<StoredUser> _hasher = new();
+
+    // Verified for an unknown or disabled username, so every refusal costs one hash and timing does not tell which
+    // usernames exist. Made once, from a random value nobody knows.
+    private static readonly string TimingEqualizerHash =
+        new PasswordHasher<StoredUser>().HashPassword(new StoredUser(), Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly ILogger<JsonUserStore> _logger;
 
@@ -50,6 +55,7 @@ public sealed class JsonUserStore
         var user = await FindByUsernameAsync(username, cancellationToken);
         if (user is null || user.IsDisabled)
         {
+            _ = _hasher.VerifyHashedPassword(user ?? new StoredUser(), TimingEqualizerHash, password);
             return null;
         }
 

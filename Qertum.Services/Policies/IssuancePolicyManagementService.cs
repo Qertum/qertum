@@ -289,6 +289,24 @@ internal sealed class IssuancePolicyManagementService(
             await db.SaveChangesAsync(cancellationToken);
         }
 
+        // Promote the draft only while it is still exactly the one reviewed: the check above ran before this
+        // transaction, and a plain save of the status columns published whatever an editor had written meanwhile,
+        // unreviewed, under the publisher's name.
+        var reviewedAt = draft.UpdatedAtUtc;
+        var promoted = await db.IssuancePolicyVersions
+            .Where(v => v.Id == draft.Id && v.Status == IssuancePolicyVersionStatus.Draft && v.UpdatedAtUtc == reviewedAt)
+            .ExecuteUpdateAsync(update => update
+                .SetProperty(v => v.Status, IssuancePolicyVersionStatus.Published)
+                .SetProperty(v => v.PublishedBy, performedBy)
+                .SetProperty(v => v.PublishedAtUtc, now), cancellationToken);
+        if (promoted == 0)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw new IssuancePolicyConflictException("The draft has changed since it was reviewed. Reload it and publish again.");
+        }
+
+        // The tracked copy follows what was written (the save below writes the same values again, inside this
+        // transaction); setting the entry back to Unchanged would revert them in memory instead.
         draft.Status = IssuancePolicyVersionStatus.Published;
         draft.PublishedBy = performedBy;
         draft.PublishedAtUtc = now;

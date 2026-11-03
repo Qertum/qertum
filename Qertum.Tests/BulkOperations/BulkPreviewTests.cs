@@ -123,6 +123,27 @@ public sealed class BulkPreviewTests
         Assert.Empty(await db.BulkOperations.ToListAsync(TestContext.Current.CancellationToken));
     }
 
+    [Theory]
+    [InlineData(BulkOperationKind.Revoke)]
+    [InlineData(BulkOperationKind.Renew)]
+    public async Task CaCertificates_TheRootIncluded_AreNeverInABulkOperation(BulkOperationKind kind)
+    {
+        // Revoking a CA certificate retires its issuer (under HardStop with everything below it); bulk revoke used to
+        // take them, and both kinds took the root, which has no template to mark it as a CA.
+        await using var scope = await BulkScope.CreateAsync();
+        await scope.AddCaTemplateAsync("SubordinateCA");
+        await scope.AddIssuedAsync("leaf.example");
+        await scope.AddIssuedAsync("sub.example", type: "SubordinateCA");
+        await scope.AddIssuedAsync("Example Root", type: WellKnownCertificateTypes.RootCa);
+        var filter = new BulkOperationFilter { All = true };
+
+        var preview = await scope.CreateService().PreviewAsync(kind == BulkOperationKind.Revoke ? Revoke(filter) : Renew(filter),
+            BulkScope.Operator, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, preview.Operation.ItemCount);
+        Assert.Equal(2, preview.Operation.Excluded["ca-capable"]);
+    }
+
     [Fact]
     public async Task Renew_ExcludesActiveRenewals_CaCapableTemplates_AndClientKeys()
     {
@@ -145,7 +166,7 @@ public sealed class BulkPreviewTests
     }
 
     [Fact]
-    public async Task Revoke_DoesNotApplyTheRenewOnlyExclusions()
+    public async Task Revoke_KeepsClientKeyCertificates_ButNeverCaCertificates()
     {
         await using var scope = await BulkScope.CreateAsync();
         await scope.AddCaTemplateAsync("SubordinateCA");
@@ -154,6 +175,8 @@ public sealed class BulkPreviewTests
 
         var preview = await scope.CreateService().PreviewAsync(Revoke(new BulkOperationFilter { All = true }), BulkScope.Operator, TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, preview.Operation.ItemCount);
+        Assert.Equal(1, preview.Operation.ItemCount);
+        Assert.Equal(1, preview.Operation.Excluded["ca-capable"]);
+        Assert.False(preview.Operation.Excluded.ContainsKey("client-key"));
     }
 }
