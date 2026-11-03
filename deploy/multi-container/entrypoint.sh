@@ -159,13 +159,18 @@ fi
 
 # Behind the TLS proxy that QERTUM_SCHEME=https stands for, web, identity and API see the proxy's plain-http
 # hop and must take the client's scheme and address from X-Forwarded-Proto/-For: without it the identity
-# service refuses every request ("This server only accepts HTTPS requests") and builds http URLs. This trusts
-# the headers from whoever connects, which is the proxy alone only while their ports are not published to
-# anyone else (README). ACME and EST never sit behind a proxy, so they never trust the headers.
+# service refuses every request ("This server only accepts HTTPS requests") and builds http URLs. The headers
+# are honoured only from QERTUM_TRUSTED_PROXIES (required here): anyone else reaching a published port could
+# otherwise claim https or any client address. ACME and EST never sit behind a proxy, so they never trust them.
 case "${SERVICE}" in
   webfrontend|identityservice|apiservice)
     if [ "${QERTUM_SCHEME}" = "https" ]; then
+      if [ -z "${QERTUM_TRUSTED_PROXIES:-}" ]; then
+        echo "error: QERTUM_SCHEME=https needs QERTUM_TRUSTED_PROXIES: the IP address or network of the TLS proxy (for example 172.18.0.0/16 for its Docker network), the only source whose X-Forwarded-Proto and X-Forwarded-For headers web, identity and API accept." >&2
+        exit 64
+      fi
       export ASPNETCORE_FORWARDEDHEADERS_ENABLED="${ASPNETCORE_FORWARDEDHEADERS_ENABLED:-true}"
+      export ForwardedHeaders__TrustedProxies="${QERTUM_TRUSTED_PROXIES}"
     fi ;;
   *) unset ASPNETCORE_FORWARDEDHEADERS_ENABLED ;;
 esac

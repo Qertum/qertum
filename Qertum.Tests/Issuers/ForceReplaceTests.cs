@@ -48,7 +48,8 @@ public sealed class ForceReplaceTests
         ocspRequest.AddRequest(new Org.BouncyCastle.Ocsp.CertificateID(
             new Org.BouncyCastle.Asn1.X509.AlgorithmIdentifier(Org.BouncyCastle.Asn1.Oiw.OiwObjectIdentifiers.IdSha1, Org.BouncyCastle.Asn1.DerNull.Instance), oldCert,
             new Org.BouncyCastle.Math.BigInteger(oldSerial, 16)));
-        var ocsp = await host.Anonymous().PostAsync("/ocsp", new ByteArrayContent(ocspRequest.Generate().GetEncoded()), Ct);
+        using var body = new ByteArrayContent(ocspRequest.Generate().GetEncoded());
+        var ocsp = await host.Anonymous().PostAsync("/ocsp", body, Ct);
         var basic = (Org.BouncyCastle.Ocsp.BasicOcspResp)new Org.BouncyCastle.Ocsp.OcspResp(
             await ocsp.Content.ReadAsByteArrayAsync(Ct)).GetResponseObject();
         Assert.IsType<Org.BouncyCastle.Ocsp.UnknownStatus>(basic.Responses.Single().GetCertStatus());

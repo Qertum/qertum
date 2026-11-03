@@ -24,7 +24,7 @@ public sealed class StepUpWebTests
         var notifier = new StepUpNotifier();
         var raised = new List<StepUpChallenge>();
         notifier.Required += raised.Add;
-        var response = new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        using var response = new HttpResponseMessage(HttpStatusCode.Unauthorized);
         response.Headers.TryAddWithoutValidation("WWW-Authenticate", Header);
         var handler = new AccessTokenHandler(tokens, new SignedIn(), notifier) { InnerHandler = new Inner(response) };
 
@@ -175,7 +175,10 @@ public sealed class StepUpWebTests
 
     private sealed class Inner(HttpResponseMessage response) : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            response;
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(response);
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

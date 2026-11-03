@@ -209,8 +209,8 @@ public sealed class CertificateAlgorithmSummaryTests
                 new CaSettings { PqcStage = PqcStage.Off, OrganizationName = "Test Org" });
 
             using var reader = new StringReader(issued.CertificatePem);
-            var bcCert = (Org.BouncyCastle.X509.X509Certificate)
-                new Org.BouncyCastle.OpenSsl.PemReader(reader).ReadObject();
+            using var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(reader);
+            var bcCert = (Org.BouncyCastle.X509.X509Certificate)pemReader.ReadObject();
 
             var oid = bcCert.SigAlgOid;
             var friendlyName = new System.Security.Cryptography.Oid(oid).FriendlyName;

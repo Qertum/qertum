@@ -18,8 +18,13 @@ namespace Qertum.Tests.Web;
 /// RSA CA presented itself as RSA, and .NET has no friendly name for the post-quantum signature
 /// OIDs, so for a PQC-signed certificate that single field rendered blank.
 /// </summary>
-public sealed class CertificateDetailAlgorithmFieldsTests
+public sealed class CertificateDetailAlgorithmFieldsTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     [Fact]
     public async Task PqcCertificateUnderAClassicalIssuer_NamesBothAlgorithmsAndWarnsAboutThePath()
     {
@@ -306,14 +311,13 @@ public sealed class CertificateDetailAlgorithmFieldsTests
     private static string FieldValue(IRenderedComponent<CertificateDetail> cut, string testId) =>
         cut.Find($"[data-test='{testId}']").TextContent.Trim();
 
-    private static async Task<IRenderedComponent<CertificateDetail>> RenderDetailAsync(CertificateRequest request)
+    private async Task<IRenderedComponent<CertificateDetail>> RenderDetailAsync(CertificateRequest request)
     {
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         context.Services.AddAutomationSnippets();
         context.AddAuthorization().SetAuthorized("alice");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new RequestStub(request)) { BaseAddress = new Uri("http://api.test/") }));
 
         var cut = context.Render<CertificateDetail>(p => p.Add(x => x.Id, (Guid)request.Id));
@@ -465,19 +469,22 @@ public sealed class CertificateDetailAlgorithmFieldsTests
 
     private sealed class RequestStub(params CertificateRequest[] requests) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var match = requests.FirstOrDefault(r =>
                 request.Method == HttpMethod.Get &&
                 request.RequestUri!.AbsolutePath == $"/v1/certificate-requests/{r.Id}");
 
-            return Task.FromResult(match is null
+            return match is null
                 ? new HttpResponseMessage(HttpStatusCode.NotFound)
                 : new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
                         JsonSerializer.Serialize(match, JsonSerializerOptions.Web), Encoding.UTF8, "application/json")
-                });
+                };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

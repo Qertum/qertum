@@ -149,7 +149,7 @@ public sealed class IssuerKeyExportTests
         var root = await host.Kit.AddOnlineRootAsync("Guarded Root", isDefault: true);
         await host.GrantAsync("manager", AppPermissions.CertificatesManage, AppPermissions.CertificatesView);
 
-        var request = new HttpRequestMessage(new HttpMethod(method), $"/v1/issuers/{root.Id}/{route}");
+        using var request = new HttpRequestMessage(new HttpMethod(method), $"/v1/issuers/{root.Id}/{route}");
         if (method == "POST") request.Content = JsonContent.Create(new ExportIssuerPfxRequest("x"));
         var response = await host.Role("manager").SendAsync(request, Ct);
 

@@ -137,7 +137,7 @@ public sealed class ApprovalPreviewApiTests
         await ApiServiceTests.EnsureDbAsync(factory, ct);
         using var admin = Admin(factory);
         var created = await CreateAsync(admin, "client-preview.example", ct);
-        var client = new CertificateRequestsApiClient(admin);
+        using var client = new CertificateRequestsApiClient(admin);
 
         var preview = await client.PreviewApprovalAsync(created.Id, ct);
 

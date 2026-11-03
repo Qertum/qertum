@@ -21,7 +21,7 @@ public sealed class PolicyDetailKeyCustodyTests
         var context = new BunitContext();
         context.AddAuthorization().SetAuthorized("alice");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new PolicyStub(published)) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
@@ -64,7 +64,7 @@ public sealed class PolicyDetailKeyCustodyTests
 
     private sealed class PolicyStub(KeyCustodyMode published) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             object body = request.RequestUri!.AbsolutePath.EndsWith("/versions", StringComparison.Ordinal)
                 ? Array.Empty<IssuancePolicyVersionResponse>()
@@ -78,10 +78,13 @@ public sealed class PolicyDetailKeyCustodyTests
                         KeyCustody = published
                     }
                 };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(body, JsonSerializerOptions.Web), Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

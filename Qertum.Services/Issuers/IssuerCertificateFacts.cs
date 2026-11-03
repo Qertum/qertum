@@ -48,7 +48,7 @@ public sealed record IssuerCertificateFacts(
             certificate.NotAfter.ToUniversalTime(),
             bc?.IsCA() == true,
             certificate.SubjectDN.Equivalent(certificate.IssuerDN) && VerifiesWithOwnKey(certificate),
-            bc?.IsCA() == true ? bc.PathLenConstraint?.IntValueExact : null,
+            bc is not null && bc.IsCA() ? bc.PathLenConstraint?.IntValueExact : null,
             permittedDns, excludedDns, permittedIp, excludedIp,
             // KeyUsage absent = unrestricted (RFC 5280 §4.2.1.3).
             keyUsage is null || keyUsage[5],

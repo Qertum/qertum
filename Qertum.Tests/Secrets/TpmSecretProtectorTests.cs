@@ -35,12 +35,41 @@ public sealed class TpmSecretProtectorTests : IDisposable
     }
 
     [Fact]
-    public void IsAvailable_ReturnsFalseWithNoTpmToolingInstalled()
+    public void ProcessesStartingAtOnceOnAnEmptyDirectory_AllUnsealTheSameKey()
     {
-        // This assertion only holds in an environment that genuinely lacks tpm2-tools — which is
-        // every dev machine and CI runner this repo currently runs on. If this starts failing
-        // because tpm2-tools got installed in the image, that's fine: it means the gated test
-        // above will finally exercise the real path instead of skipping.
+        if (!TpmSecretProtector.IsAvailable())
+        {
+            Assert.Skip("No TPM device / tpm2-tools available in this environment.");
+            return;
+        }
+
+        // The single container's CA hosts start together; they used to seal a key each over shared temporary file
+        // names (two of three crashed in a real run) and could end up with different keys.
+        const int instances = 4;
+        using var start = new Barrier(instances);
+        var protectors = new TpmSecretProtector[instances];
+        Parallel.For(0, instances, new ParallelOptions { MaxDegreeOfParallelism = instances }, i =>
+        {
+            start.SignalAndWait();
+            protectors[i] = new TpmSecretProtector(_dataDir);
+        });
+
+        var ciphertext = protectors[0].Protect("one key"u8.ToArray());
+        foreach (var other in protectors)
+            Assert.Equal("one key"u8.ToArray(), other.Unprotect(ciphertext));
+    }
+
+    [Fact]
+    public void IsAvailable_IsFalseWithoutATpmDevice()
+    {
+        // On a machine with a TPM (the x86_64 lab host the release check runs on) the round-trip test above covers
+        // the available path; this one pins that a machine without a device answers false instead of failing.
+        if (File.Exists("/dev/tpmrm0") || File.Exists("/dev/tpm0"))
+        {
+            Assert.Skip("This machine has a TPM device; ProtectThenUnprotect_ReturnsTheOriginalBytes covers it.");
+            return;
+        }
+
         Assert.False(TpmSecretProtector.IsAvailable());
     }
 }

@@ -7,16 +7,20 @@ using IssuersPage = Qertum.Web.Components.Pages.Issuers;
 
 namespace Qertum.Tests.Web;
 
-public sealed class IssuersPageTests
+public sealed class IssuersPageTests : IAsyncDisposable
 {
-    private static (BunitContext Context, IssuerApiStub Api) NewContext()
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
+    private (BunitContext Context, IssuerApiStub Api) NewContext()
     {
         var api = new IssuerApiStub();
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         context.AddAuthorization().SetAuthorized("admin").SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return (context, api);
     }
 

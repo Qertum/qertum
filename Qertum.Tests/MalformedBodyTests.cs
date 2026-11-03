@@ -24,7 +24,8 @@ public sealed class MalformedBodyTests
         await using var host = new IssuerApiHost();
         host.Kit.InitializeLegacy("Root");
 
-        var response = await host.Admin().PutAsync(path, new StringContent(json, Encoding.UTF8, "application/json"), Ct);
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        var response = await host.Admin().PutAsync(path, content, Ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));

@@ -125,7 +125,8 @@ public sealed class Pkcs12ExportTests
         var pfx = QertumKeyCodec.ExportPkcs12(certificatePem, keyPem, [caPem], Password, "pqc.contoso.local");
 
         var store = new Pkcs12StoreBuilder().Build();
-        store.Load(new MemoryStream(pfx), Password.ToCharArray());
+        using var pfxStream = new MemoryStream(pfx);
+        store.Load(pfxStream, Password.ToCharArray());
         var alias = Assert.Single(store.Aliases, store.IsKeyEntry);
         Assert.Equal(
             PrivateKeyInfoFactory.CreatePrivateKeyInfo(keys.Private).GetEncoded(),
@@ -188,7 +189,8 @@ public sealed class Pkcs12ExportTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var store = new Pkcs12StoreBuilder().Build();
-        store.Load(new MemoryStream(await response.Content.ReadAsByteArrayAsync(ct)), Password.ToCharArray());
+        using var pfxStream = new MemoryStream(await response.Content.ReadAsByteArrayAsync(ct));
+        store.Load(pfxStream, Password.ToCharArray());
         Assert.Single(store.Aliases, store.IsKeyEntry);
     }
 

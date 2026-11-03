@@ -26,12 +26,13 @@ public sealed class DeviceVerificationTests : IDisposable
 
     private static async Task<JsonElement> StartDeviceFlowAsync(HttpClient client)
     {
-        using var authorization = await client.PostAsync("/connect/device_authorization",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "qca",
                 ["scope"] = "openid profile roles offline_access qertum-api"
-            }), Ct);
+            });
+        using var authorization = await client.PostAsync("/connect/device_authorization",
+            form, Ct);
         authorization.EnsureSuccessStatusCode();
         return (await authorization.Content.ReadFromJsonAsync<JsonDocument>(Ct))!.RootElement;
     }
@@ -46,18 +47,20 @@ public sealed class DeviceVerificationTests : IDisposable
         var codes = await StartDeviceFlowAsync(client);
         await IdentityHostTestKit.LoginAsync(client, "victim", Password, Ct);
 
-        using var verify = await client.PostAsync("/connect/verify", new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form2 = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["user_code"] = codes.GetProperty("user_code").GetString()!
-        }), Ct);
+        });
+        using var verify = await client.PostAsync("/connect/verify", form2, Ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, verify.StatusCode);
-        using var token = await client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
             ["client_id"] = "qca",
             ["device_code"] = codes.GetProperty("device_code").GetString()!
-        }), Ct);
+        });
+        using var token = await client.PostAsync("/connect/token", form, Ct);
         Assert.Contains("authorization_pending", await token.Content.ReadAsStringAsync(Ct));
     }
 

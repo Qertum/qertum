@@ -19,7 +19,7 @@ public sealed class PolicyDetailRequesterRolesTests
         await using var context = new BunitContext();
         context.AddAuthorization().SetAuthorized("alice");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new PolicyStub()) { BaseAddress = new Uri("http://api.test/") }));
 
         var cut = context.Render<PolicyDetail>(p => p.Add(x => x.PolicyId, PolicyId));
@@ -31,7 +31,7 @@ public sealed class PolicyDetailRequesterRolesTests
 
     private sealed class PolicyStub : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             object body = request.RequestUri!.AbsolutePath.EndsWith("/versions", StringComparison.Ordinal)
                 ? Array.Empty<IssuancePolicyVersionResponse>()
@@ -45,10 +45,13 @@ public sealed class PolicyDetailRequesterRolesTests
                         AllowedRequesterRoles = ["ops", "pki"]
                     }
                 };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(body, JsonSerializerOptions.Web), Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

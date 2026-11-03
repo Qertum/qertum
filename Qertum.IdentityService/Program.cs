@@ -1,3 +1,4 @@
+using Qertum.ServiceDefaults;
 using Qertum.IdentityService.Configuration;
 using Qertum.IdentityService.Data;
 using Qertum.IdentityService.Models;
@@ -17,6 +18,8 @@ using OpenIddict.Server;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+// Forwarded headers (https behind a TLS proxy) are honoured from the trusted proxies only.
+builder.Services.AddQertumForwardedHeadersTrust();
 
 // All IdP-owned state — users.json, clients.json, identity.db, keys/ — lives under one
 // configured directory. Deployments mount a volume there; the base-directory fallback only

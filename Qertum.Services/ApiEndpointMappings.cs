@@ -335,7 +335,7 @@ public static class ApiEndpointMappings
                 return ApiProblem.Conflict($"Cannot approve a request with status '{existing.Status}'.");
             if (existing.Type != WellKnownCertificateTypes.RootCa && await issuers.GetDefaultAsync(cancellationToken) is null)
                 return ApiProblem.Conflict("The Root CA certificate has not been issued yet. Approve the Root CA request first.");
-            var report = body?.PreviewedAllowed is { } shownAllowed
+            var report = body is { PreviewedAllowed: { } shownAllowed }
                 ? new Policies.ApprovalPreviewReport(body.PreviewedPolicyVersionId, shownAllowed)
                 : null;
             // Never null: a null caller skips the CA permission and independent-approver rules.
@@ -750,7 +750,7 @@ public static class ApiEndpointMappings
 
             try
             {
-                MigrateSecretStorage(options.DataDirectory, targetProvider);
+                Qertum.Services.DataProtection.KeyRingAtRest.Migrate(options.DataDirectory, targetProvider);
             }
             catch (Exception ex)
             {
@@ -1527,73 +1527,6 @@ public static class ApiEndpointMappings
         await cache.TrySetAsync(deltaKey, deltaBytes,
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(cacheHours) }, logger, ct);
         return Results.Bytes(deltaBytes, "application/pkix-crl", "ca-delta.crl");
-    }
-
-    /// <summary>
-    /// Re-encrypts the Data Protection key ring under <paramref name="targetProvider"/>. Stages
-    /// into a sibling directory and only swaps it in once every key-ring file re-encrypts
-    /// successfully, so a failure partway through leaves the live key ring exactly as it was.
-    /// Note: the swap itself (two directory renames) is not fully transactional — a failure
-    /// strictly between the two renames is a narrow, near-instantaneous window this does not
-    /// close; see the design doc for the reasoning that this window is acceptable given the
-    /// endpoint requires settings.edit and a restart follows regardless.
-    /// </summary>
-    private static void MigrateSecretStorage(string dataDirectory, Qertum.ServiceDefaults.Secrets.SecretStorageProvider targetProvider)
-    {
-        var sourceProtector = Qertum.ServiceDefaults.Secrets.SecretProtectorFactory.Create(dataDirectory);
-
-        var keysDir = Path.Combine(dataDirectory, "DataProtection-Keys");
-        var stagingDir = Path.Combine(dataDirectory, "DataProtection-Keys.migrating");
-        var backupDir = Path.Combine(dataDirectory, "DataProtection-Keys.bak");
-
-        if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
-        Directory.CreateDirectory(stagingDir);
-
-        // Write the new provider's config into a *separate* temp data directory so
-        // SecretProtectorFactory.Create resolves the target provider without touching the live
-        // secret-storage.json yet.
-        var stagingConfigDir = Path.Combine(dataDirectory, "secret-storage.migrating");
-        if (Directory.Exists(stagingConfigDir)) Directory.Delete(stagingConfigDir, recursive: true);
-        Directory.CreateDirectory(stagingConfigDir);
-        Qertum.ServiceDefaults.Secrets.SecretStorageConfig.Write(stagingConfigDir, targetProvider);
-        var targetProtector = Qertum.ServiceDefaults.Secrets.SecretProtectorFactory.Create(stagingConfigDir);
-
-        var sourceEncryptor = new Qertum.Services.DataProtection.SecretProtectorXmlEncryptor(sourceProtector);
-        var targetEncryptor = new Qertum.Services.DataProtection.SecretProtectorXmlEncryptor(targetProtector);
-
-        if (Directory.Exists(keysDir))
-        {
-            foreach (var file in Directory.EnumerateFiles(keysDir, "*.xml"))
-            {
-                // Rewrite in place on the loaded tree: the file's outer <key> structure
-                // (id/creationDate/descriptor) must survive unchanged — only the inner
-                // <encryptedSecret> payload gets re-encrypted under the new provider. Dumping raw
-                // re-encrypted bytes over the whole file (the previous approach) destroyed that
-                // outer XML, so XmlKeyManager could no longer parse the file at all.
-                var xml = System.Xml.Linq.XElement.Load(file);
-                var encryptedSecret = xml.Descendants("encryptedSecret").SingleOrDefault();
-                if (encryptedSecret is not null)
-                {
-                    var plaintextElement = sourceEncryptor.Decrypt(encryptedSecret);
-                    var reencrypted = targetEncryptor.Encrypt(plaintextElement);
-                    encryptedSecret.ReplaceWith(reencrypted.EncryptedElement);
-                }
-                xml.Save(Path.Combine(stagingDir, Path.GetFileName(file)));
-            }
-        }
-
-        // Atomic-ish swap: two renames. If the second fails, the backup still exists and the
-        // live directory is either the original (first rename didn't happen) or missing
-        // (mid-swap) — see the doc comment above.
-        if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
-        if (Directory.Exists(keysDir))
-            Directory.Move(keysDir, backupDir);
-        Directory.Move(stagingDir, keysDir);
-
-        Qertum.ServiceDefaults.Secrets.SecretStorageConfig.Write(dataDirectory, targetProvider);
-
-        Directory.Delete(stagingConfigDir, recursive: true);
-        if (Directory.Exists(backupDir)) Directory.Delete(backupDir, recursive: true);
     }
 
     /// <summary>

@@ -7,7 +7,7 @@ namespace Qertum.Tests.BulkOperations;
 
 public sealed class BulkOperationModelTests
 {
-    private static async Task<(SqliteConnection Connection, CertificateRequestDbContext Db)> OpenAsync(CancellationToken ct)
+    private static async Task<Database> OpenAsync(CancellationToken ct)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync(ct);
@@ -15,16 +15,15 @@ public sealed class BulkOperationModelTests
             new DbContextOptionsBuilder<CertificateRequestDbContext>().UseSqlite(connection).Options,
             new EphemeralDataProtectionProvider());
         await db.Database.EnsureCreatedAsync(ct);
-        return (connection, db);
+        return new Database(connection, db);
     }
 
     [Fact]
     public async Task OperationAndItems_RoundTrip_WithNamesStoredForEnums()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (connection, db) = await OpenAsync(ct);
-        await using var _ = connection;
-        await using var __ = db;
+        await using var database = await OpenAsync(ct);
+        var db = database.Db;
 
         var requestId = new CertificateRequestId(Guid.NewGuid());
         var operation = new BulkOperation
@@ -55,9 +54,8 @@ public sealed class BulkOperationModelTests
     public async Task Item_CompositeKey_RefusesTheSameRequestTwiceInOneOperation()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (connection, db) = await OpenAsync(ct);
-        await using var _ = connection;
-        await using var __ = db;
+        await using var database = await OpenAsync(ct);
+        var db = database.Db;
 
         var operation = new BulkOperation { Kind = BulkOperationKind.Renew, CreatedBy = "a", CreatedAtUtc = DateTime.UtcNow };
         var requestId = new CertificateRequestId(Guid.NewGuid());
@@ -77,5 +75,23 @@ public sealed class BulkOperationModelTests
         var fields = WebhookEventFields.For(WebhookEventFamily.BulkOperation);
         Assert.Contains("operationId", fields);
         Assert.DoesNotContain("commonName", fields);
+    }
+
+    // The connection keeps the in-memory database alive; disposing this closes both.
+    private sealed class Database(SqliteConnection connection, CertificateRequestDbContext db) : IDisposable, IAsyncDisposable
+    {
+        public CertificateRequestDbContext Db { get; } = db;
+
+        public void Dispose()
+        {
+            Db.Dispose();
+            connection.Dispose();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Db.DisposeAsync();
+            await connection.DisposeAsync();
+        }
     }
 }

@@ -6,12 +6,17 @@ using Qertum.Web.Components.Pages;
 
 namespace Qertum.Tests.Web;
 
-public sealed class TemplateEditorPqcStageTests
+public sealed class TemplateEditorPqcStageTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private static readonly CertificateTemplateId TemplateId = new(Guid.NewGuid());
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    private static (BunitContext Context, IssuerApiStub Api) NewContext(bool admin, PqcStage? current = null, PqcStage caDefault = PqcStage.Enforce)
+    private (BunitContext Context, IssuerApiStub Api) NewContext(bool admin, PqcStage? current = null, PqcStage caDefault = PqcStage.Enforce)
     {
         var api = new IssuerApiStub();
         var template = new CertificateTemplate { Id = TemplateId, Name = "Web", TypeKey = "WebServer", PqcStageOverride = current };
@@ -27,12 +32,11 @@ public sealed class TemplateEditorPqcStageTests
                 Content = new StringContent(JsonSerializer.Serialize(payload, Web), System.Text.Encoding.UTF8, "application/json")
             };
         };
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         var auth = context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.SettingsEdit, AppPermissions.PoliciesPublish);
         if (admin) auth.SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return (context, api);
     }
 

@@ -53,8 +53,8 @@ public sealed class KeycloakStepUpTests(KeycloakLifetime lifetime) : IClassFixtu
     {
         var client = lifetime.Api!.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        return await client.PostAsync("/v1/permissions/ghost/rename",
-            new StringContent("""{"newRole":"renamed"}""", Encoding.UTF8, "application/json"), Ct);
+        using var content = new StringContent("""{"newRole":"renamed"}""", Encoding.UTF8, "application/json");
+        return await client.PostAsync("/v1/permissions/ghost/rename", content, Ct);
     }
 
     [Fact]

@@ -87,10 +87,10 @@ public static class CaCertificateBuilder
         }
         generator.AddExtension(X509Extensions.SubjectKeyIdentifier, false, QertumKeyCodec.SubjectKeyIdentifierFor(subjectPublicKey));
         generator.AddExtension(X509Extensions.AuthorityKeyIdentifier, false, QertumKeyCodec.AuthorityKeyIdentifierFor(issuerCertificate));
-        if (!string.IsNullOrWhiteSpace(urls?.CrlDistributionPoint))
+        if (urls?.CrlDistributionPoint is { } crlUrl && !string.IsNullOrWhiteSpace(crlUrl))
             generator.AddExtension(X509Extensions.CrlDistributionPoints, false, new CrlDistPoint([
                 new DistributionPoint(new DistributionPointName(new GeneralNames(
-                    new GeneralName(GeneralName.UniformResourceIdentifier, urls.CrlDistributionPoint))), null, null)]));
+                    new GeneralName(GeneralName.UniformResourceIdentifier, crlUrl))), null, null)]));
         return generator.Generate(issuerSigner.CreateSignatureFactory());
     }
 

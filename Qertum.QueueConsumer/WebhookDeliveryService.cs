@@ -64,7 +64,7 @@ internal sealed class WebhookDeliveryService(
 
         foreach (var delivery in pending)
         {
-            if (!webhooks.TryGetValue(delivery.WebhookId, out var webhook) || !webhook.IsEnabled)
+            if (!webhooks.TryGetValue(delivery.WebhookId, out var webhook) || webhook is not { IsEnabled: true })
             {
                 delivery.Status = "Failed";
                 delivery.LastErrorMessage = webhook is null ? "Webhook not found." : "Webhook is disabled.";
@@ -92,7 +92,7 @@ internal sealed class WebhookDeliveryService(
                 !policyService.CanSaveUrl(policy, targetUrl, out reason))
                 throw new HttpRequestException(reason ?? "Webhook destination is invalid or not allowed by policy.");
 
-            var content = new StringContent(delivery.Payload, Encoding.UTF8, "application/json");
+            using var content = new StringContent(delivery.Payload, Encoding.UTF8, "application/json");
             using var request = new HttpRequestMessage(HttpMethod.Post, targetUrl) { Content = content };
             request.Options.Set(WebhookDestinationHttpHandler.PolicyKey, policy);
             request.Headers.Add("X-Webhook-Event", delivery.EventType);

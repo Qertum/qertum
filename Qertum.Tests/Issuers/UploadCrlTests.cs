@@ -27,11 +27,14 @@ public sealed class UploadCrlTests
             revokedSerials.Select(s => new OfflineRevocation(s, DateTime.UtcNow.AddMinutes(-1), "cessationOfOperation")),
             number, DateTime.UtcNow.AddMinutes(-1), nextUpdate);
 
-    private static Task<HttpResponseMessage> UploadAsync(IssuerApiHost host, IssuerId id, byte[] der) =>
-        host.Admin().PostAsync($"/v1/issuers/{id}/crl", new ByteArrayContent(der)
+    private static async Task<HttpResponseMessage> UploadAsync(IssuerApiHost host, IssuerId id, byte[] der)
+    {
+        using var crl = new ByteArrayContent(der)
         {
             Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/pkix-crl") }
-        }, Ct);
+        };
+        return await host.Admin().PostAsync($"/v1/issuers/{id}/crl", crl, Ct);
+    }
 
     [Fact]
     public async Task ValidCrl_IsStoredAndServedAsIs()
@@ -52,7 +55,8 @@ public sealed class UploadCrlTests
         var der = Crl(root, 1, DateTime.UtcNow.AddDays(30));
         var pem = "-----BEGIN X509 CRL-----\n" + Convert.ToBase64String(der, Base64FormattingOptions.InsertLineBreaks) + "\n-----END X509 CRL-----\n";
 
-        var response = await host.Admin().PostAsync($"/v1/issuers/{rootId}/crl", new StringContent(pem), Ct);
+        using var content = new StringContent(pem);
+        var response = await host.Admin().PostAsync($"/v1/issuers/{rootId}/crl", content, Ct);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

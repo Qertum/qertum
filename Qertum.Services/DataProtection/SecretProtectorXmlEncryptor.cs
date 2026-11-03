@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using Microsoft.AspNetCore.DataProtection.XmlEncryption;
 using Microsoft.Extensions.DependencyInjection;
 using Qertum.ServiceDefaults.Secrets;
@@ -12,8 +13,18 @@ namespace Qertum.Services.DataProtection;
 /// what closes that gap, and by extension protects everything the key ring itself decrypts (the
 /// CA private key, webhook secrets, EAB MAC keys), since those flow through the same key ring.
 /// </summary>
-internal sealed class SecretProtectorXmlEncryptor(ISecretProtector protector) : IXmlEncryptor, IXmlDecryptor
+internal sealed class SecretProtectorXmlEncryptor : IXmlEncryptor, IXmlDecryptor
 {
+    private readonly ISecretProtector protector;
+
+    public SecretProtectorXmlEncryptor(ISecretProtector protector) => this.protector = protector;
+
+    /// <summary>
+    /// What Data Protection calls to build the decryptor named in a key file: it activates the type with a constructor
+    /// taking <see cref="IServiceProvider"/>, or a parameterless one.
+    /// </summary>
+    public SecretProtectorXmlEncryptor(IServiceProvider services) : this(services.GetRequiredService<ISecretProtector>()) { }
+
     public EncryptedXmlInfo Encrypt(XElement plaintextElement)
     {
         var plaintextBytes = System.Text.Encoding.UTF8.GetBytes(plaintextElement.ToString(SaveOptions.DisableFormatting));
@@ -37,16 +48,17 @@ internal sealed class SecretProtectorXmlEncryptor(ISecretProtector protector) : 
 public static class DataProtectionBuilderExtensions
 {
     /// <summary>
-    /// Encrypts the Data Protection key ring's own XML files with <paramref name="protector"/>.
-    /// Call after <c>PersistKeysToFileSystem</c> so the encryptor wraps the on-disk persistence
-    /// that's already configured.
+    /// Encrypts the Data Protection key ring's own XML files with <paramref name="protector"/>. Data Protection takes its
+    /// encryptor from <see cref="KeyManagementOptions.XmlEncryptor"/> only; an <c>IXmlEncryptor</c> registered as a
+    /// service is ignored, which left every key file in plain text until 1.0.0-rc4. Decrypting activates
+    /// <see cref="SecretProtectorXmlEncryptor"/> from the service provider by the type name written into each file, so
+    /// the protector is registered as a service as well.
     /// </summary>
     public static IDataProtectionBuilder ProtectKeysWithSecretProtector(
         this IDataProtectionBuilder builder, ISecretProtector protector)
     {
-        var encryptor = new SecretProtectorXmlEncryptor(protector);
-        builder.Services.AddSingleton<IXmlEncryptor>(encryptor);
-        builder.Services.AddSingleton<IXmlDecryptor>(encryptor);
+        builder.Services.AddSingleton(protector);
+        builder.Services.Configure<KeyManagementOptions>(options => options.XmlEncryptor = new SecretProtectorXmlEncryptor(protector));
         return builder;
     }
 }

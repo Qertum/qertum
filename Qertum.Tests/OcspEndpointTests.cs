@@ -57,11 +57,12 @@ public sealed class OcspEndpointTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         await using var factory = CreateFactory();
 
-        var response = await factory.CreateClient().PostAsync("/ocsp",
-            new ByteArrayContent(new byte[OcspRequestLimits.MaxBodyBytes + 1])
+        using var body2 = new ByteArrayContent(new byte[OcspRequestLimits.MaxBodyBytes + 1])
             {
                 Headers = { ContentType = new MediaTypeHeaderValue("application/ocsp-request") }
-            }, ct);
+            };
+        var response = await factory.CreateClient().PostAsync("/ocsp",
+            body2, ct);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
@@ -127,10 +128,11 @@ public sealed class OcspEndpointTests : IDisposable
         await EnsureDbAsync(factory, ct);
 
         var request = BuildRequest("0123456789ABCDEF");
-        var response = await factory.CreateClient().PostAsync("/ocsp", new ByteArrayContent(request)
+        using var body = new ByteArrayContent(request)
         {
             Headers = { ContentType = new MediaTypeHeaderValue("application/ocsp-request") }
-        }, ct);
+        };
+        var response = await factory.CreateClient().PostAsync("/ocsp", body, ct);
 
         Assert.IsType<UnknownStatus>(await SingleStatusAsync(response, ct));
     }
@@ -142,8 +144,9 @@ public sealed class OcspEndpointTests : IDisposable
         await using var factory = CreateFactory();
         await EnsureDbAsync(factory, ct);
 
+        using var body = new ByteArrayContent([1, 2, 3, 4]) { Headers = { ContentType = new MediaTypeHeaderValue("application/ocsp-request") } };
         var response = await factory.CreateClient().PostAsync("/ocsp",
-            new ByteArrayContent([1, 2, 3, 4]) { Headers = { ContentType = new MediaTypeHeaderValue("application/ocsp-request") } }, ct);
+            body, ct);
 
         // RFC 6960 §2.3: a malformed request is answered with an OCSP response carrying that status,
         // not with a transport-level error.
@@ -157,7 +160,7 @@ public sealed class OcspEndpointTests : IDisposable
     private WebApplicationFactory<ApiServiceProgram> CreateFactory()
     {
         var database = SharedInMemoryDatabase.Create();
-        return new WebApplicationFactory<ApiServiceProgram>().WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<ApiServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.ConfigureTestServices(services =>

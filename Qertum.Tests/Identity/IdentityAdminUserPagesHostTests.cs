@@ -110,8 +110,9 @@ public sealed class IdentityAdminUserPagesHostTests : IDisposable
 
         var token = await GetAntiforgeryTokenAsync(admin, detailUrl, ct);
         clock.Advance(TimeSpan.FromMinutes(6));
+        using var form = new FormUrlEncodedContent([KeyValuePair.Create("__RequestVerificationToken", token)]);
         using var response = await admin.PostAsync($"{detailUrl}?handler=Disable",
-            new FormUrlEncodedContent([KeyValuePair.Create("__RequestVerificationToken", token)]), ct);
+            form, ct);
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         Assert.Equal($"/Admin/Confirm?returnUrl={Uri.EscapeDataString(detailUrl)}&expired=true", response.Headers.Location!.OriginalString);

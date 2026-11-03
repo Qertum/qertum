@@ -22,15 +22,18 @@ public sealed class ApiClientWaitTests
         public int Calls => Volatile.Read(ref _next);
         public Exception? Throw { get; init; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (Throw is not null) throw Throw;
             var index = Math.Min(Interlocked.Increment(ref _next) - 1, steps.Length - 1);
             var step = steps[index];
             var response = new HttpResponseMessage(step.Status) { Content = new StringContent(step.Body, Encoding.UTF8, "application/json") };
             if (step.RetryAfter is not null) response.Headers.TryAddWithoutValidation("Retry-After", step.RetryAfter);
-            return Task.FromResult(response);
+            return response;
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static string Request(string status, string? failure = null) =>
@@ -89,7 +92,7 @@ public sealed class ApiClientWaitTests
     {
         var clock = new FakeTimeProvider();
         var script = new Script(InProgress("Approved", retryAfter), Final());
-        var task = Client(script, clock).WaitForFinalAsync(Id, TimeSpan.FromMinutes(5), cancellationToken: TestContext.Current.CancellationToken);
+        using var task = Client(script, clock).WaitForFinalAsync(Id, TimeSpan.FromMinutes(5), cancellationToken: TestContext.Current.CancellationToken);
 
         await Until(() => script.Calls == 1);
         clock.Advance(TimeSpan.FromSeconds(expectedSeconds) - TimeSpan.FromMilliseconds(100));
@@ -182,7 +185,7 @@ public sealed class ApiClientWaitTests
         var clock = new FakeTimeProvider();
         var script = new Script(InProgress());
         using var cts = new CancellationTokenSource();
-        var task = Client(script, clock).WaitForFinalAsync(Id, TimeSpan.FromMinutes(5), cancellationToken: cts.Token);
+        using var task = Client(script, clock).WaitForFinalAsync(Id, TimeSpan.FromMinutes(5), cancellationToken: cts.Token);
 
         await Until(() => script.Calls == 1);
         await cts.CancelAsync();

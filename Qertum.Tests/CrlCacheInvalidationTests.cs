@@ -240,7 +240,7 @@ public sealed class CrlCacheInvalidationTests
         try
         {
             var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (DateTime.UtcNow < deadline && recorder.Sum("ca.certificate.revocations") == 0)
+            while (DateTime.UtcNow < deadline && recorder.Sum("ca.certificate.revocations") <= 0)
                 await Task.Delay(50, ct);
         }
         finally

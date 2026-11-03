@@ -121,7 +121,8 @@ public sealed class CaFilesHealthCheckTests
         SqliteConnection connection,
         CertificateRequestDbContext dbContext,
         FakeCertificateGenerator generator,
-        CaFilesHealthCheck healthCheck) : IAsyncDisposable
+        CaFilesHealthCheck healthCheck,
+        MemoryCache cache) : IAsyncDisposable, IDisposable
     {
         public FakeCertificateGenerator Generator { get; } = generator;
 
@@ -146,8 +147,12 @@ public sealed class CaFilesHealthCheckTests
             await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
         }
 
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
         public async ValueTask DisposeAsync()
         {
+            cache.Dispose();
             await dbContext.DisposeAsync();
             await connection.DisposeAsync();
         }
@@ -174,13 +179,14 @@ public sealed class CaFilesHealthCheckTests
                 new Qertum.Services.Policies.IssuancePolicyService(dbContext, new Qertum.Services.Policies.IssuancePolicyEvaluator())));
             var provider = services.BuildServiceProvider();
 
+            var cache = new MemoryCache(new MemoryCacheOptions());
             var healthCheck = new CaFilesHealthCheck(
                 provider.GetRequiredService<IServiceScopeFactory>(),
                 generator,
                 new CaDataOptions { Directory = Path.GetTempPath() },
-                new MemoryCache(new MemoryCacheOptions()));
+                cache);
 
-            return new Scope(connection, dbContext, generator, healthCheck);
+            return new Scope(connection, dbContext, generator, healthCheck, cache);
         }
     }
 

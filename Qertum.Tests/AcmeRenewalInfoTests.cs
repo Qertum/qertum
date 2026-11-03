@@ -130,7 +130,7 @@ public sealed class AcmeRenewalInfoTests : IDisposable
     private WebApplicationFactory<AcmeServiceProgram> CreateFactory()
     {
         var database = SharedInMemoryDatabase.Create(createSchema: true);
-        return new WebApplicationFactory<AcmeServiceProgram>().WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<AcmeServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.UseSetting("Acme:BaseUrl", "http://localhost");

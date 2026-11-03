@@ -51,7 +51,8 @@ public sealed class QertumKeyCodecTests
         var pem = QertumKeyCodec.WritePrivateKeyPem(CompositePrivateKey.Decode(algorithm, vector.PrivateKey));
 
         using var reader = new StringReader(pem);
-        var pemObject = new RawPemReader(reader).ReadPemObject();
+        using var rawReader = new RawPemReader(reader);
+        var pemObject = rawReader.ReadPemObject();
         Assert.Equal("PRIVATE KEY", pemObject.Type);
         Assert.Equal(vector.PrivateKeyPkcs8, pemObject.Content);
     }
@@ -134,7 +135,8 @@ public sealed class QertumKeyCodecTests
         Assert.Equal(keys.Public, QertumKeyCodec.PublicKeyOf(QertumKeyCodec.ToSubjectPublicKeyInfo(keys.Public)));
 
         using var writer = new StringWriter();
-        new PemWriter(writer).WriteObject(keys.Private);
+        using (var pemWriter = new PemWriter(writer))
+            pemWriter.WriteObject(keys.Private);
         Assert.Equal(writer.ToString(), QertumKeyCodec.WritePrivateKeyPem(keys.Private));
         Assert.Equal(
             PrivateKeyInfoFactory.CreatePrivateKeyInfo(keys.Private).GetEncoded(),
@@ -161,7 +163,8 @@ public sealed class QertumKeyCodecTests
     {
         var keys = Generate(algorithm);
         using var writer = new StringWriter();
-        new PemWriter(writer).WriteObject(keys.Private);
+        using (var pemWriter = new PemWriter(writer))
+            pemWriter.WriteObject(keys.Private);
 
         Assert.Equal(writer.ToString(), QertumKeyCodec.WritePrivateKeyPem(keys.Private));
         Assert.True(QertumKeyCodec.IsMatchingPair(QertumKeyCodec.ReadPrivateKeyPem(writer.ToString()), keys.Public));

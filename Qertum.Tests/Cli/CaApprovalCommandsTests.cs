@@ -64,7 +64,7 @@ public sealed class CaApprovalCommandsTests
     public async Task SetCaApprovalRule_SendsPutWithTheRuleBody()
     {
         var handler = new Recording(HttpStatusCode.OK, "{}");
-        var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
+        using var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
         await client.SetCaApprovalRuleAsync(false, TestContext.Current.CancellationToken);
         Assert.Equal(HttpMethod.Put, handler.Method);
         Assert.Equal("/v1/settings/ca-approval", handler.PathAndQuery);

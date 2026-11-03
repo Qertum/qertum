@@ -68,7 +68,8 @@ public sealed class BulkOperationLifecycleTests(AspireIntegrationFixture fixture
         var ct = TestContext.Current.CancellationToken;
         var run = Guid.NewGuid().ToString("N")[..12];
         await IssueAsync($"cli-{run}.local", ct);
-        var client = new CertificateRequestsApiClient(fixture.ApiClientAsAdmin);
+        // The fixture's client serves every test, so this one must not dispose it.
+        using var client = new CertificateRequestsApiClient(fixture.ApiClientAsAdmin, disposeHttpClient: false);
         var selection = new BulkSelection(null, null, null, null, run, All: false);
 
         // Preview only: prints the count and the command to run, executes nothing.

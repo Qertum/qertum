@@ -13,7 +13,7 @@ public sealed class RoleAccessApiClientTests
         await ApiServiceTests.EnsureDbAsync(factory, ct);
         var http = factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test");
-        var client = new CertificateRequestsApiClient(http);
+        using var client = new CertificateRequestsApiClient(http);
 
         var change = await client.SetRolePermissionsAsync("ops team", [AppPermissions.CertificatesView], ct);
         Assert.Equal("ops team", change.Role);

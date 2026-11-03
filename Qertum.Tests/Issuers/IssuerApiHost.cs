@@ -18,7 +18,7 @@ internal sealed class IssuerApiHost : IAsyncDisposable
 
     public IssuerApiHost(Action<IServiceCollection>? configure = null)
     {
-        Factory = new WebApplicationFactory<ApiServiceProgram>().WithWebHostBuilder(builder =>
+        Factory = ConfiguredFactory.Create<ApiServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.ConfigureTestServices(services =>

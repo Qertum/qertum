@@ -47,7 +47,8 @@ public sealed class CertificateKeyIdentifierTests : IDisposable
     private static BcCertificate ParseBc(string pem)
     {
         using var reader = new StringReader(pem);
-        return (BcCertificate)new Org.BouncyCastle.OpenSsl.PemReader(reader).ReadObject();
+        using var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(reader);
+        return (BcCertificate)pemReader.ReadObject();
     }
 
     private BcCertificate CaCertificate() => ParseBc(_generator.GetCaCertificatePem());

@@ -8,8 +8,13 @@ using Qertum.Web.Components.Shared;
 
 namespace Qertum.Tests.Web;
 
-public sealed class ApprovalsPageTests
+public sealed class ApprovalsPageTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private sealed class Api(Func<HttpRequestMessage, string?, HttpResponseMessage> answer) : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Path, string? Body)> Calls { get; } = [];
@@ -38,14 +43,13 @@ public sealed class ApprovalsPageTests
         return response;
     }
 
-    private static (IRenderedComponent<ApprovalQueue> Cut, Api Handler) Render(Func<HttpRequestMessage, string?, HttpResponseMessage> answer, bool admin)
+    private (IRenderedComponent<ApprovalQueue> Cut, Api Handler) Render(Func<HttpRequestMessage, string?, HttpResponseMessage> answer, bool admin)
     {
         var handler = new Api(answer);
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         var auth = context.AddAuthorization().SetAuthorized("alice");
         if (admin) auth.SetRoles("admin");
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
         return (context.Render<ApprovalQueue>(), handler);
     }
 

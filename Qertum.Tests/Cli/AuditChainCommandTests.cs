@@ -32,8 +32,8 @@ public sealed class AuditChainCommandTests : IDisposable
 
     private static (int Code, string Out, string Err) Run(IReadOnlyList<string> paths, string? anchor = null)
     {
-        var output = new StringWriter();
-        var error = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
         return (AuditVerifyRunner.Run(paths, anchor, output, error), output.ToString(), error.ToString());
     }
 

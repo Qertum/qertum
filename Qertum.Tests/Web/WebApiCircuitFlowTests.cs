@@ -220,19 +220,21 @@ public sealed class WebApiCircuitFlowTests
     {
         public string? LastAuthorization { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastAuthorization = request.Headers.Authorization?.ToString();
             var authorized = LastAuthorization is not null;
-            return Task.FromResult(new HttpResponseMessage(authorized ? HttpStatusCode.OK : HttpStatusCode.Unauthorized)
+            return new HttpResponseMessage(authorized ? HttpStatusCode.OK : HttpStatusCode.Unauthorized)
             {
                 Content = new StringContent(authorized
                     ? """{"isInitialized":true}"""
                     : """{"type":"about:blank","title":"Unauthorized","status":401}""",
                     System.Text.Encoding.UTF8, authorized ? "application/json" : "application/problem+json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private sealed class TicketAuthenticationService(AuthenticationTicket ticket) : IAuthenticationService

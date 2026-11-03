@@ -89,7 +89,7 @@ var webFrontend = builder.AddProject<Projects.Qertum_Web>("webfrontend")
     .WaitFor(apiService)
     .WaitFor(identityService)
     // Display only: the address the "Automation snippets" folds print for pipelines.
-    .WithEnvironment("Automation__ApiUrl", ReferenceExpression.Create($"{apiService.GetEndpoint("https")}"))
+    .WithEnvironment("Automation__ApiUrl", apiService.GetEndpoint("https"))
     .WithHttpHealthCheck("/health");
 
 // Inject the web frontend's Aspire-assigned URL into the identity service so that

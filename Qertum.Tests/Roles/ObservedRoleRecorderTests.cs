@@ -25,7 +25,8 @@ public sealed class ObservedRoleRecorderTests
         await using var scope = await PolicyTestDb.CreateAsync(ct);
         var time = new FakeTimeProvider(Start);
 
-        await Recorder(scope, new MemoryCache(new MemoryCacheOptions()), time).RecordAsync(["auditors"], ct);
+        using var disposable = new MemoryCache(new MemoryCacheOptions());
+        await Recorder(scope, disposable, time).RecordAsync(["auditors"], ct);
 
         var row = await RowAsync(scope, "auditors", ct);
         Assert.NotNull(row);
@@ -39,7 +40,7 @@ public sealed class ObservedRoleRecorderTests
         var ct = TestContext.Current.CancellationToken;
         await using var scope = await PolicyTestDb.CreateAsync(ct);
         var time = new FakeTimeProvider(Start);
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        using var cache = new MemoryCache(new MemoryCacheOptions());
 
         await Recorder(scope, cache, time).RecordAsync(["auditors"], ct);
         time.Advance(TimeSpan.FromMinutes(30));
@@ -63,7 +64,8 @@ public sealed class ObservedRoleRecorderTests
         var roles = new List<string> { " padded", "a/b" };
         roles.AddRange(Enumerable.Range(0, 60).Select(i => $"role-{i}"));
 
-        await Recorder(scope, new MemoryCache(new MemoryCacheOptions()), new FakeTimeProvider(Start)).RecordAsync(roles, ct);
+        using var disposable = new MemoryCache(new MemoryCacheOptions());
+        await Recorder(scope, disposable, new FakeTimeProvider(Start)).RecordAsync(roles, ct);
 
         Assert.Equal(ObservedRoleRecorder.MaxRolesPerRequest, await scope.Db.ObservedRoles.CountAsync(ct));
         Assert.False(await scope.Db.ObservedRoles.AnyAsync(r => r.Role == " padded" || r.Role == "a/b", ct));
@@ -74,7 +76,8 @@ public sealed class ObservedRoleRecorderTests
     {
         var ct = TestContext.Current.CancellationToken;
         var scope = await PolicyTestDb.CreateAsync(ct);
-        var recorder = Recorder(scope, new MemoryCache(new MemoryCacheOptions()), new FakeTimeProvider(Start));
+        using var disposable = new MemoryCache(new MemoryCacheOptions());
+        var recorder = Recorder(scope, disposable, new FakeTimeProvider(Start));
         await scope.DisposeAsync();
 
         await recorder.RecordAsync(["auditors"], ct);

@@ -297,11 +297,14 @@ public sealed class CertificateRequestListQueryTests
     private sealed class TestScope(
         SqliteConnection connection,
         CertificateRequestDbContext dbContext,
-        CertificateRequestService service) : IAsyncDisposable
+        CertificateRequestService service) : IAsyncDisposable, IDisposable
     {
         public CertificateRequestDbContext DbContext { get; } = dbContext;
 
         public CertificateRequestService Service { get; } = service;
+
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         public async ValueTask DisposeAsync()
         {

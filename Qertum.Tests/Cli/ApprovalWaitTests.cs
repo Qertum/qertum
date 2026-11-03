@@ -20,13 +20,16 @@ public sealed class ApprovalWaitTests
         private int _next;
         public int Calls => Volatile.Read(ref _next);
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var step = steps[Math.Min(Interlocked.Increment(ref _next) - 1, steps.Length - 1)];
             var response = new HttpResponseMessage(step.Status) { Content = new StringContent(step.Body, Encoding.UTF8, "application/json") };
             response.Headers.TryAddWithoutValidation("Retry-After", "1");
-            return Task.FromResult(response);
+            return response;
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static string Body(string status, string? failure = null) =>
@@ -39,7 +42,7 @@ public sealed class ApprovalWaitTests
     private static async Task<(int Exit, string Out, string Err)> Run(Script script, int timeoutSeconds = 60, CertificateRequest? approved = null)
     {
         var clock = new FakeTimeProvider();
-        var client = new CertificateRequestsApiClient(new HttpClient(script) { BaseAddress = new Uri("http://api.test/") }, clock);
+        using var client = new CertificateRequestsApiClient(new HttpClient(script) { BaseAddress = new Uri("http://api.test/") }, clock);
         using var stdout = new StringWriter();
         using var stderr = new StringWriter();
 

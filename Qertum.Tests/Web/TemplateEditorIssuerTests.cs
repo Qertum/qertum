@@ -6,11 +6,16 @@ using Qertum.Web.Components.Pages;
 
 namespace Qertum.Tests.Web;
 
-public sealed class TemplateEditorIssuerTests
+public sealed class TemplateEditorIssuerTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private static readonly CertificateTemplateId TemplateId = new(Guid.NewGuid());
 
-    private static (BunitContext Context, IssuerApiStub Api) NewContext(IssuerId? pinned = null, string? customExtensionsJson = null)
+    private (BunitContext Context, IssuerApiStub Api) NewContext(IssuerId? pinned = null, string? customExtensionsJson = null)
     {
         var api = new IssuerApiStub();
         var template = new CertificateTemplate
@@ -25,11 +30,10 @@ public sealed class TemplateEditorIssuerTests
                     System.Text.Encoding.UTF8, "application/json")
             }
             : null;
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.SettingsEdit, AppPermissions.PoliciesPublish);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return (context, api);
     }
 

@@ -265,7 +265,7 @@ public sealed class RequestListPagingTests
             Context.AddAuthorization().SetAuthorized("alice").SetRoles("admin");
             Context.Services.AddSingleton(TimeProvider.System);
             Context.Services.AddAutomationSnippets();
-            Context.Services.AddSingleton(new CertificateRequestsApiClient(
+            Context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
                 new HttpClient(Api) { BaseAddress = new Uri("http://api.test/") }));
         }
 
@@ -301,23 +301,23 @@ public sealed class RequestListPagingTests
             ByFilter = new Dictionary<string, int> { ["Valid"] = 1 }
         };
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var uri = request.RequestUri!;
 
             if (uri.AbsolutePath == "/v1/certificate-requests/status-counts")
-                return Task.FromResult(Json(Counts));
+                return Json(Counts);
 
             if (uri.AbsolutePath == "/v1/certificate-requests/issued/validity-counts")
             {
                 CountQueries.Add(uri.Query);
-                return Task.FromResult(Json(ValidityCounts));
+                return Json(ValidityCounts);
             }
 
             if (uri.AbsolutePath == ListPath)
             {
                 ListQueries.Add(uri.Query);
-                return Task.FromResult(Json(new PagedResult<CertificateRequest>
+                return Json(new PagedResult<CertificateRequest>
                 {
                     Items =
                     [
@@ -333,11 +333,14 @@ public sealed class RequestListPagingTests
                     TotalCount = TotalCount,
                     Page = 1,
                     PageSize = 50
-                }));
+                });
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            return new HttpResponseMessage(HttpStatusCode.NotFound);
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
 
         private static HttpResponseMessage Json<T>(T value) => new(HttpStatusCode.OK)
         {

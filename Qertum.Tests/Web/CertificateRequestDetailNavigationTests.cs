@@ -40,7 +40,7 @@ public sealed class CertificateRequestDetailNavigationTests
 
         context.Services.AddAutomationSnippets();
         context.AddAuthorization().SetAuthorized("alice");
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new RequestStub(source, renewal)) { BaseAddress = new Uri("http://api.test/") }));
 
         var cut = context.Render<CertificateRequestDetail>(p => p.Add(x => x.Id, (Guid)renewal.Id));
@@ -55,18 +55,21 @@ public sealed class CertificateRequestDetailNavigationTests
 
     private sealed class RequestStub(params CertificateRequest[] requests) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var match = requests.FirstOrDefault(r =>
                 request.Method == HttpMethod.Get &&
                 request.RequestUri!.AbsolutePath == $"/v1/certificate-requests/{r.Id}");
 
-            return Task.FromResult(match is null
+            return match is null
                 ? new HttpResponseMessage(HttpStatusCode.NotFound)
                 : new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(JsonSerializer.Serialize(match, JsonSerializerOptions.Web), Encoding.UTF8, "application/json")
-                });
+                };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

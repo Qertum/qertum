@@ -453,7 +453,7 @@ public sealed class IdentityServiceTests
         var username = $"ratelimit-{Guid.NewGuid():N}";
         var user = await store.CreateUserAsync(username, "t@t.local", "T", "Correct1!", ["user"], cancellationToken: ct);
 
-        IMemoryCache cache = new MemoryCache(
+        using IMemoryCache cache = new MemoryCache(
             new MemoryCacheOptions());
         var cacheKey = $"pwd-change-fails:{user.Id}";
 
@@ -528,8 +528,7 @@ public sealed class IdentityServiceTests
         Assert.NotNull(app);
     }
 
-    private static async Task<(ServiceProvider Provider, SqliteConnection Connection)> CreateSeedHostAsync(
-        CancellationToken cancellationToken)
+    private static async Task<SeedHost> CreateSeedHostAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync(cancellationToken);
@@ -551,7 +550,25 @@ public sealed class IdentityServiceTests
             await db.Database.EnsureCreatedAsync(cancellationToken);
         }
 
-        return (sp, connection);
+        return new SeedHost(sp, connection);
+    }
+
+    // The open connection keeps the in-memory database alive for the provider; disposing this closes both.
+    private sealed class SeedHost(ServiceProvider provider, SqliteConnection connection) : IDisposable, IAsyncDisposable
+    {
+        public ServiceProvider Provider { get; } = provider;
+
+        public void Dispose()
+        {
+            Provider.Dispose();
+            connection.Dispose();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Provider.DisposeAsync();
+            await connection.DisposeAsync();
+        }
     }
 
     private static IConfiguration WebFrontendDiscoveryConfiguration() =>
@@ -565,9 +582,8 @@ public sealed class IdentityServiceTests
     private static async Task<IReadOnlyList<string>> SeedWebClientAndReadRedirectUrisAsync(
         bool serviceDiscoveryEnabled, CancellationToken cancellationToken)
     {
-        var (sp, connection) = await CreateSeedHostAsync(cancellationToken);
-        await using var _ = sp;
-        using var __ = connection;
+        await using var host = await CreateSeedHostAsync(cancellationToken);
+        var sp = host.Provider;
 
         var clientStore = new FixedListClientStore(
         [

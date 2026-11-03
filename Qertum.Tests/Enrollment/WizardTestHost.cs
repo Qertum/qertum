@@ -21,7 +21,7 @@ internal sealed class WizardTestHost : IAsyncDisposable
         Context.AddAuthorization().SetAuthorized("alice");
         Context.Services.AddAutomationSnippets();
         Context.Services.AddSingleton<TimeProvider>(Time);
-        Context.Services.AddSingleton(new CertificateRequestsApiClient(
+        Context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(Api) { BaseAddress = new Uri("http://api.test/") }));
     }
 

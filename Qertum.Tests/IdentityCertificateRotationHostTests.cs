@@ -64,14 +64,15 @@ public sealed class IdentityCertificateRotationHostTests : IDisposable
         Assert.Contains(replacementThumbprint, thumbprintsByKid.Values);
 
         // Now issue a token and see which key actually signed it.
-        using var tokenResponse = await client.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "client_credentials",
                 ["client_id"] = "qertum-test-m2m",
                 ["client_secret"] = "test-m2m-secret",
                 ["scope"] = "qertum-api"
-            }), ct);
+            });
+        using var tokenResponse = await client.PostAsync("/connect/token",
+            form, ct);
 
         tokenResponse.EnsureSuccessStatusCode();
         var payload = await tokenResponse.Content.ReadFromJsonAsync<JsonDocument>(ct);
@@ -199,14 +200,15 @@ public sealed class IdentityCertificateRotationHostTests : IDisposable
 
     private static async Task<string> TokenSigningThumbprintAsync(HttpClient client, CancellationToken ct)
     {
-        using var tokenResponse = await client.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "client_credentials",
                 ["client_id"] = "qertum-test-m2m",
                 ["client_secret"] = "test-m2m-secret",
                 ["scope"] = "qertum-api"
-            }), ct);
+            });
+        using var tokenResponse = await client.PostAsync("/connect/token",
+            form, ct);
         tokenResponse.EnsureSuccessStatusCode();
         var payload = await tokenResponse.Content.ReadFromJsonAsync<JsonDocument>(ct);
         var header = JsonDocument.Parse(Base64UrlDecode(payload!.RootElement.GetProperty("access_token").GetString()!.Split('.')[0])).RootElement;
@@ -253,8 +255,7 @@ public sealed class IdentityCertificateRotationHostTests : IDisposable
     }
 
     private static WebApplicationFactory<IdentityServiceProgram> CreateFactory(string dataPath, TimeProvider? clock = null) =>
-        new WebApplicationFactory<IdentityServiceProgram>()
-            .WithWebHostBuilder(builder =>
+        ConfiguredFactory.Create<IdentityServiceProgram>(builder =>
             {
                 if (clock is not null)
                     builder.ConfigureTestServices(services => services.AddSingleton(clock));

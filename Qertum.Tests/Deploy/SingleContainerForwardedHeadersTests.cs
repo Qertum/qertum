@@ -3,25 +3,34 @@ namespace Qertum.Tests.Deploy;
 /// <summary>
 /// The single container's half of the forwarded-headers rule (see
 /// <see cref="MultiContainerContractTests.ForwardedHeaders_AreTrustedOnlyByTheProxiedServices_InHttpsMode"/>):
-/// on with QERTUM_PUBLIC_SCHEME=https for the services behind the proxy, never for ACME.
+/// on with QERTUM_PUBLIC_SCHEME=https for the services behind the proxy, from QERTUM_TRUSTED_PROXIES only
+/// (required), never for ACME.
 /// </summary>
 public sealed class SingleContainerForwardedHeadersTests
 {
     [Theory]
-    [InlineData("https", "true")]
-    [InlineData("http", "unset")]
-    public void Entrypoint_TrustsForwardedHeadersOnlyInHttpsMode(string scheme, string expected)
+    [InlineData("https", "true|172.18.0.0/16")]
+    [InlineData("http", "unset|unset")]
+    public void Entrypoint_TrustsForwardedHeadersOnlyInHttpsMode_FromTheNamedProxies(string scheme, string expected)
     {
-        var entrypoint = Read("entrypoint.sh");
-        const string opening = "if [ \"${QERTUM_PUBLIC_SCHEME}\" = \"https\" ]; then\n  export ASPNETCORE_FORWARDEDHEADERS_ENABLED";
-        var start = entrypoint.IndexOf(opening, StringComparison.Ordinal);
-        Assert.True(start >= 0, "the forwarded-headers block is missing");
-        var block = entrypoint[start..(entrypoint.IndexOf("\nfi", start, StringComparison.Ordinal) + 3)];
-
         var result = MultiContainerContractTests.RunSh(
-            $"QERTUM_PUBLIC_SCHEME={scheme}\n{block}\nprintf %s \"${{ASPNETCORE_FORWARDEDHEADERS_ENABLED-unset}}\"");
+            $"QERTUM_PUBLIC_SCHEME={scheme}\nQERTUM_TRUSTED_PROXIES=172.18.0.0/16\n{ForwardedHeadersBlock()}\n" +
+            "printf %s \"${ASPNETCORE_FORWARDEDHEADERS_ENABLED-unset}|${ForwardedHeaders__TrustedProxies-unset}\"");
 
         Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void HttpsMode_RefusesToStartWithoutATrustedProxy() =>
+        MultiContainerContractTests.RunSh($"QERTUM_PUBLIC_SCHEME=https\n{ForwardedHeadersBlock()}", expectedExit: 64);
+
+    private static string ForwardedHeadersBlock()
+    {
+        var entrypoint = Read("entrypoint.sh");
+        const string opening = "if [ \"${QERTUM_PUBLIC_SCHEME}\" = \"https\" ]; then\n  if [ -z \"${QERTUM_TRUSTED_PROXIES:-}\" ]";
+        var start = entrypoint.IndexOf(opening, StringComparison.Ordinal);
+        Assert.True(start >= 0, "the forwarded-headers block is missing");
+        return entrypoint[start..(entrypoint.IndexOf("\nfi", start, StringComparison.Ordinal) + 3)];
     }
 
     [Fact]

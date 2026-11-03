@@ -9,22 +9,30 @@ using Qertum.Web.Components.Pages;
 
 namespace Qertum.Tests.Web;
 
-public sealed class PqcMigrationPageTests
+public sealed class PqcMigrationPageTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     private sealed class Stub(PqcMigrationReportResponse report) : HttpMessageHandler
     {
         public List<string> Urls { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Urls.Add(request.RequestUri!.PathAndQuery);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(report, Web), Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static PqcReportItem Item(string cn, bool assumed = false, PqcVerdictKind verdict = PqcVerdictKind.Refused) => new()
@@ -61,14 +69,13 @@ public sealed class PqcMigrationPageTests
         Withheld = withObserved ? [] : ["observed"]
     };
 
-    private static (BunitContext Context, Stub Api) NewContext(PqcMigrationReportResponse report)
+    private (BunitContext Context, Stub Api) NewContext(PqcMigrationReportResponse report)
     {
         var api = new Stub(report);
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.CertificatesView);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return (context, api);
     }
 

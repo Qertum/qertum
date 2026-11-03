@@ -864,11 +864,10 @@ public static class AcmeEndpointMappings
                 if (order is null) return Results.NotFound();
 
                 // Sync status from the underlying CertificateRequest
-                if (order is not { Status: "processing", CertificateRequestId: not null })
+                if (order is not { Status: "processing", CertificateRequestId: { } processingRequestId })
                     return Results.Ok(await BuildOrderResponse(order.Id, db, baseUrl, clock.GetUtcNow().UtcDateTime, ct));
 
-                var cr = await certReqService.GetByIdAsync(
-                    new CertificateRequestId(order.CertificateRequestId.Value), ct);
+                var cr = await certReqService.GetByIdAsync(new CertificateRequestId(processingRequestId), ct);
 
                 switch (cr?.Status)
                 {

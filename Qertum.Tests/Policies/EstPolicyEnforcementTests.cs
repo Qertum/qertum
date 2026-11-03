@@ -17,10 +17,12 @@ public sealed class EstPolicyEnforcementTests
         await PolicySeeding.LinkPublishedPolicyAsync(db, "WebServer", dnsSuffixes: ["corp.example.com"], ct: ct);
     }
 
-    private static Task<HttpResponseMessage> EnrollAsync(HttpClient client, string commonName, CancellationToken ct) =>
-        client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(TestCsrBuilder.BuildBase64Url(subjectCn: commonName, sanDnsNames: []),
-                System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+    private static async Task<HttpResponseMessage> EnrollAsync(HttpClient client, string commonName, CancellationToken ct)
+    {
+        using var csr = new StringContent(TestCsrBuilder.BuildBase64Url(subjectCn: commonName, sanDnsNames: []),
+            System.Text.Encoding.ASCII, "application/pkcs10");
+        return await client.PostAsync("/.well-known/est/simpleenroll", csr, ct);
+    }
 
     [Fact]
     public async Task Simpleenroll_NameOutsideTheIssuersNameConstraints_IsRefused()

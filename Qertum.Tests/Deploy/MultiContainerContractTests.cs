@@ -106,51 +106,74 @@ public sealed class MultiContainerContractTests
         Assert.Contains("ACME_SCHEME=\"${ACME_SCHEME:-http}\"", entrypoint);
         Assert.Contains("Acme__BaseUrl=\"${ACME_SCHEME}://", entrypoint);
         Assert.Contains("Enrollment__AcmeDirectoryUrl=\"${ACME_SCHEME}://", entrypoint);
-        Assert.DoesNotContain("TRUSTED_PROXIES", entrypoint);
-        Assert.DoesNotContain("TRUSTED_PROXIES", Read("docker-compose.yml"));
+        // ACME's own proxy trust list was removed for good; QERTUM_TRUSTED_PROXIES applies to web, identity and API
+        // only, which ForwardedHeaders_AreTrustedOnlyByTheProxiedServices_InHttpsMode runs.
+        Assert.DoesNotContain("ACME_TRUSTED_PROXIES", entrypoint);
+        Assert.DoesNotContain("ACME_TRUSTED_PROXIES", Read("docker-compose.yml"));
         Assert.Contains("ACME_SCHEME", Read("docker-compose.yml"));
     }
 
     /// <summary>
     /// Behind the TLS proxy that QERTUM_SCHEME=https stands for, web, identity and API must honour
     /// X-Forwarded-Proto, or identity refuses every request as not https (found by the browser check,
-    /// 2026-10-29). ACME and EST are never behind a proxy and must never trust the header, whatever is set.
-    /// Runs the entrypoint's own block with sh.
+    /// 2026-10-29), and only from QERTUM_TRUSTED_PROXIES. ACME and EST are never behind a proxy and must never
+    /// trust the header, whatever is set. Runs the entrypoint's own block with sh.
     /// </summary>
     [Theory]
-    [InlineData("webfrontend", "https", "true")]
-    [InlineData("identityservice", "https", "true")]
-    [InlineData("apiservice", "https", "true")]
-    [InlineData("webfrontend", "http", "unset")]
-    [InlineData("apiservice", "http", "unset")]
-    [InlineData("acmeservice", "https", "unset")]
-    [InlineData("estservice", "https", "unset")]
-    [InlineData("queueconsumer", "https", "unset")]
+    [InlineData("webfrontend", "https", "true|10.0.0.0/8")]
+    [InlineData("identityservice", "https", "true|10.0.0.0/8")]
+    [InlineData("apiservice", "https", "true|10.0.0.0/8")]
+    [InlineData("webfrontend", "http", "unset|unset")]
+    [InlineData("apiservice", "http", "unset|unset")]
+    [InlineData("acmeservice", "https", "unset|unset")]
+    [InlineData("estservice", "https", "unset|unset")]
+    [InlineData("queueconsumer", "https", "unset|unset")]
     public void ForwardedHeaders_AreTrustedOnlyByTheProxiedServices_InHttpsMode(string service, string scheme, string expected)
     {
-        var entrypoint = Read("entrypoint.sh");
-        var start = entrypoint.IndexOf("case \"${SERVICE}\" in\n  webfrontend|identityservice|apiservice)", StringComparison.Ordinal);
-        Assert.True(start >= 0, "the forwarded-headers block is missing");
-        var block = entrypoint[start..(entrypoint.IndexOf("esac", start, StringComparison.Ordinal) + 4)];
-
         // ACME and EST start with the variable already set, as a careless override would leave it.
         var preset = service is "acmeservice" or "estservice" ? "export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true\n" : "";
-        var result = RunSh($"SERVICE={service}\nQERTUM_SCHEME={scheme}\n{preset}{block}\nprintf %s \"${{ASPNETCORE_FORWARDEDHEADERS_ENABLED-unset}}\"");
+        var result = RunSh($"SERVICE={service}\nQERTUM_SCHEME={scheme}\nQERTUM_TRUSTED_PROXIES=10.0.0.0/8\n{preset}{ForwardedHeadersBlock()}\n" +
+                           "printf %s \"${ASPNETCORE_FORWARDEDHEADERS_ENABLED-unset}|${ForwardedHeaders__TrustedProxies-unset}\"");
 
         Assert.Equal(expected, result);
     }
 
-    internal static string RunSh(string script)
+    [Theory]
+    [InlineData("webfrontend")]
+    [InlineData("identityservice")]
+    [InlineData("apiservice")]
+    public void HttpsMode_RefusesToStartWithoutATrustedProxy(string service)
+    {
+        // Forwarded headers trusted from everyone would let any client reaching the port claim https or any address.
+        RunSh($"SERVICE={service}\nQERTUM_SCHEME=https\n{ForwardedHeadersBlock()}", expectedExit: 64);
+    }
+
+    private static string ForwardedHeadersBlock()
+    {
+        var entrypoint = Read("entrypoint.sh");
+        var start = entrypoint.IndexOf("case \"${SERVICE}\" in\n  webfrontend|identityservice|apiservice)", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the forwarded-headers block is missing");
+        return entrypoint[start..(entrypoint.IndexOf("esac", start, StringComparison.Ordinal) + 4)];
+    }
+
+    internal static string RunSh(string script, int expectedExit = 0)
     {
         using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("sh", ["-c", script])
         {
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
             UseShellExecute = false,
-            Environment = { ["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = null }
+            Environment =
+            {
+                ["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = null,
+                ["QERTUM_TRUSTED_PROXIES"] = null,
+                ["ForwardedHeaders__TrustedProxies"] = null
+            }
         })!;
         var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
         process.WaitForExit();
-        Assert.Equal(0, process.ExitCode);
+        Assert.True(process.ExitCode == expectedExit, $"exit {process.ExitCode}, expected {expectedExit}: {error}");
         return output;
     }
 

@@ -178,8 +178,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
     {
         var ct = TestContext.Current.CancellationToken;
         using var client = basicAuth ? _factory.CreateAuthenticatedClient() : _factory.CreateClient();
+        using var content = new StringContent(new string('A', 98_305));
         var response = await client.PostAsync("/.well-known/est" + path,
-            new StringContent(new string('A', 98_305)), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
@@ -191,8 +192,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = Convert.ToBase64String(new byte[65_537]);
 
+        using var content = new StringContent(csr);
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
@@ -245,8 +247,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateClient();
         var csr = TestCsrBuilder.BuildBase64Url(subjectCn: "no-creds.example.com", sanDnsNames: []);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Contains("Basic", response.Headers.WwwAuthenticate.ToString());
@@ -270,8 +273,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using (var authenticated = _factory.CreateAuthenticatedClient())
         {
             Assert.Equal(HttpStatusCode.Accepted, (await authenticated.PostAsync("/.well-known/est/simpleenroll", Body(), ct)).StatusCode);
+            using var content = new StringContent(new string('A', 98_305));
             Assert.Equal(HttpStatusCode.RequestEntityTooLarge,
-                (await authenticated.PostAsync("/.well-known/est/simpleenroll", new StringContent(new string('A', 98_305)), ct)).StatusCode);
+                (await authenticated.PostAsync("/.well-known/est/simpleenroll", content, ct)).StatusCode);
         }
 
         Assert.Equal(1, recorder.Sum("ca.est.enrollments", ("operation", "enroll"), ("outcome", "unauthorized")));
@@ -287,8 +291,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient(); // configures HTTP Basic with a seeded credential
         var csr = TestCsrBuilder.BuildBase64Url(subjectCn: "device1.example.com", sanDnsNames: []);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.NotNull(response.Headers.RetryAfter);
@@ -343,8 +348,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildBase64Url(subjectCn: "wrapped-" + separator.Length + ".example.com", sanDnsNames: []);
 
+        using var content = new StringContent(WrappedBase64(csr, separator), System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(WrappedBase64(csr, separator), System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
     }
@@ -356,10 +362,12 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildBase64Url(subjectCn: "rewrapped.example.com", sanDnsNames: []);
 
+        using var content2 = new StringContent(WrappedBase64(csr, "\r\n"), System.Text.Encoding.ASCII, "application/pkcs10");
         var first = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(WrappedBase64(csr, "\r\n"), System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content2, ct);
+        using var content = new StringContent(WrappedBase64(csr, "\n"), System.Text.Encoding.ASCII, "application/pkcs10");
         var second = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(WrappedBase64(csr, "\n"), System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, first.StatusCode);
         Assert.Equal(HttpStatusCode.Accepted, second.StatusCode);
@@ -375,8 +383,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient(estAutoApprove: true);
         var csr = TestCsrBuilder.BuildBase64Url(subjectCn: "device3.example.com", sanDnsNames: []);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         // Approved rows go straight to the queue; without a running consumer in this test host
         // the row stays Approved, which the still-pending/202 path also covers.
@@ -392,8 +401,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildMlDsaBase64Url("pqc-device.example.com", []);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
@@ -412,9 +422,10 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         await SetStageAsync(PqcStage.Enforce, ct);
         try
         {
+            using var content = new StringContent(TestCsrBuilder.BuildBase64Url("enforced.example.com", []),
+                    System.Text.Encoding.ASCII, "application/pkcs10");
             var response = await client.PostAsync("/.well-known/est/simpleenroll",
-                new StringContent(TestCsrBuilder.BuildBase64Url("enforced.example.com", []),
-                    System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+                content, ct);
 
             Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
             Assert.Contains("classical", await response.Content.ReadAsStringAsync(ct));
@@ -433,9 +444,10 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         await SetStageAsync(PqcStage.Warn, ct);
         try
         {
+            using var content = new StringContent(TestCsrBuilder.BuildBase64Url("warned.example.com", []),
+                    System.Text.Encoding.ASCII, "application/pkcs10");
             var response = await client.PostAsync("/.well-known/est/simpleenroll",
-                new StringContent(TestCsrBuilder.BuildBase64Url("warned.example.com", []),
-                    System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+                content, ct);
 
             Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         }
@@ -461,8 +473,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildCompositeBase64Url("composite-device.example.com", [], "MLDSA87-Ed448-SHAKE256");
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
 
@@ -480,8 +493,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildEd25519Base64Url("ed25519-device.example.com");
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
@@ -498,8 +512,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildMlKemKeyedBase64Url("kem-device.example.com");
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
@@ -516,8 +531,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateClient(); // no client cert configured
         var csr = TestCsrBuilder.BuildBase64Url(subjectCn: "renew1.example.com", sanDnsNames: []);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simplereenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -543,8 +559,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
             await certRequests.SetupOrUpdateSettingsAsync(settings, "test-fixture", ct);
         }
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simplereenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
 
@@ -564,8 +581,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var presented = _factory.PresentClientCertificate(presentedCertificate);
         var csr = TestCsrBuilder.BuildBase64Url("Est Test CA", []);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simplereenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         await DeleteRequestsForCommonNameAsync("Est Test CA", ct);
@@ -578,14 +596,16 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateAuthenticatedClient();
         var csr = TestCsrBuilder.BuildBase64Url("completed-retry.example.test", []);
 
+        using var content2 = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var initial = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content2, ct);
         Assert.Equal(HttpStatusCode.Accepted, initial.StatusCode);
 
         await MarkCsrRequestIssuedAsync(csr, ct);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var retry = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.Equal("application/pkcs7-mime", retry.Content.Headers.ContentType!.MediaType);
@@ -606,14 +626,16 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         var csr = TestCsrBuilder.BuildBase64Url("Est Test CA", []);
 
         await SetEstAutoApproveAsync(false, ct);
+        using var content2 = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var initial = await client.PostAsync("/.well-known/est/simplereenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content2, ct);
         Assert.Equal(HttpStatusCode.Accepted, initial.StatusCode);
 
         await MarkCsrRequestIssuedAsync(csr, ct);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var retry = await client.PostAsync("/.well-known/est/simplereenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
         Assert.Equal("application/pkcs7-mime", retry.Content.Headers.ContentType!.MediaType);
@@ -631,12 +653,14 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         var firstCsr = TestCsrBuilder.BuildBase64Url("new-csr-retry.example.test", []);
         var newCsr = TestCsrBuilder.BuildBase64Url("new-csr-retry.example.test", []);
 
+        using var content2 = new StringContent(firstCsr, System.Text.Encoding.ASCII, "application/pkcs10");
         await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(firstCsr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content2, ct);
         await MarkCsrRequestIssuedAsync(firstCsr, ct);
 
+        using var content = new StringContent(newCsr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(newCsr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.NotNull(response.Headers.RetryAfter);
@@ -653,11 +677,13 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         var firstCsr = TestCsrBuilder.BuildBase64Url("pending-new-csr.example.test", []);
         var newCsr = TestCsrBuilder.BuildBase64Url("pending-new-csr.example.test", []);
 
+        using var content2 = new StringContent(firstCsr, System.Text.Encoding.ASCII, "application/pkcs10");
         await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(firstCsr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content2, ct);
 
+        using var content = new StringContent(newCsr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(newCsr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         using var scope = _factory.Services.CreateScope();
@@ -672,8 +698,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var owner = _factory.CreateAuthenticatedClient(estAutoApprove: true);
         var csr = TestCsrBuilder.BuildBase64Url("credential-isolation.example.test", []);
 
+        using var content2 = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         await owner.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content2, ct);
         await MarkCsrRequestIssuedAsync(csr, ct);
 
         await _factory.SeedCredentialAsync("other-device", "other-password", ct);
@@ -681,8 +708,9 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         var basic = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("other-device:other-password"));
         other.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", basic);
 
+        using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await other.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         using var scope = _factory.Services.CreateScope();

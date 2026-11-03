@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
@@ -32,8 +33,7 @@ public sealed class IdentityServiceHostTests : IDisposable
     {
         var resolvedDataPath = dataPath ?? NewDataPath();
 
-        return new WebApplicationFactory<IdentityServiceProgram>()
-            .WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<IdentityServiceProgram>(builder =>
             {
                 builder.UseEnvironment(Environments.Production);
                 builder.UseSetting("IdentityService:DataPath", resolvedDataPath);
@@ -47,6 +47,8 @@ public sealed class IdentityServiceHostTests : IDisposable
                     // deploy/identity/Dockerfile sets. The generic web host reads it and wires
                     // ForwardedHeadersMiddleware for XForwardedFor | XForwardedProto.
                     builder.UseSetting("ForwardedHeaders_Enabled", "true");
+                    // Required with the switch on; the request below comes from this address.
+                    builder.UseSetting("ForwardedHeaders:TrustedProxies", "10.0.0.2");
                 }
 
                 if (authority is not null)
@@ -241,18 +243,21 @@ public sealed class IdentityServiceHostTests : IDisposable
         // of the plain-HTTP proxy hop. The host still comes from the Host header, which the
         // proxy has to preserve — that switch does not consume X-Forwarded-Host.
         using var factory = CreateFactory(forwardedHeaders: true);
-        using var client = factory.CreateClient();
+        _ = factory.CreateClient();
 
-        var request = new HttpRequestMessage(HttpMethod.Get, "/.well-known/openid-configuration");
-        request.Headers.Host = "idp.test";
-        request.Headers.Add("X-Forwarded-Proto", "https");
+        var context = await factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = HttpMethods.Get;
+            c.Request.Path = "/.well-known/openid-configuration";
+            c.Request.Host = new HostString("idp.test");
+            c.Request.Headers["X-Forwarded-Proto"] = "https";
+            c.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("10.0.0.2");
+        }, TestContext.Current.CancellationToken);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
 
-        var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var document = await response.Content.ReadFromJsonAsync<JsonDocument>(
-            TestContext.Current.CancellationToken);
-        var root = document!.RootElement;
+        var document = await JsonDocument.ParseAsync(context.Response.Body,
+            cancellationToken: TestContext.Current.CancellationToken);
+        var root = document.RootElement;
 
         Assert.Equal($"{Authority}/connect/token", root.GetProperty("token_endpoint").GetString());
         Assert.Equal($"{Authority}/.well-known/jwks", root.GetProperty("jwks_uri").GetString());
@@ -270,12 +275,13 @@ public sealed class IdentityServiceHostTests : IDisposable
             BaseAddress = new Uri(Authority)
         });
 
-        var response = await client.PostAsync("/connect/device_authorization",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "qca",
                 ["scope"] = "openid profile qertum-api"
-            }),
+            });
+        var response = await client.PostAsync("/connect/device_authorization",
+            form,
             TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();

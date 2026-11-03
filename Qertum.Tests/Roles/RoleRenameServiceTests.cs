@@ -8,13 +8,18 @@ using Qertum.Tests.Policies;
 
 namespace Qertum.Tests.Roles;
 
-public sealed class RoleRenameServiceTests
+public sealed class RoleRenameServiceTests : IDisposable
 {
-    private static (RolePermissionService Service, RoleRecordingWebhookService Webhooks) Create(PolicyTestDb scope)
+    // The services a test creates share this cache; xUnit disposes the class after each test.
+    private readonly MemoryCache cache = new(new MemoryCacheOptions());
+
+    public void Dispose() => cache.Dispose();
+
+    private (RolePermissionService Service, RoleRecordingWebhookService Webhooks) Create(PolicyTestDb scope)
     {
         var webhooks = new RoleRecordingWebhookService();
         var service = new RolePermissionService(
-            scope.Db, new MemoryCache(new MemoryCacheOptions()), scope.Audit, webhooks,
+            scope.Db, cache, scope.Audit, webhooks,
             new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())),
             NullLogger<RolePermissionService>.Instance);
         return (service, webhooks);

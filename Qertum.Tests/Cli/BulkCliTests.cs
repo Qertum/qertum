@@ -24,15 +24,18 @@ public sealed class BulkCliTests
     {
         public List<string> Calls { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.PathAndQuery;
             Calls.Add($"{request.Method} {path}");
             var (status, body) = answer(request.Method, path);
             var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
             response.Headers.TryAddWithoutValidation("Retry-After", "1");
-            return Task.FromResult(response);
+            return response;
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private sealed class Harness

@@ -53,7 +53,7 @@ public sealed class RevokedIssuerCommandsTests
     public async Task SetRevokedIssuer_SendsPutWithTheModeName()
     {
         var handler = new Recording(HttpStatusCode.OK, "{}");
-        var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
+        using var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
 
         await client.SetRevokedIssuerModeAsync(RevokedIssuerMode.Retire, TestContext.Current.CancellationToken);
 

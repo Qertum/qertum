@@ -89,10 +89,11 @@ public sealed partial class KeycloakFixture : IAsyncDisposable
 
     private async Task<string> AdminTokenAsync(CancellationToken ct)
     {
-        var response = await _http.PostAsync($"{BaseUrl}/realms/master/protocol/openid-connect/token", new FormUrlEncodedContent(
+        using var form = new FormUrlEncodedContent(
         [
             new("grant_type", "password"), new("client_id", "admin-cli"), new("username", "admin"), new("password", "admin")
-        ]), ct);
+        ]);
+        var response = await _http.PostAsync($"{BaseUrl}/realms/master/protocol/openid-connect/token", form, ct);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<JsonNode>(ct))!["access_token"]!.GetValue<string>();
     }
@@ -276,11 +277,12 @@ public sealed partial class KeycloakFixture : IAsyncDisposable
 
     private async Task<string> ExchangeAsync(string code, string verifier, CancellationToken ct)
     {
-        var response = await _http.PostAsync($"{BaseUrl}/realms/{Realm}/protocol/openid-connect/token", new FormUrlEncodedContent(
+        using var form = new FormUrlEncodedContent(
         [
             new("grant_type", "authorization_code"), new("client_id", ClientId), new("code", code),
             new("redirect_uri", RedirectUri), new("code_verifier", verifier)
-        ]), ct);
+        ]);
+        var response = await _http.PostAsync($"{BaseUrl}/realms/{Realm}/protocol/openid-connect/token", form, ct);
         var text = await response.Content.ReadAsStringAsync(ct);
         response.EnsureSuccessStatusCode();
         return JsonNode.Parse(text)!["access_token"]!.GetValue<string>();

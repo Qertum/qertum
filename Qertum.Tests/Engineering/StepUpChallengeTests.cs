@@ -53,7 +53,7 @@ public sealed class StepUpChallengeTests
             response.Headers.TryAddWithoutValidation("WWW-Authenticate", Header);
             return response;
         });
-        var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
+        using var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
 
         var ex = await Assert.ThrowsAsync<ApiProblemException>(() => client.GetAuditCheckpointAsync(TestContext.Current.CancellationToken));
 
@@ -64,7 +64,7 @@ public sealed class StepUpChallengeTests
     [Fact]
     public async Task AnOrdinary401_HasNoChallenge()
     {
-        var client = new CertificateRequestsApiClient(new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)))
+        using var client = new CertificateRequestsApiClient(new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)))
             { BaseAddress = new Uri("https://api.test/") });
 
         var ex = await Assert.ThrowsAsync<ApiProblemException>(() => client.GetAuditCheckpointAsync(TestContext.Current.CancellationToken));
@@ -74,7 +74,10 @@ public sealed class StepUpChallengeTests
 
     private sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            respond(request);
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(respond(request));
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

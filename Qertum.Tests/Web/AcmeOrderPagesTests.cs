@@ -73,24 +73,27 @@ public sealed class AcmeOrderPagesTests
     {
         var context = new BunitContext();
         context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.SettingsEdit);
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new Stub(list, detail)) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
 
     private sealed class Stub(PagedResult<AcmeOrderSummary>? list, AcmeOrderDetail? detail) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             object? body = request.RequestUri!.AbsolutePath == "/v1/acme/orders/" || request.RequestUri.AbsolutePath == "/v1/acme/orders"
                 ? list
                 : detail;
-            return Task.FromResult(body is null
+            return body is null
                 ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
                 : new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(JsonSerializer.Serialize(body, JsonSerializerOptions.Web), Encoding.UTF8, "application/json")
-                });
+                };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

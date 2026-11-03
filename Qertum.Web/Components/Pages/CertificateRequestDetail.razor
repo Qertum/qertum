@@ -472,16 +472,16 @@ else
     private string GetProgressClass()
     {
         if (request?.Status == CertificateRequestStatus.Revoked) return "revoked";
-        if (request?.ValidTo.HasValue == true && request.ValidTo.Value <= Now) return "expired";
-        if (request?.ValidTo.HasValue == true && request.ValidTo.Value <= Now.AddDays(30)) return "expiring";
+        if (request is { ValidTo: { } validTo } && validTo <= Now) return "expired";
+        if (request is { ValidTo: { } soonTo } && soonTo <= Now.AddDays(30)) return "expiring";
         return "valid";
     }
 
     private string GetProgressPct()
     {
-        if (request?.ValidFrom == null || request.ValidTo == null) return "0";
-        var total = (request.ValidTo.Value - request.ValidFrom.Value).TotalSeconds;
-        var elapsed = (Now - request.ValidFrom.Value).TotalSeconds;
+        if (request is not { ValidFrom: { } validFrom, ValidTo: { } validTo }) return "0";
+        var total = (validTo - validFrom).TotalSeconds;
+        var elapsed = (Now - validFrom).TotalSeconds;
         return Math.Clamp(elapsed / total * 100, 0, 100).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
     }
 }

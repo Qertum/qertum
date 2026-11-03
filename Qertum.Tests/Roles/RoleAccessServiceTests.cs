@@ -6,13 +6,28 @@ using Qertum.Tests.Policies;
 
 namespace Qertum.Tests.Roles;
 
-public sealed class RoleAccessServiceTests
+public sealed class RoleAccessServiceTests : IDisposable
 {
+    // Each service a test makes gets its own memory cache (two instances stand for two hosts); disposed with the test.
+    private readonly List<MemoryCache> caches = [];
+
+    public void Dispose()
+    {
+        foreach (var cache in caches) cache.Dispose();
+    }
+
+    private MemoryCache NewCache()
+    {
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        caches.Add(cache);
+        return cache;
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 9, 14, 12, 0, 0, TimeSpan.Zero);
 
-    private static RoleAccessService Service(PolicyTestDb scope, FakeTimeProvider time) =>
+    private RoleAccessService Service(PolicyTestDb scope, FakeTimeProvider time) =>
         new(scope.Db,
-            new RolePermissionService(scope.Db, new MemoryCache(new MemoryCacheOptions()), scope.Audit, new NullPolicyWebhookService(),
+            new RolePermissionService(scope.Db, NewCache(), scope.Audit, new NullPolicyWebhookService(),
                 new Microsoft.Extensions.Caching.Distributed.MemoryDistributedCache(
                     Microsoft.Extensions.Options.Options.Create(new MemoryDistributedCacheOptions())),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<RolePermissionService>.Instance),

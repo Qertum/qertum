@@ -40,8 +40,9 @@ discovery will advertise `http://` URLs under an `https://` issuer and consumers
 
 Requirements on the proxy:
 
-- Send `X-Forwarded-Proto: https`. The image sets `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true`,
-  which makes ASP.NET Core apply `X-Forwarded-For` and `X-Forwarded-Proto` to the request.
+- Send `X-Forwarded-Proto: https`, and set `QERTUM_TRUSTED_PROXIES` on the container to the proxy's IP
+  address or network (comma-separated, for example `172.18.0.0/16`). The headers are applied only from
+  those addresses; anyone else reaching the port could otherwise claim https or any client address.
 - Preserve the original `Host` header (nginx: `proxy_set_header Host $host`; Caddy and
   Traefik do this by default). That switch does **not** consume `X-Forwarded-Host`, so the
   host comes from `Host` alone.
@@ -59,7 +60,7 @@ Requirements on the proxy:
 | `IdentityService__CertificateRenewBeforeDays` | No | `90` | How long before expiry a replacement is created; also the overlap window. |
 | `IdentityService__AuditLog__Path` | No | `{DataPath}/audit-logs/identity-audit-.clef` | Audit log of user and role administration, shown at `/Admin/Audit`. |
 | `IdentityService__DisableTransportSecurity` | No | `false` | Opts out of OpenIddict's HTTPS requirement. Set `true` behind a TLS-terminating proxy — and forward scheme/host, see above. |
-| `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | No | `true` (set in the image) | Applies `X-Forwarded-For` / `X-Forwarded-Proto` from the proxy. |
+| `QERTUM_TRUSTED_PROXIES` | Behind a TLS proxy | unset | IP addresses or CIDR networks of the proxy. When set, `X-Forwarded-For` / `X-Forwarded-Proto` are applied from those addresses only; unset, they are ignored. Setting `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` without it stops the provider at startup. |
 | `IdentityService__EnableServiceDiscoveryRedirectUris` | No | Development only | Adds redirect URIs read from `Services__webfrontend__*` on top of `clients.json`. Nothing injects those variables in this deployment, so keep it off here. |
 | `IdentityService__ApiClientSecret` | No | generated | Overrides the seeded `qertum-api` client secret. |
 | `IdentityService__SeedAdminPassword` | No | `password` | Password for the `admin` user seeded on an empty volume. Read only when `users.json` is absent — changing it later has no effect. When unset, the account is seeded with `password` and flagged: the first login must change it before the account can obtain any token or reach any other page of the provider. |

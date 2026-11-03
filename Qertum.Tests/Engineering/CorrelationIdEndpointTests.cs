@@ -37,7 +37,7 @@ public sealed class CorrelationIdEndpointTests : IDisposable
     private WebApplicationFactory<ApiServiceProgram> CreateFactory(bool throwingRecovery = false)
     {
         var database = SharedInMemoryDatabase.Create();
-        return new WebApplicationFactory<ApiServiceProgram>().WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<ApiServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.ConfigureTestServices(services =>
@@ -207,8 +207,9 @@ public sealed class CorrelationIdEndpointTests : IDisposable
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test");
 
+        using var content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
         var response = await client.PostAsync("/v1/certificate-requests",
-            new StringContent("{}", System.Text.Encoding.UTF8, "application/json"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(CorrelationId(response), await BodyTraceIdAsync(response, ct));

@@ -10,14 +10,15 @@ public sealed class AuthTokenTests(AspireIntegrationFixture fixture)
     public async Task ClientCredentials_WithValidSecret_ReturnsToken()
     {
         using var idClient = fixture.App.CreateHttpClient("identityservice", "https");
-        var resp = await idClient.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"]    = "client_credentials",
                 ["client_id"]     = "qertum-test-m2m",
                 ["client_secret"] = "test-m2m-secret",
                 ["scope"]         = "qertum-api"
-            }), TestContext.Current.CancellationToken);
+            });
+        var resp = await idClient.PostAsync("/connect/token",
+            form, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(TestContext.Current.CancellationToken);
@@ -34,14 +35,15 @@ public sealed class AuthTokenTests(AspireIntegrationFixture fixture)
     public async Task ClientCredentials_WithWrongSecret_ReturnsInvalidClientError()
     {
         using var idClient = fixture.App.CreateHttpClient("identityservice", "https");
-        var resp = await idClient.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"]    = "client_credentials",
                 ["client_id"]     = "qertum-test-m2m",
                 ["client_secret"] = "bad-secret",
                 ["scope"]         = "qertum-api"
-            }), TestContext.Current.CancellationToken);
+            });
+        var resp = await idClient.PostAsync("/connect/token",
+            form, TestContext.Current.CancellationToken);
 
         Assert.True(
             resp.StatusCode == HttpStatusCode.BadRequest ||
@@ -57,14 +59,15 @@ public sealed class AuthTokenTests(AspireIntegrationFixture fixture)
         using var idClient = fixture.App.CreateHttpClient("identityservice", "https");
         var expectedIssuer = idClient.BaseAddress!.ToString().TrimEnd('/') + "/";
 
-        var resp = await idClient.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"]    = "client_credentials",
                 ["client_id"]     = "qertum-test-m2m",
                 ["client_secret"] = "test-m2m-secret",
                 ["scope"]         = "qertum-api"
-            }), TestContext.Current.CancellationToken);
+            });
+        var resp = await idClient.PostAsync("/connect/token",
+            form, TestContext.Current.CancellationToken);
         resp.EnsureSuccessStatusCode();
         var doc = await resp.Content.ReadFromJsonAsync<JsonDocument>(TestContext.Current.CancellationToken);
         var token = doc!.RootElement.GetProperty("access_token").GetString()!;

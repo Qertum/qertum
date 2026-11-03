@@ -8,8 +8,16 @@ using Qertum.Web.Components.Shared;
 
 namespace Qertum.Tests.Web;
 
-public sealed class CertificateTimelineNotesTests
+public sealed class CertificateTimelineNotesTests : IAsyncDisposable
 {
+    // A test may render more than once; each render gets its own context, and all of them are disposed with the test.
+    private readonly List<BunitContext> contexts = [];
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var context in contexts) await context.DisposeAsync();
+    }
+
     private static readonly Guid RequestId = Guid.Parse("3f2c9a1e-0000-0000-0000-000000000000");
     private static readonly DateTime At = new(2026, 10, 14, 12, 0, 0, DateTimeKind.Utc);
 
@@ -55,11 +63,12 @@ public sealed class CertificateTimelineNotesTests
         UpdatedAtUtc = edited ? At.AddHours(3) : At
     };
 
-    private static (IRenderedComponent<CertificateTimeline> Cut, Api Handler) Render(Func<CertificateTimelineResponse> timeline, Func<HttpRequestMessage, HttpResponseMessage>? write = null)
+    private (IRenderedComponent<CertificateTimeline> Cut, Api Handler) Render(Func<CertificateTimelineResponse> timeline, Func<HttpRequestMessage, HttpResponseMessage>? write = null)
     {
-        var handler = new Api(timeline, write);
         var context = new BunitContext();
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
+        contexts.Add(context);
+        var handler = new Api(timeline, write);
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
         var cut = context.Render<CertificateTimeline>(p => p.Add(c => c.RequestId, RequestId));
         cut.WaitForAssertion(() => Assert.NotEmpty(cut.FindAll("[data-test='note-form']")));
         return (cut, handler);

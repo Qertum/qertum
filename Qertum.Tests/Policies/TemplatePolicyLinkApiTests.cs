@@ -32,7 +32,7 @@ public sealed class TemplatePolicyLinkApiTests
 
     private static Task<HttpResponseMessage> LinkAsync(HttpClient client, string templateId, IssuancePolicyId? policyId, CancellationToken ct) =>
         client.PutAsJsonAsync($"/v1/certificate-templates/{templateId}/issuance-policy",
-            new { issuancePolicyId = policyId?.Value }, ct);
+            new { issuancePolicyId = policyId is { } linked ? linked.Value : (Guid?)null }, ct);
 
     [Fact]
     public async Task Link_AsAdmin_TakesEffectOnTheNextRequest()

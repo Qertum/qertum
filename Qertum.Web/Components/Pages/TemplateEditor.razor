@@ -500,7 +500,7 @@ else
                 description = template.Description;
                 validityDays = template.ValidityDays;
                 isBuiltIn = template.IsBuiltIn;
-                loadedPolicyId = template.IssuancePolicyId?.Value.ToString() ?? string.Empty;
+                loadedPolicyId = template.IssuancePolicyId is { } linkedPolicyId ? linkedPolicyId.Value.ToString() : string.Empty;
                 selectedPolicyId = loadedPolicyId;
                 linkablePolicies = [.. (await CertificateRequestsApiClient.GetIssuancePoliciesAsync())
                     .Where(p => !p.IsArchived && p.PublishedVersionNumber is not null)];

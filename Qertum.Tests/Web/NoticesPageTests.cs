@@ -7,17 +7,25 @@ using Qertum.Web.Components.Pages;
 
 namespace Qertum.Tests.Web;
 
-public sealed class NoticesPageTests
+public sealed class NoticesPageTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private sealed class Api(Func<HttpResponseMessage> answer) : HttpMessageHandler
     {
         public List<string> Calls { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls.Add(request.RequestUri!.PathAndQuery);
-            return Task.FromResult(answer());
+            return answer();
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private const string OneNotice = """
@@ -31,12 +39,11 @@ public sealed class NoticesPageTests
         return response;
     }
 
-    private static (IRenderedComponent<Notices> Cut, Api Handler) Render(Func<HttpResponseMessage> answer)
+    private (IRenderedComponent<Notices> Cut, Api Handler) Render(Func<HttpResponseMessage> answer)
     {
         var handler = new Api(answer);
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
         return (context.Render<Notices>(), handler);
     }
 

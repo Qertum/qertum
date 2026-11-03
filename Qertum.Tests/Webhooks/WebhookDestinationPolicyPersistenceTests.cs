@@ -165,7 +165,7 @@ public sealed class WebhookDestinationPolicyPersistenceTests
     }
 
     private sealed class PolicyDatabase(SqliteConnection anchor, string connectionString, IDataProtectionProvider protection)
-        : IAsyncDisposable
+        : IAsyncDisposable, IDisposable
     {
         public static async Task<PolicyDatabase> CreateAsync()
         {
@@ -180,6 +180,9 @@ public sealed class WebhookDestinationPolicyPersistenceTests
 
         public CertificateRequestDbContext OpenContext() => new(
             new DbContextOptionsBuilder<CertificateRequestDbContext>().UseSqlite(connectionString).Options, protection);
+
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         public async ValueTask DisposeAsync() => await anchor.DisposeAsync();
     }

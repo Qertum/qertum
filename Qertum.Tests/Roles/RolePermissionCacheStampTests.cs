@@ -11,8 +11,23 @@ namespace Qertum.Tests.Roles;
 /// Two API instances share the database and the distributed cache but have their own memory cache.
 /// Without a shared stamp the second instance keeps serving a revoked grant for up to 60 seconds.
 /// </summary>
-public sealed class RolePermissionCacheStampTests
+public sealed class RolePermissionCacheStampTests : IDisposable
 {
+    // Each service a test makes gets its own memory cache (two instances stand for two hosts); disposed with the test.
+    private readonly List<MemoryCache> caches = [];
+
+    public void Dispose()
+    {
+        foreach (var cache in caches) cache.Dispose();
+    }
+
+    private MemoryCache NewCache()
+    {
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        caches.Add(cache);
+        return cache;
+    }
+
     private sealed class ThrowingDistributedCache : IDistributedCache
     {
         public byte[]? Get(string key) => throw new InvalidOperationException("cache down");
@@ -25,8 +40,8 @@ public sealed class RolePermissionCacheStampTests
         public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options, CancellationToken token = default) => throw new InvalidOperationException("cache down");
     }
 
-    private static RolePermissionService Instance(PolicyTestDb scope, IDistributedCache shared) =>
-        new(scope.Db, new MemoryCache(new MemoryCacheOptions()), scope.Audit, new NullPolicyWebhookService(), shared,
+    private RolePermissionService Instance(PolicyTestDb scope, IDistributedCache shared) =>
+        new(scope.Db, NewCache(), scope.Audit, new NullPolicyWebhookService(), shared,
             NullLogger<RolePermissionService>.Instance);
 
     private static IDistributedCache SharedCache() =>

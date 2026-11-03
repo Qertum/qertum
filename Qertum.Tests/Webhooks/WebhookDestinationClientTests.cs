@@ -22,7 +22,7 @@ public sealed class WebhookDestinationClientTests
                     : new WebhookDestinationPolicyResponse { Initialized = true, PublicMode = WebhookPublicMode.ListedPublic };
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(response) };
         })) { BaseAddress = new Uri("https://api.example/") };
-        var client = new CertificateRequestsApiClient(http);
+        using var client = new CertificateRequestsApiClient(http);
         var id = Guid.NewGuid();
 
         Assert.Equal(WebhookPublicMode.ListedPublic, (await client.GetWebhookDestinationPolicyAsync(TestContext.Current.CancellationToken)).PublicMode);
@@ -46,11 +46,11 @@ public sealed class WebhookDestinationClientTests
     [Fact]
     public async Task ClientPreservesServerProblem()
     {
-        using var http = new HttpClient(new RecordingHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)
+        using var http = new HttpClient(new ReplyHandler(_ => new HttpResponseMessage(HttpStatusCode.Forbidden)
         {
             Content = JsonContent.Create(new { title = "Forbidden", detail = "Admin role required." })
-        }))) { BaseAddress = new Uri("https://api.example/") };
-        var client = new CertificateRequestsApiClient(http);
+        })) { BaseAddress = new Uri("https://api.example/") };
+        using var client = new CertificateRequestsApiClient(http);
 
         var problem = await Assert.ThrowsAsync<ApiProblemException>(() => client.GetWebhookDestinationPolicyAsync(TestContext.Current.CancellationToken));
         Assert.Equal(HttpStatusCode.Forbidden, problem.StatusCode);
@@ -59,20 +59,29 @@ public sealed class WebhookDestinationClientTests
     [Fact]
     public async Task ClientSurfacesValidationMessagesWhenTheProblemHasNoDetail()
     {
-        using var http = new HttpClient(new RecordingHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+        using var http = new HttpClient(new ReplyHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
         {
             Content = JsonContent.Create(new
             {
                 title = "One or more validation errors occurred.",
                 errors = new Dictionary<string, string[]> { ["Url"] = ["Url must be an absolute http or https URL."] }
             })
-        }))) { BaseAddress = new Uri("https://api.example/") };
-        var client = new CertificateRequestsApiClient(http);
+        })) { BaseAddress = new Uri("https://api.example/") };
+        using var client = new CertificateRequestsApiClient(http);
 
         var problem = await Assert.ThrowsAsync<ApiProblemException>(() => client.GetWebhookDestinationPolicyAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal("Url must be an absolute http or https URL.", problem.Message);
         Assert.Equal("One or more validation errors occurred.", problem.Title);
+    }
+
+    // Answers synchronously: the response is made in the reply and handed to the client, which disposes it once read.
+    private sealed class ReplyHandler(Func<HttpRequestMessage, HttpResponseMessage> reply) : HttpMessageHandler
+    {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) => reply(request);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private sealed class RecordingHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler

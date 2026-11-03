@@ -29,7 +29,7 @@ internal static class SettingsPageHarness
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var log = new RequestLog();
         context.Services.AddSingleton(log);
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new SettingsStub(caStatusJson, pqcStage, requireIndependentCaApproval, recoveryStatusFails, requireTwoPersonApproval, issuerStrength, revokedIssuer, log)) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }

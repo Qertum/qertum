@@ -116,7 +116,7 @@ public sealed class CertificateRequestListApiTests
             ("api.contoso.local", "alice@contoso.local", CertificateRequestStatus.Pending),
             ("api.fabrikam.local", "alice@contoso.local", CertificateRequestStatus.Issued),
             ("mail.contoso.local", "bob@contoso.local", CertificateRequestStatus.Pending));
-        var client = new CertificateRequestsApiClient(Admin(factory));
+        using var client = new CertificateRequestsApiClient(Admin(factory));
 
         var page = await client.GetCertificateRequestsAsync(
             status: CertificateRequestStatus.Pending, search: "api", cancellationToken: ct);
@@ -135,7 +135,7 @@ public sealed class CertificateRequestListApiTests
         await SeedAsync(factory, ct,
             ("a&b+c.contoso.local", "alice@contoso.local", CertificateRequestStatus.Pending),
             ("plain.contoso.local", "bob@contoso.local", CertificateRequestStatus.Pending));
-        var client = new CertificateRequestsApiClient(Admin(factory));
+        using var client = new CertificateRequestsApiClient(Admin(factory));
 
         var page = await client.GetCertificateRequestsAsync(search: "a&b+c", cancellationToken: ct);
 
@@ -151,7 +151,7 @@ public sealed class CertificateRequestListApiTests
         await SeedAsync(factory, ct,
             ("a.contoso.local", "alice@contoso.local", CertificateRequestStatus.Pending),
             ("b.contoso.local", "alice@contoso.local", CertificateRequestStatus.Issued));
-        var client = new CertificateRequestsApiClient(Admin(factory));
+        using var client = new CertificateRequestsApiClient(Admin(factory));
 
         var counts = await client.GetRequestStatusCountsAsync(cancellationToken: ct);
 

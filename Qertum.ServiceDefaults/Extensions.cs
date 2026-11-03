@@ -86,6 +86,8 @@ public static class Extensions
                 .ReadFrom.Configuration(builder.Configuration)
                 .Enrich.FromLogContext()
                 .Enrich.With<Qertum.ServiceDefaults.Logging.TraceIdEnricher>()
+                // After FromLogContext so context properties are covered too: the console prints strings raw.
+                .Enrich.With<Qertum.ServiceDefaults.Logging.ControlCharacterEscapingEnricher>()
                 .WriteTo.Console(
                     outputTemplate: Qertum.ServiceDefaults.Logging.ConsoleLog.OutputTemplate,
                     formatProvider: System.Globalization.CultureInfo.InvariantCulture),

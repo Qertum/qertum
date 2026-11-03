@@ -23,6 +23,8 @@ services:
       # once the provider is reached over HTTPS end to end. If a proxy terminates TLS it
       # must send X-Forwarded-Proto and preserve Host — advertised endpoint URLs are built
       # from the request, not from Authority. See README "Behind a reverse proxy".
+      # Behind a proxy, also name it (the only source of trusted X-Forwarded-* headers):
+      # QERTUM_TRUSTED_PROXIES: "172.18.0.0/16"
       IdentityService__DisableTransportSecurity: "true"
       # Nothing injects Services__webfrontend__* here, so redirect URIs come from
       # clients.json alone — edit it on the volume and restart.

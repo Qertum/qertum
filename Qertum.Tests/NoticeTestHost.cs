@@ -10,7 +10,7 @@ using Qertum.Services.Notices;
 namespace Qertum.Tests;
 
 /// <summary>A sweeper over a real in-memory database with a fake clock and recording audit and webhooks.</summary>
-internal sealed class NoticeTestHost : IAsyncDisposable
+internal sealed class NoticeTestHost : IAsyncDisposable, IDisposable
 {
     public static readonly DateTimeOffset Start = new(2026, 10, 14, 12, 0, 0, TimeSpan.Zero);
 
@@ -87,6 +87,9 @@ internal sealed class NoticeTestHost : IAsyncDisposable
     public async Task<List<Notice>> NoticesAsync() =>
         await Db.Notices.AsNoTracking().OrderBy(n => n.CreatedAtUtc).ThenBy(n => n.Kind).ThenBy(n => n.Step)
             .ToListAsync(TestContext.Current.CancellationToken);
+
+    // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
     public async ValueTask DisposeAsync()
     {

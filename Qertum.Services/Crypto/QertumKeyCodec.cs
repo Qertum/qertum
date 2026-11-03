@@ -145,7 +145,8 @@ public static class QertumKeyCodec
     public static X509Certificate? ReadCertificatePem(string pem)
     {
         using var reader = new StringReader(pem);
-        return new PemReader(reader).ReadObject() as X509Certificate;
+        using var pemReader = new PemReader(reader);
+        return pemReader.ReadObject() as X509Certificate;
     }
 
     public static string WriteCertificatePem(X509Certificate certificate) => WriteOpenSslPem(certificate);
@@ -158,7 +159,8 @@ public static class QertumKeyCodec
     {
         using (var reader = new StringReader(pem))
         {
-            if (new RawPemReader(reader).ReadPemObject() is { Type: Pkcs8PemType } pemObject)
+            using var rawReader = new RawPemReader(reader);
+            if (rawReader.ReadPemObject() is { Type: Pkcs8PemType } pemObject)
             {
                 var info = PrivateKeyInfo.GetInstance(pemObject.Content);
                 if (CompositeAlgorithms.FindByOid(info.PrivateKeyAlgorithm.Algorithm) is { } composite)
@@ -176,7 +178,8 @@ public static class QertumKeyCodec
         }
 
         using var openSsl = new StringReader(pem);
-        return new PemReader(openSsl).ReadObject() switch
+        using var openSslReader = new PemReader(openSsl);
+        return openSslReader.ReadObject() switch
         {
             AsymmetricCipherKeyPair pair => pair.Private,
             AsymmetricKeyParameter { IsPrivate: true } key => key,
@@ -190,7 +193,8 @@ public static class QertumKeyCodec
             return WriteOpenSslPem(privateKey);
 
         using var writer = new StringWriter();
-        new RawPemWriter(writer).WriteObject(new PemObject(Pkcs8PemType, CompositePkcs8(composite)));
+        using (var pemWriter = new RawPemWriter(writer))
+            pemWriter.WriteObject(new PemObject(Pkcs8PemType, CompositePkcs8(composite)));
         return writer.ToString();
     }
 
@@ -211,14 +215,16 @@ public static class QertumKeyCodec
             NistObjectIdentifiers.IdAes256Cbc, PkcsObjectIdentifiers.IdHmacWithSha256,
             passphrase.ToCharArray(), salt, Pkcs12Writer.Iterations, random, ToPrivateKeyInfo(privateKey));
         using var writer = new StringWriter();
-        new RawPemWriter(writer).WriteObject(new PemObject(EncryptedPkcs8PemType, encrypted.GetEncoded()));
+        using (var pemWriter = new RawPemWriter(writer))
+            pemWriter.WriteObject(new PemObject(EncryptedPkcs8PemType, encrypted.GetEncoded()));
         return writer.ToString();
     }
 
     public static AsymmetricKeyParameter ReadEncryptedPrivateKeyPem(string pem, string passphrase)
     {
         using var reader = new StringReader(pem);
-        var pemObject = new RawPemReader(reader).ReadPemObject();
+        using var rawReader = new RawPemReader(reader);
+        var pemObject = rawReader.ReadPemObject();
         if (pemObject is not { Type: EncryptedPkcs8PemType })
             throw new ArgumentException("The file does not hold an encrypted PKCS#8 private key.", nameof(pem));
 
@@ -241,14 +247,16 @@ public static class QertumKeyCodec
     public static string WriteCertificationRequestPem(Pkcs10CertificationRequest csr)
     {
         using var writer = new StringWriter();
-        new RawPemWriter(writer).WriteObject(new PemObject(CsrPemType, csr.GetDerEncoded()));
+        using (var pemWriter = new RawPemWriter(writer))
+            pemWriter.WriteObject(new PemObject(CsrPemType, csr.GetDerEncoded()));
         return writer.ToString();
     }
 
     public static Pkcs10CertificationRequest ReadCertificationRequestPem(string pem)
     {
         using var reader = new StringReader(pem);
-        var pemObject = new RawPemReader(reader).ReadPemObject();
+        using var rawReader = new RawPemReader(reader);
+        var pemObject = rawReader.ReadPemObject();
         return pemObject is { Type: CsrPemType or "NEW CERTIFICATE REQUEST" }
             ? new Pkcs10CertificationRequest(pemObject.Content)
             : throw new ArgumentException("The PEM does not hold a certificate request.", nameof(pem));
@@ -289,7 +297,8 @@ public static class QertumKeyCodec
     private static string WriteOpenSslPem(object value)
     {
         using var writer = new StringWriter();
-        new PemWriter(writer).WriteObject(value);
+        using (var pemWriter = new PemWriter(writer))
+            pemWriter.WriteObject(value);
         return writer.ToString();
     }
 }

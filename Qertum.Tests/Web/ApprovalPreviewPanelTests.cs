@@ -10,8 +10,13 @@ using Qertum.Web.Components.Shared;
 
 namespace Qertum.Tests.Web;
 
-public sealed class ApprovalPreviewPanelTests
+public sealed class ApprovalPreviewPanelTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private static readonly Guid V5 = Guid.NewGuid();
 
     private static CertificateRequest Pending() => new()
@@ -19,15 +24,14 @@ public sealed class ApprovalPreviewPanelTests
         Id = Guid.NewGuid(), CommonName = "pending.example", Type = "WebServer", Status = CertificateRequestStatus.Pending
     };
 
-    private static (BunitContext Context, DetailStub Api) NewContext(CertificateRequest request, ApprovalPreviewResponse preview, bool manage)
+    private (BunitContext Context, DetailStub Api) NewContext(CertificateRequest request, ApprovalPreviewResponse preview, bool manage)
     {
-        var context = new BunitContext();
         context.Services.AddSingleton(TimeProvider.System);
         context.Services.AddAutomationSnippets();
         var auth = context.AddAuthorization().SetAuthorized("alice");
         if (manage) auth.SetPolicies(AppPermissions.CertificatesManage);
         var api = new DetailStub(request, preview);
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         // The live circuit; the prerender test overrides this. Last, because it resolves the renderer.
         context.SetRendererInfo(new RendererInfo("Server", isInteractive: true));
         return (context, api);

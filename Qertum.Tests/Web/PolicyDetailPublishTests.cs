@@ -52,7 +52,7 @@ public sealed class PolicyDetailPublishTests
         var context = new BunitContext();
         context.AddAuthorization().SetAuthorized("alice");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(stub) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
@@ -60,7 +60,7 @@ public sealed class PolicyDetailPublishTests
     /// <summary>Serves a policy with a draft; every POST is refused with the given problem.</summary>
     private sealed class PolicyStub(HttpStatusCode refusal, string title, string detail) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.Method == HttpMethod.Post)
             {
@@ -69,7 +69,7 @@ public sealed class PolicyDetailPublishTests
                     Content = new StringContent(JsonSerializer.Serialize(new { title, detail }), Encoding.UTF8, "application/problem+json")
                 };
                 problem.Headers.Add("X-Correlation-Id", "0af7651916cd43dd8448eb211c80319c");
-                return Task.FromResult(problem);
+                return problem;
             }
 
             object body = request.RequestUri!.AbsolutePath.EndsWith("/versions", StringComparison.Ordinal)
@@ -84,10 +84,13 @@ public sealed class PolicyDetailPublishTests
                         MaxValidityDays = 30
                     }
                 };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(body, JsonSerializerOptions.Web), Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

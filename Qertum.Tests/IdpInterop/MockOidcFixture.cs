@@ -81,10 +81,11 @@ public sealed class MockOidcFixture : IAsyncDisposable
 
     public async Task<string> TokenAsync(string scenario, CancellationToken ct)
     {
-        var response = await _http.PostAsync($"{Authority}/token", new FormUrlEncodedContent(
+        using var form = new FormUrlEncodedContent(
         [
             new("grant_type", "client_credentials"), new("client_id", "c"), new("client_secret", "s"), new("scope", scenario)
-        ]), ct);
+        ]);
+        var response = await _http.PostAsync($"{Authority}/token", form, ct);
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<JsonNode>(ct))!["access_token"]!.GetValue<string>();
     }

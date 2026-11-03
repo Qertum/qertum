@@ -71,7 +71,7 @@ public sealed class LoginRateLimitTests
     {
         var ct = TestContext.Current.CancellationToken;
         var users = await CreateStoreAsync(ct);
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        using var cache = new MemoryCache(new MemoryCacheOptions());
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 15, 9, 0, 0, TimeSpan.Zero));
         var audit = new RecordingAudit();
         var limiter = new PasswordAttemptLimiter(cache, time);
@@ -98,7 +98,7 @@ public sealed class LoginRateLimitTests
     {
         var ct = TestContext.Current.CancellationToken;
         var users = await CreateStoreAsync(ct);
-        var cache = new MemoryCache(new MemoryCacheOptions());
+        using var cache = new MemoryCache(new MemoryCacheOptions());
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 9, 15, 9, 0, 0, TimeSpan.Zero));
         var audit = new RecordingAudit();
         var limiter = new PasswordAttemptLimiter(cache, time);

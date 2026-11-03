@@ -15,6 +15,9 @@
 #       - ./Caddyfile:/etc/caddy/Caddyfile
 #       - caddy-data:/data
 #     depends_on: [qertum]
+#
+# Qertum itself then needs QERTUM_PUBLIC_SCHEME=https and QERTUM_TRUSTED_PROXIES set to Caddy's address or
+# network (for example the compose network's subnet), and no published 8080-8082 of its own.
 
 ca.example.com:8080 {
 	reverse_proxy qertum:8080

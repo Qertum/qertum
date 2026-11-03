@@ -40,7 +40,7 @@ public sealed class ForcedPasswordChangeFilter(JsonUserStore userStore) : IAsync
         PageHandlerExecutionDelegate next)
     {
         var user = context.HttpContext.User;
-        if (user?.Identity?.IsAuthenticated != true)
+        if (user is not { Identity.IsAuthenticated: true })
         {
             // Anonymous requests (/login, /device) are unaffected; there is no account to flag.
             await next();

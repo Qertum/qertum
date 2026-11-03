@@ -9,8 +9,13 @@ using Qertum.Web.Components.Pages;
 
 namespace Qertum.Tests.Web;
 
-public sealed class PqcExceptionsPageTests
+public sealed class PqcExceptionsPageTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private static readonly DateTimeOffset Now = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
@@ -54,14 +59,13 @@ public sealed class PqcExceptionsPageTests
         IsActive = active && !revoked
     };
 
-    private static (BunitContext Context, Stub Api) NewContext()
+    private (BunitContext Context, Stub Api) NewContext()
     {
         var api = new Stub();
-        var context = new BunitContext();
         context.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(Now));
         context.AddAuthorization().SetAuthorized("alice").SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return (context, api);
     }
 
@@ -208,7 +212,7 @@ public sealed class PqcExceptionsPageTests
     {
         var (context, api) = NewContext();
         await using var _ = context;
-        var reply = new HttpResponseMessage(HttpStatusCode.InternalServerError)
+        using var reply = new HttpResponseMessage(HttpStatusCode.InternalServerError)
         {
             Content = new StringContent("""{"title":"Internal Server Error","status":500,"detail":"Boom."}""",
                 Encoding.UTF8, "application/problem+json")

@@ -71,7 +71,8 @@ public sealed class OfflineCeremonyEndToEndTests
             // Root CRL round trip: sign offline, upload, served verbatim.
             var crlPath = root.Crl([], 365, "pw");
             var rootId = (await host.Admin().GetFromJsonAsync<List<IssuerResponse>>("/v1/issuers", Ct))!.Single(i => i.Kind == IssuerKind.Root).Id;
-            (await host.Admin().PostAsync($"/v1/issuers/{rootId}/crl", new ByteArrayContent(File.ReadAllBytes(crlPath)), Ct)).EnsureSuccessStatusCode();
+            using (var rootCrl = new ByteArrayContent(File.ReadAllBytes(crlPath)))
+                (await host.Admin().PostAsync($"/v1/issuers/{rootId}/crl", rootCrl, Ct)).EnsureSuccessStatusCode();
             Assert.Equal(File.ReadAllBytes(crlPath), await host.Anonymous().GetByteArrayAsync($"/crl/{rootId}", Ct));
         }
         finally { Directory.Delete(rootDir, true); }

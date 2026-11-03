@@ -56,7 +56,8 @@ public sealed class EstDiagnosticEventTests : IClassFixture<EstTestFactory>
         using var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic",
             Convert.ToBase64String(Encoding.UTF8.GetBytes($"{user}:{password}")));
+        using var content = new StringContent(body, Encoding.ASCII, "application/pkcs10");
         return await client.PostAsync("/.well-known/est/simpleenroll",
-            new StringContent(body, Encoding.ASCII, "application/pkcs10"), ct);
+            content, ct);
     }
 }

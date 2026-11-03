@@ -126,13 +126,14 @@ public sealed class OidcTokenClient(
             var endpoints = await ResolveEndpointsAsync(cancellationToken);
             var clientId = oidcOptions.Get(OpenIdConnectDefaults.AuthenticationScheme).ClientId!;
 
-            using var response = await httpClientFactory.CreateClient(HttpClientName).PostAsync(endpoints.Token, new FormUrlEncodedContent(
+            using var form = new FormUrlEncodedContent(
                 new Dictionary<string, string>
                 {
                     ["grant_type"] = "refresh_token",
                     ["client_id"] = clientId,
                     ["refresh_token"] = refreshToken
-                }), cancellationToken);
+                });
+            using var response = await httpClientFactory.CreateClient(HttpClientName).PostAsync(endpoints.Token, form, cancellationToken);
 
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
             {
@@ -176,10 +177,10 @@ public sealed class OidcTokenClient(
             configuration = await options.ConfigurationManager.GetConfigurationAsync(cancellationToken);
 
         var authority = options.Authority?.TrimEnd('/');
-        return (
-            configuration?.TokenEndpoint
-                ?? throw new InvalidOperationException($"The OIDC discovery document of '{authority}' has no token_endpoint; Qertum does not guess one."),
-            configuration?.UserInfoEndpoint
-                ?? throw new InvalidOperationException($"The OIDC discovery document of '{authority}' has no userinfo_endpoint; Qertum does not guess one."));
+        if (configuration is not { TokenEndpoint: { } tokenEndpoint })
+            throw new InvalidOperationException($"The OIDC discovery document of '{authority}' has no token_endpoint; Qertum does not guess one.");
+        if (configuration.UserInfoEndpoint is not { } userInfoEndpoint)
+            throw new InvalidOperationException($"The OIDC discovery document of '{authority}' has no userinfo_endpoint; Qertum does not guess one.");
+        return (tokenEndpoint, userInfoEndpoint);
     }
 }

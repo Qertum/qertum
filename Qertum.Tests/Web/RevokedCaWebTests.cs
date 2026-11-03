@@ -34,20 +34,23 @@ public sealed class RevokedCaWebTests
         var auth = context.AddAuthorization().SetAuthorized("alice");
         if (admin) auth.SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
 
     private sealed class Stub(Func<string, string?> body) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var json = body(request.RequestUri!.AbsolutePath);
-            return Task.FromResult(json is null
+            return json is null
                 ? new HttpResponseMessage(HttpStatusCode.NotFound)
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") });
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static async Task<IRenderedComponent<CertificateDetail>> OpenRevokeDialogAsync(CertificateRequest request)

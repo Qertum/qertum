@@ -10,6 +10,13 @@ set -eu
 
 DATA_DIR="${IdentityService__DataPath:-/data}"
 
+# Behind a TLS-terminating proxy: take the client's scheme and address from X-Forwarded-Proto/-For, but only
+# from the proxy's addresses. Without QERTUM_TRUSTED_PROXIES the headers are ignored.
+if [ -n "${QERTUM_TRUSTED_PROXIES:-}" ]; then
+  export ASPNETCORE_FORWARDEDHEADERS_ENABLED="${ASPNETCORE_FORWARDEDHEADERS_ENABLED:-true}"
+  export ForwardedHeaders__TrustedProxies="${QERTUM_TRUSTED_PROXIES}"
+fi
+
 if [ "$(id -u)" = "0" ]; then
   mkdir -p "${DATA_DIR}"
   if [ "$(stat -c %u "${DATA_DIR}")" != "$(id -u app)" ] || find "${DATA_DIR}" -not -user app -print -quit | grep -q .; then

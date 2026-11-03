@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Claims;
 using Qertum.IdentityService.Models;
 using Qertum.IdentityService.Stores;
@@ -42,8 +43,7 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
         }
 
         var identity = CreateUserIdentity(user);
-        identity.SetScopes(request.GetScopes());
-        identity.SetResources("qertum-api");
+        GrantScopes(identity, request.GetScopes());
 
         return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
@@ -116,8 +116,7 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
                 identity.AddClaim(new Claim(Claims.Role, role).SetDestinations(Destinations.AccessToken));
             }
 
-            identity.SetScopes(request.GetScopes());
-            identity.SetResources("qertum-api");
+            GrantScopes(identity, request.GetScopes());
 
             return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
         }
@@ -190,10 +189,26 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
         var verification = await HttpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
         var identity = CreateUserIdentity(confirmedUser);
-        identity.SetScopes(verification.Principal?.GetScopes() ?? request.GetScopes());
-        identity.SetResources("qertum-api");
+        GrantScopes(identity, verification.Principal?.GetScopes() ?? request.GetScopes());
 
         return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>The API's scope, and the audience its access tokens must carry (<c>Identity:Audience</c>).</summary>
+    private const string ApiScope = "qertum-api";
+
+    /// <summary>
+    /// Grants <paramref name="scopes"/> and adds the API audience only when they include the API scope. A token
+    /// minted for a client that asked only for the user's profile must not be accepted by the API with the user's
+    /// roles. A refresh keeps the grant's scopes and resources, so it follows the same rule.
+    /// </summary>
+    private static void GrantScopes(ClaimsIdentity identity, ImmutableArray<string> scopes)
+    {
+        identity.SetScopes(scopes);
+        if (scopes.Contains(ApiScope, StringComparer.Ordinal))
+        {
+            identity.SetResources(ApiScope);
+        }
     }
 
     private static readonly string[] UserClaimTypes =

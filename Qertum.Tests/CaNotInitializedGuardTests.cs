@@ -74,7 +74,7 @@ public sealed class CaNotInitializedGuardTests
         SqliteConnection connection,
         CertificateRequestDbContext db,
         CertificateRequestService service,
-        FakeGenerator generator) : IAsyncDisposable
+        FakeGenerator generator) : IAsyncDisposable, IDisposable
     {
         public CertificateRequestDbContext Db { get; } = db;
 
@@ -106,6 +106,9 @@ public sealed class CaNotInitializedGuardTests
 
             return new TestScope(connection, db, service, generator);
         }
+
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         public async ValueTask DisposeAsync()
         {

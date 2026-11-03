@@ -19,7 +19,7 @@ public sealed class PqcReportCommandTests
     {
         public List<string> Urls { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Urls.Add(request.RequestUri!.PathAndQuery);
             var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
@@ -33,11 +33,14 @@ public sealed class PqcReportCommandTests
                 Templates = [Template()], Withheld = ["observed"],
                 Items = new PagedResult<PqcReportItem> { Items = items, TotalCount = total, Page = page, PageSize = size }
             };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(report, Web), Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static PqcTemplateReport Template() => new()
@@ -91,7 +94,7 @@ public sealed class PqcReportCommandTests
     public async Task Json_CollectsEveryPageIntoOneDocument()
     {
         var handler = new Pager(total: 1203);
-        var api = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
+        using var api = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
 
         var merged = await PqcCommands.CollectAllPagesAsync(api, new PqcReportQuery { ProposedStage = PqcStage.Enforce },
             TestContext.Current.CancellationToken);

@@ -66,7 +66,7 @@ public sealed class EstCredentialActivityTests
         }
         var http = factory.CreateClient();
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Test");
-        var client = new CertificateRequestsApiClient(http);
+        using var client = new CertificateRequestsApiClient(http);
 
         var page = await client.GetEstCredentialActivityAsync(credentialId, 1, 50, ct);
 

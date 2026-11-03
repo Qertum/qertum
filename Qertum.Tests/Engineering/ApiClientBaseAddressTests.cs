@@ -15,7 +15,7 @@ public sealed class ApiClientBaseAddressTests
     public async Task APathPrefixInTheBaseAddressIsKept()
     {
         var handler = new RecordingHandler();
-        var client = new CertificateRequestsApiClient(
+        using var client = new CertificateRequestsApiClient(
             new HttpClient(handler) { BaseAddress = new Uri("https://host.example/qertum-api/") });
 
         await client.GetCaStatusAsync(TestContext.Current.CancellationToken);
@@ -40,7 +40,7 @@ public sealed class ApiClientBaseAddressTests
     {
         // Reads used GetFromJsonAsync, whose HttpRequestException has no body; the CLI would then
         // print "Response status code does not indicate success" instead of the reason.
-        var client = new CertificateRequestsApiClient(new HttpClient(new ProblemHandler())
+        using var client = new CertificateRequestsApiClient(new HttpClient(new ProblemHandler())
         {
             BaseAddress = new Uri("https://host.example/")
         });
@@ -53,25 +53,31 @@ public sealed class ApiClientBaseAddressTests
 
     private sealed class ProblemHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.Forbidden)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            new HttpResponseMessage(HttpStatusCode.Forbidden)
             {
                 Content = new StringContent("""{"title":"Forbidden","status":403,"detail":"Needs settings.edit."}""",
                     Encoding.UTF8, "application/problem+json")
-            });
+            };
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private sealed class RecordingHandler : HttpMessageHandler
     {
         public string? LastPath { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             LastPath = request.RequestUri!.AbsolutePath;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

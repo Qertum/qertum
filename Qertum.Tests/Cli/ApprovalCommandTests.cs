@@ -27,10 +27,10 @@ public sealed class ApprovalCommandTests
         }
     }
 
-    private static (CertificateRequestsApiClient Client, Recording Handler) ClientFor(HttpStatusCode status, string body)
+    private static CertificateRequestsApiClient ClientFor(out Recording handler, HttpStatusCode status, string body)
     {
-        var handler = new Recording(status, body);
-        return (new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }), handler);
+        handler = new Recording(status, body);
+        return new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
     }
 
     private const string OneApproval = """
@@ -49,7 +49,7 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task Client_Request_PostsTheBody()
     {
-        var (client, handler) = ClientFor(HttpStatusCode.Created, OneApproval);
+        using var client = ClientFor(out var handler, HttpStatusCode.Created, OneApproval);
 
         var created = await client.RequestApprovalAsync(new RequestApprovalRequest("bulk-revoke", "3f1d9c0e-0000-4000-8000-000000000001", "cleanup"), Ct);
 
@@ -62,7 +62,7 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task Client_List_SendsTheFilters()
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, """{"items":[],"totalCount":0,"page":1,"pageSize":50}""");
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, """{"items":[],"totalCount":0,"page":1,"pageSize":50}""");
 
         await client.GetApprovalsAsync(ApprovalStatus.Pending, mine: true, 1, 50, Ct);
 
@@ -75,7 +75,7 @@ public sealed class ApprovalCommandTests
     [InlineData(false, "deny")]
     public async Task Client_Decide_PostsToTheRightRoute(bool approve, string route)
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, OneApproval);
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, OneApproval);
         var id = new ApprovalRequestId(Guid.Parse("7e2c6a38-0d4f-4a3e-9d57-0c1c8f0b2a11"));
 
         await client.DecideApprovalAsync(id, approve, "fine", Ct);
@@ -88,7 +88,7 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task Client_Switch_PutsTheFlag()
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, "{}");
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, "{}");
 
         await client.SetTwoPersonApprovalAsync(true, Ct);
 
@@ -100,7 +100,7 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task AnApprovalRequiredRefusal_IsParsedIntoTheException_AndTheCliPrintsTheCommandToRun()
     {
-        var (client, _) = ClientFor(HttpStatusCode.Forbidden,
+        using var client = ClientFor(out var _, HttpStatusCode.Forbidden,
             """{"title":"Approval required","detail":"A second administrator must approve.","status":403,"operation":"bulk-revoke","targetId":"abc"}""");
 
         var ex = await Assert.ThrowsAsync<ApiProblemException>(() => client.GetApprovalAsync(new ApprovalRequestId(Guid.NewGuid()), Ct));
@@ -115,7 +115,7 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task AnOrdinary403_HasNoApprovalHint()
     {
-        var (client, _) = ClientFor(HttpStatusCode.Forbidden, """{"title":"Forbidden","status":403}""");
+        using var client = ClientFor(out var _, HttpStatusCode.Forbidden, """{"title":"Forbidden","status":403}""");
 
         var ex = await Assert.ThrowsAsync<ApiProblemException>(() => client.GetApprovalAsync(new ApprovalRequestId(Guid.NewGuid()), Ct));
 
@@ -126,9 +126,9 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task List_PrintsOneLinePerApproval_AndJsonAsAPage()
     {
-        var (client, _) = ClientFor(HttpStatusCode.OK, $$"""{"items":[{{OneApproval}}],"totalCount":1,"page":1,"pageSize":50}""");
-        var table = new StringWriter();
-        var json = new StringWriter();
+        using var client = ClientFor(out var _, HttpStatusCode.OK, $$"""{"items":[{{OneApproval}}],"totalCount":1,"page":1,"pageSize":50}""");
+        using var table = new StringWriter();
+        using var json = new StringWriter();
 
         Assert.Equal(0, await ApprovalCommands.RunListAsync(client, null, false, json: false, table, TextWriter.Null, Ct));
         Assert.Equal(0, await ApprovalCommands.RunListAsync(client, null, false, json: true, json, TextWriter.Null, Ct));
@@ -144,8 +144,8 @@ public sealed class ApprovalCommandTests
     [Fact]
     public async Task List_SaysSoWhenThereIsNothing()
     {
-        var (client, _) = ClientFor(HttpStatusCode.OK, """{"items":[],"totalCount":0,"page":1,"pageSize":50}""");
-        var output = new StringWriter();
+        using var client = ClientFor(out var _, HttpStatusCode.OK, """{"items":[],"totalCount":0,"page":1,"pageSize":50}""");
+        using var output = new StringWriter();
 
         await ApprovalCommands.RunListAsync(client, null, false, json: false, output, TextWriter.Null, Ct);
 

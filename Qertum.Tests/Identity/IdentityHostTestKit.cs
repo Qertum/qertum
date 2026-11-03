@@ -15,9 +15,17 @@ internal static partial class IdentityHostTestKit
 {
     public const string Authority = "https://idp.test";
 
-    public static WebApplicationFactory<IdentityServiceProgram> CreateFactory(string dataPath, TimeProvider? clock = null) =>
-        new WebApplicationFactory<IdentityServiceProgram>().WithWebHostBuilder(builder =>
+    public const string DeviceFlowScope = "openid profile roles offline_access qertum-api";
+
+    /// <param name="seedTestClients">Seeds <c>qertum-test-m2m</c> and <c>qertum-test-viewer</c> (committed secrets, so opt-in).</param>
+    public static WebApplicationFactory<IdentityServiceProgram> CreateFactory(
+        string dataPath, TimeProvider? clock = null, bool seedTestClients = false) =>
+        ConfiguredFactory.Create<IdentityServiceProgram>(builder =>
         {
+            if (seedTestClients)
+            {
+                builder.UseSetting("IdentityService:SeedTestClients", "true");
+            }
             builder.UseEnvironment(Environments.Production);
             builder.UseSetting("IdentityService:Authority", Authority);
             builder.UseSetting("IdentityService:DataPath", dataPath);
@@ -52,7 +60,8 @@ internal static partial class IdentityHostTestKit
     {
         var token = await GetAntiforgeryTokenAsync(client, tokenPageUrl, ct);
         var body = fields.Append(KeyValuePair.Create("__RequestVerificationToken", token));
-        return await client.PostAsync(postUrl, new FormUrlEncodedContent(body), ct);
+        using var form = new FormUrlEncodedContent(body);
+        return await client.PostAsync(postUrl, form, ct);
     }
 
     /// <summary>Opens the device confirmation page for <paramref name="userCode"/> and posts its Allow form.</summary>
@@ -75,14 +84,15 @@ internal static partial class IdentityHostTestKit
     }
 
     public static async Task<(string AccessToken, string RefreshToken)> ObtainTokensViaDeviceFlowAsync(
-        HttpClient client, string username, string password, CancellationToken ct)
+        HttpClient client, string username, string password, CancellationToken ct, string scope = DeviceFlowScope)
     {
-        using var authorization = await client.PostAsync("/connect/device_authorization",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form2 = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "qca",
-                ["scope"] = "openid profile roles offline_access qertum-api"
-            }), ct);
+                ["scope"] = scope
+            });
+        using var authorization = await client.PostAsync("/connect/device_authorization",
+            form2, ct);
         authorization.EnsureSuccessStatusCode();
         var codes = (await authorization.Content.ReadFromJsonAsync<JsonDocument>(ct))!.RootElement;
 
@@ -92,26 +102,30 @@ internal static partial class IdentityHostTestKit
         using var verify = await ApproveDeviceAsync(client, codes.GetProperty("user_code").GetString()!, ct);
         Assert.Equal(HttpStatusCode.OK, verify.StatusCode);
 
-        using var token = await client.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
                 ["client_id"] = "qca",
                 ["device_code"] = codes.GetProperty("device_code").GetString()!
-            }), ct);
+            });
+        using var token = await client.PostAsync("/connect/token",
+            form, ct);
         var body = await token.Content.ReadAsStringAsync(ct);
         Assert.True(token.StatusCode == HttpStatusCode.OK, body);
         var tokens = JsonDocument.Parse(body).RootElement;
         return (tokens.GetProperty("access_token").GetString()!, tokens.GetProperty("refresh_token").GetString()!);
     }
 
-    public static Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken, CancellationToken ct) =>
-        client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+    public static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken, CancellationToken ct)
+    {
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
             ["client_id"] = "qca",
             ["refresh_token"] = refreshToken
-        }), ct);
+        });
+        return await client.PostAsync("/connect/token", form, ct);
+    }
 
     public static async Task AssertInvalidGrantAsync(HttpResponseMessage response, CancellationToken ct)
     {

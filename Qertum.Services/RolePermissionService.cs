@@ -226,11 +226,7 @@ public sealed class RolePermissionService(
 
     private CancellationToken GetOrCreateCacheInvalidationToken()
     {
-        if (cache.TryGetValue(PermissionsCacheTag, out CancellationTokenSource? cts) && cts is not null)
-            return cts.Token;
-
-        cts = new CancellationTokenSource();
-        cache.Set(PermissionsCacheTag, cts);
-        return cts.Token;
+        // The cache owns the source: GetOrCreate stores it under the tag, and invalidation cancels it from there.
+        return cache.GetOrCreate(PermissionsCacheTag, static _ => new CancellationTokenSource())!.Token;
     }
 }

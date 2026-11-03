@@ -16,7 +16,7 @@ public sealed class TemplateEditorStepIndicatorTests
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.AddAuthorization().SetAuthorized("alice").SetRoles("admin")
             .SetPolicies(AppPermissions.SettingsEdit);
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new TemplateEditorApiStub()) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
@@ -87,7 +87,10 @@ public sealed class TemplateEditorStepIndicatorTests
 
     private sealed class TemplateEditorApiStub : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            new HttpResponseMessage(HttpStatusCode.NotFound);
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

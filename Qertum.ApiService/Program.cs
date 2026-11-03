@@ -1,3 +1,4 @@
+using Qertum.ServiceDefaults;
 using Qertum.Services.Approvals;
 using Qertum.Services.BulkOperations;
 using Qertum.Services.Issuers;
@@ -16,6 +17,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults & Aspire client integrations.
 builder.AddServiceDefaults();
+// Forwarded headers (https behind a TLS proxy) are honoured from the trusted proxies only.
+builder.Services.AddQertumForwardedHeadersTrust();
 
 // Add services to the container.
 // Framework-built problems (status-code pages, Results.Problem) get the same bare trace id the header and
@@ -75,6 +78,26 @@ app.Logger.LogInformation(
 // Apply EF Core schema on startup.
 // In Test environment, EnsureCreated is used instead of Migrate because
 // in-memory SQLite has no migration history table.
+using (var scope = app.Services.CreateScope())
+{
+    // Key ring files an older version wrote in plain text get encrypted with the secret-storage provider. Before the
+    // database: the private keys below are protected by this ring.
+    var keyRingLogger = scope.ServiceProvider.GetRequiredService<ILogger<SecretStorageOptions>>();
+    var keysDirectory = Path.Combine(scope.ServiceProvider.GetRequiredService<SecretStorageOptions>().DataDirectory, "DataProtection-Keys");
+    try
+    {
+        var encryptedKeyFiles = Qertum.Services.DataProtection.KeyRingAtRest.EncryptPlainKeyFiles(
+            keysDirectory, scope.ServiceProvider.GetRequiredService<Qertum.ServiceDefaults.Secrets.ISecretProtector>());
+        if (encryptedKeyFiles > 0)
+            keyRingLogger.LogInformation("Encrypted {Count} Data Protection key files that an older version kept in plain text.", encryptedKeyFiles);
+    }
+    catch (Exception ex)
+    {
+        keyRingLogger.LogCritical(ex, "Could not encrypt the Data Protection key files in {KeysDirectory} with the secret-storage provider.", keysDirectory);
+        Environment.Exit(1);
+    }
+}
+
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CertificateRequestDbContext>();

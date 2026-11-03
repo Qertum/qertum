@@ -183,7 +183,7 @@ public sealed class RolePermissionServiceTests
                     Microsoft.Extensions.Options.Options.Create(
                         new Microsoft.Extensions.Caching.Memory.MemoryDistributedCacheOptions())),
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<RolePermissionService>.Instance),
-            audit, webhooks);
+            audit, webhooks, cache);
     }
 
     private sealed class TestScope(
@@ -191,7 +191,8 @@ public sealed class RolePermissionServiceTests
         CertificateRequestDbContext dbContext,
         RolePermissionService service,
         RecordingPolicyAuditLog audit,
-        RoleRecordingWebhookService webhooks) : IAsyncDisposable
+        RoleRecordingWebhookService webhooks,
+        IDisposable cache) : IAsyncDisposable, IDisposable
     {
         public RolePermissionService Service { get; } = service;
 
@@ -199,8 +200,12 @@ public sealed class RolePermissionServiceTests
 
         public RoleRecordingWebhookService Webhooks { get; } = webhooks;
 
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
         public async ValueTask DisposeAsync()
         {
+            cache.Dispose();
             await dbContext.DisposeAsync();
             await connection.DisposeAsync();
         }

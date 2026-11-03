@@ -8,7 +8,7 @@ public sealed class ApiClientCorrelationIdTests
 {
     private sealed class Stub(HttpStatusCode status, string? correlationId) : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var response = new HttpResponseMessage(status)
             {
@@ -16,8 +16,11 @@ public sealed class ApiClientCorrelationIdTests
             };
             if (correlationId is not null)
                 response.Headers.Add("X-Correlation-Id", correlationId);
-            return Task.FromResult(response);
+            return response;
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static CertificateRequestsApiClient Client(HttpStatusCode status, string? correlationId) =>

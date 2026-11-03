@@ -49,8 +49,8 @@ internal sealed class GenerateCaRequestValidator : AbstractValidator<GenerateCaR
         // consumer after a RootCA request has already been filed and approved.
         RuleFor(r => r.KeyAlgorithm)
             .Must(a => a is null || (a.Value.CanSign() && a.Value.GetFamily() != AlgorithmFamily.Hybrid))
-            .WithMessage(r => $"'{r.KeyAlgorithm!.Value.ToCanonicalString()}' cannot be a CA key: " +
-                r.KeyAlgorithm.Value.GetFamily() switch
+            .WithMessage(r => $"'{r.KeyAlgorithm.GetValueOrDefault().ToCanonicalString()}' cannot be a CA key: " +
+                r.KeyAlgorithm.GetValueOrDefault().GetFamily() switch
                 {
                     AlgorithmFamily.Hybrid => "paired issuance is two certificates, not one key.",
                     AlgorithmFamily.Pair => "a signing + encryption pair is two certificates, and one of them is an encryption-only key.",

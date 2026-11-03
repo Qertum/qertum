@@ -30,10 +30,10 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
         }
     }
 
-    private static (CertificateRequestsApiClient Client, Recording Handler) ClientFor(HttpStatusCode status, string body)
+    private static CertificateRequestsApiClient ClientFor(out Recording handler, HttpStatusCode status, string body)
     {
-        var handler = new Recording(status, Encoding.ASCII.GetBytes(body));
-        return (new(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }), handler);
+        handler = new Recording(status, Encoding.ASCII.GetBytes(body));
+        return new(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
     }
 
     private static Command Issuers() => IssuerCommands.Build(
@@ -60,11 +60,11 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [Fact]
     public async Task ExportKey_WarnsConfirmsCallsTheEndpointAndWritesTheFile()
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n");
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n");
         var path = Path.Combine(_dir, "ca.key");
         var asked = new List<string>();
-        var output = new StringWriter();
-        var error = new StringWriter();
+        using var output = new StringWriter();
+        using var error = new StringWriter();
 
         var exit = await IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: false, q => { asked.Add(q); return true; }, output, error, Ct);
 
@@ -81,10 +81,11 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [Fact]
     public async Task ExportKey_Declined_CallsNothingAndWritesNothing()
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, "key");
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, "key");
         var path = Path.Combine(_dir, "ca.key");
 
-        var exit = await IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: false, _ => false, new StringWriter(), new StringWriter(), Ct);
+        using var ignored = new StringWriter();
+        var exit = await IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: false, _ => false, ignored, ignored, Ct);
 
         Assert.Equal(1, exit);
         Assert.Empty(handler.Calls);
@@ -94,11 +95,12 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [Fact]
     public async Task ExportKey_Yes_SkipsThePrompt_ButStillWarns()
     {
-        var (client, _) = ClientFor(HttpStatusCode.OK, "key");
-        var error = new StringWriter();
+        using var client = ClientFor(out var _, HttpStatusCode.OK, "key");
+        using var error = new StringWriter();
 
+        using var ignored = new StringWriter();
         var exit = await IssuerCommands.ExportKeyAsync(client, Issuer, Path.Combine(_dir, "ca.key"), yes: true,
-            _ => throw new InvalidOperationException("must not prompt"), new StringWriter(), error, Ct);
+            _ => throw new InvalidOperationException("must not prompt"), ignored, error, Ct);
 
         Assert.Equal(0, exit);
         Assert.Contains("not a safe way", error.ToString());
@@ -107,12 +109,13 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [Fact]
     public async Task ExportKey_NeverOverwritesAnExistingFile()
     {
-        var (client, _) = ClientFor(HttpStatusCode.OK, "new key");
+        using var client = ClientFor(out var _, HttpStatusCode.OK, "new key");
         var path = Path.Combine(_dir, "ca.key");
         await File.WriteAllTextAsync(path, "precious", Ct);
-        var error = new StringWriter();
+        using var error = new StringWriter();
 
-        var exit = await IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: true, _ => true, new StringWriter(), error, Ct);
+        using var ignored = new StringWriter();
+        var exit = await IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: true, _ => true, ignored, error, Ct);
 
         Assert.Equal(1, exit);
         Assert.Equal("precious", File.ReadAllText(path));
@@ -122,11 +125,12 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [Fact]
     public async Task ExportKey_ServerRefusal_Throws_AndWritesNothing()
     {
-        var (client, _) = ClientFor(HttpStatusCode.NotFound, "{\"title\":\"Not Found\",\"detail\":\"This server holds no private key for that issuer.\"}");
+        using var client = ClientFor(out var _, HttpStatusCode.NotFound, "{\"title\":\"Not Found\",\"detail\":\"This server holds no private key for that issuer.\"}");
         var path = Path.Combine(_dir, "ca.key");
 
+        using var ignored = new StringWriter();
         await Assert.ThrowsAsync<ApiProblemException>(() =>
-            IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: true, _ => true, new StringWriter(), new StringWriter(), Ct));
+            IssuerCommands.ExportKeyAsync(client, Issuer, path, yes: true, _ => true, ignored, ignored, Ct));
 
         Assert.False(File.Exists(path));
     }
@@ -136,11 +140,12 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [InlineData(false)]
     public async Task ExportPfx_PostsPasswordAndChainChoice_AndWritesTheFile(bool includeChain)
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, "pfx-bytes");
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, "pfx-bytes");
         var path = Path.Combine(_dir, "ca.pfx");
 
+        using var ignored = new StringWriter();
         var exit = await IssuerCommands.ExportPfxAsync(client, Issuer, path, "s3cret", includeChain, yes: true, _ => true,
-            new StringWriter(), new StringWriter(), Ct);
+            ignored, ignored, Ct);
 
         Assert.Equal(0, exit);
         var call = Assert.Single(handler.Calls);
@@ -155,11 +160,12 @@ public sealed class IssuerKeyExportCommandTests : IDisposable
     [InlineData("")]
     public async Task ExportPfx_EmptyPassword_FailsBeforeAnyCall(string? password)
     {
-        var (client, handler) = ClientFor(HttpStatusCode.OK, "x");
-        var error = new StringWriter();
+        using var client = ClientFor(out var handler, HttpStatusCode.OK, "x");
+        using var error = new StringWriter();
 
+        using var ignored = new StringWriter();
         var exit = await IssuerCommands.ExportPfxAsync(client, Issuer, Path.Combine(_dir, "ca.pfx"), password, true, yes: true, _ => true,
-            new StringWriter(), error, Ct);
+            ignored, error, Ct);
 
         Assert.Equal(1, exit);
         Assert.Empty(handler.Calls);

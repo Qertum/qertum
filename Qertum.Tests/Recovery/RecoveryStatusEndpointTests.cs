@@ -31,7 +31,7 @@ public sealed class RecoveryStatusEndpointTests : IDisposable
     private static WebApplicationFactory<ApiServiceProgram> CreateFactory(string dataDirectory)
     {
         var database = SharedInMemoryDatabase.Create();
-        return new WebApplicationFactory<ApiServiceProgram>().WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<ApiServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.ConfigureTestServices(services =>

@@ -185,13 +185,14 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
             var antiforgery = AntiforgeryTokenPattern().Match(await page.Content.ReadAsStringAsync(ct));
             Assert.True(antiforgery.Success, "The change-password page rendered no antiforgery token.");
 
-            using var change = await changer.PostAsync("/Account/ChangePassword", new FormUrlEncodedContent(new Dictionary<string, string>
+            using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["Input.CurrentPassword"] = Password,
                 ["Input.NewPassword"] = "Rotated-Password-2!",
                 ["Input.ConfirmPassword"] = "Rotated-Password-2!",
                 ["__RequestVerificationToken"] = WebUtility.HtmlDecode(antiforgery.Groups[1].Value)
-            }), ct);
+            });
+            using var change = await changer.PostAsync("/Account/ChangePassword", form, ct);
             Assert.Equal(HttpStatusCode.OK, change.StatusCode);
             Assert.Contains("Password updated.", await change.Content.ReadAsStringAsync(ct));
         }
@@ -236,8 +237,7 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
         Directory.CreateDirectory(dataPath);
         _tempDirectories.Add(dataPath);
 
-        return new WebApplicationFactory<IdentityServiceProgram>()
-            .WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<IdentityServiceProgram>(builder =>
             {
                 builder.UseEnvironment(Environments.Production);
                 builder.UseSetting("IdentityService:Authority", Authority);
@@ -263,12 +263,13 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
         var antiforgery = AntiforgeryTokenPattern().Match(html);
         Assert.True(antiforgery.Success, "The login page rendered no antiforgery token.");
 
-        return await client.PostAsync("/login", new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["Input.Username"] = username,
             ["Input.Password"] = Password,
             ["__RequestVerificationToken"] = WebUtility.HtmlDecode(antiforgery.Groups[1].Value)
-        }), ct);
+        });
+        return await client.PostAsync("/login", form, ct);
     }
 
     private static async Task LoginAsync(HttpClient client, string username, CancellationToken ct)
@@ -280,12 +281,13 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
     private static async Task<(string AccessToken, string RefreshToken)> ObtainTokensViaDeviceFlowAsync(
         HttpClient client, string username, CancellationToken ct)
     {
-        using var authorization = await client.PostAsync("/connect/device_authorization",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form2 = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["client_id"] = "qca",
                 ["scope"] = "openid profile roles offline_access qertum-api"
-            }), ct);
+            });
+        using var authorization = await client.PostAsync("/connect/device_authorization",
+            form2, ct);
         authorization.EnsureSuccessStatusCode();
         var codes = (await authorization.Content.ReadFromJsonAsync<JsonDocument>(ct))!.RootElement;
 
@@ -294,13 +296,14 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
         using var verify = await IdentityHostTestKit.ApproveDeviceAsync(client, codes.GetProperty("user_code").GetString()!, ct);
         Assert.Equal(HttpStatusCode.OK, verify.StatusCode);
 
-        using var token = await client.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
                 ["client_id"] = "qca",
                 ["device_code"] = codes.GetProperty("device_code").GetString()!
-            }), ct);
+            });
+        using var token = await client.PostAsync("/connect/token",
+            form, ct);
         var body = await token.Content.ReadAsStringAsync(ct);
         Assert.True(token.StatusCode == HttpStatusCode.OK, body);
         var tokens = JsonDocument.Parse(body).RootElement;
@@ -309,13 +312,16 @@ public sealed partial class IdentityAccessRevocationHostTests : IDisposable
         return (tokens.GetProperty("access_token").GetString()!, refreshToken.GetString()!);
     }
 
-    private static Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken, CancellationToken ct) =>
-        client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+    private static async Task<HttpResponseMessage> RefreshAsync(HttpClient client, string refreshToken, CancellationToken ct)
+    {
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
             ["client_id"] = "qca",
             ["refresh_token"] = refreshToken
-        }), ct);
+        });
+        return await client.PostAsync("/connect/token", form, ct);
+    }
 
     private static async Task AssertInvalidGrantAsync(HttpResponseMessage response, CancellationToken ct)
     {

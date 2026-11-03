@@ -187,7 +187,7 @@ public sealed class NoticeApiTests
         var ct = TestContext.Current.CancellationToken;
         await using var arranged = await ArrangeAsync();
         using var admin = arranged.As(null);
-        var client = new CertificateRequestsApiClient(admin);
+        using var client = new CertificateRequestsApiClient(admin);
 
         var page = await client.GetNoticesAsync(NoticeStatus.Open, NoticeKind.Expiring, 1, 10, ct);
 

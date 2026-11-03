@@ -38,7 +38,10 @@ public sealed class CertificateInventoryCliTests
 
     private sealed class PageHandler(Func<HttpRequestMessage, HttpResponseMessage> reply) : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            reply(request);
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(reply(request));
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

@@ -27,7 +27,8 @@ public static class EstCmsHelper
         // certificate bag. `content: null` throws (BouncyCastle.Cryptography 2.7.0 requires a
         // non-null CmsTypedData); `encapsulate: false` with an empty CmsProcessableByteArray is
         // what actually produces SignedData with an absent (not empty) eContent.
-        var signedData = generator.Generate(new CmsProcessableByteArray([]), encapsulate: false);
+        // Typed as CmsTypedData: the overload taking the older CmsProcessable is obsolete.
+        var signedData = generator.Generate((CmsTypedData)new CmsProcessableByteArray([]), encapsulate: false);
         return Convert.ToBase64String(signedData.GetEncoded("DER"));
     }
 

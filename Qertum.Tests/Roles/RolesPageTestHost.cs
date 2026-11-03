@@ -11,7 +11,7 @@ internal sealed class RolesPageTestHost : IAsyncDisposable
     public RolesPageTestHost()
     {
         Context.AddAuthorization().SetAuthorized("alice").SetRoles("admin");
-        Context.Services.AddSingleton(new CertificateRequestsApiClient(
+        Context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(Api) { BaseAddress = new Uri("http://api.test/") }));
     }
 

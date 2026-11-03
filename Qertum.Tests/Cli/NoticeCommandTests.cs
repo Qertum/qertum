@@ -13,17 +13,20 @@ public sealed class NoticeCommandTests
     {
         public List<string> Calls { get; } = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Calls.Add($"{request.Method} {request.RequestUri!.PathAndQuery}");
-            return Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") });
+            return new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
-    private static (CertificateRequestsApiClient Client, Api Handler) Client(string body, HttpStatusCode status = HttpStatusCode.OK)
+    private static CertificateRequestsApiClient Client(out Api handler, string body, HttpStatusCode status = HttpStatusCode.OK)
     {
-        var handler = new Api(body, status);
-        return (new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }, new FakeTimeProvider()), handler);
+        handler = new Api(body, status);
+        return new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }, new FakeTimeProvider());
     }
 
     private const string TwoNotices = """
@@ -36,10 +39,11 @@ public sealed class NoticeCommandTests
     [Fact]
     public async Task List_PrintsOneLinePerNotice_WithTheContactOrUnknown()
     {
-        var (client, handler) = Client(TwoNotices);
-        var output = new StringWriter();
+        using var client = Client(out var handler, TwoNotices);
+        using var output = new StringWriter();
 
-        var exit = await NoticeCommands.RunListAsync(client, NoticeStatus.Open, null, json: false, output, new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await NoticeCommands.RunListAsync(client, NoticeStatus.Open, null, json: false, output, writer, TestContext.Current.CancellationToken);
 
         var text = output.ToString();
         Assert.Equal(0, exit);
@@ -55,9 +59,11 @@ public sealed class NoticeCommandTests
     [Fact]
     public async Task List_PassesTheKindFilter()
     {
-        var (client, handler) = Client(TwoNotices);
+        using var client = Client(out var handler, TwoNotices);
 
-        await NoticeCommands.RunListAsync(client, null, NoticeKind.RenewalStalled, false, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        using var ignored = new StringWriter();
+        await NoticeCommands.RunListAsync(client, null, NoticeKind.RenewalStalled, false, ignored, writer, TestContext.Current.CancellationToken);
 
         Assert.Equal(["GET /v1/notices?page=1&pageSize=200&kind=RenewalStalled"], handler.Calls);
     }
@@ -65,10 +71,11 @@ public sealed class NoticeCommandTests
     [Fact]
     public async Task List_Json_PrintsThePageObject()
     {
-        var (client, _) = Client(TwoNotices);
-        var output = new StringWriter();
+        using var client = Client(out var _, TwoNotices);
+        using var output = new StringWriter();
 
-        var exit = await NoticeCommands.RunListAsync(client, NoticeStatus.Open, null, json: true, output, new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await NoticeCommands.RunListAsync(client, NoticeStatus.Open, null, json: true, output, writer, TestContext.Current.CancellationToken);
 
         using var doc = JsonDocument.Parse(output.ToString());
         Assert.Equal(0, exit);
@@ -79,10 +86,11 @@ public sealed class NoticeCommandTests
     [Fact]
     public async Task List_WithNothing_SaysSo()
     {
-        var (client, _) = Client("""{"items":[],"totalCount":0,"page":1,"pageSize":200}""");
-        var output = new StringWriter();
+        using var client = Client(out var _, """{"items":[],"totalCount":0,"page":1,"pageSize":200}""");
+        using var output = new StringWriter();
 
-        var exit = await NoticeCommands.RunListAsync(client, NoticeStatus.Open, null, false, output, new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await NoticeCommands.RunListAsync(client, NoticeStatus.Open, null, false, output, writer, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exit);
         Assert.Contains("No open notices", output.ToString());
@@ -91,10 +99,11 @@ public sealed class NoticeCommandTests
     [Fact]
     public async Task List_WhenThereAreMoreThanOnePage_SaysHowManyWereShown()
     {
-        var (client, _) = Client("""{"items":[{"id":"11111111-1111-1111-1111-111111111111","requestId":"22222222-2222-2222-2222-222222222222","kind":"Expiring","step":7,"status":"Open","commonName":"a","createdAtUtc":"2026-10-14T09:00:00Z"}],"totalCount":450,"page":1,"pageSize":200}""");
-        var output = new StringWriter();
+        using var client = Client(out var _, """{"items":[{"id":"11111111-1111-1111-1111-111111111111","requestId":"22222222-2222-2222-2222-222222222222","kind":"Expiring","step":7,"status":"Open","commonName":"a","createdAtUtc":"2026-10-14T09:00:00Z"}],"totalCount":450,"page":1,"pageSize":200}""");
+        using var output = new StringWriter();
 
-        await NoticeCommands.RunListAsync(client, null, null, false, output, new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        await NoticeCommands.RunListAsync(client, null, null, false, output, writer, TestContext.Current.CancellationToken);
 
         Assert.Contains("showing 1 of 450", output.ToString());
     }
@@ -102,10 +111,11 @@ public sealed class NoticeCommandTests
     [Fact]
     public async Task List_Forbidden_ThrowsTheProblem()
     {
-        var (client, _) = Client("", HttpStatusCode.Forbidden);
+        using var client = Client(out var _, "", HttpStatusCode.Forbidden);
 
+        using var ignored = new StringWriter();
         var problem = await Assert.ThrowsAsync<ApiProblemException>(() => NoticeCommands.RunListAsync(
-            client, null, null, false, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken));
+            client, null, null, false, ignored, ignored, TestContext.Current.CancellationToken));
 
         Assert.Equal(HttpStatusCode.Forbidden, problem.StatusCode);
     }

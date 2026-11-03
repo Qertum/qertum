@@ -16,7 +16,8 @@ internal static class DoctorCerts
         var certificates = new List<X509Certificate>();
         try
         {
-            foreach (X509Certificate certificate in new X509CertificateParser().ReadCertificates(new MemoryStream(bytes)))
+            using var stream = new MemoryStream(bytes);
+            foreach (X509Certificate certificate in new X509CertificateParser().ReadCertificates(stream))
                 certificates.Add(certificate);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

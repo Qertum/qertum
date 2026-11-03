@@ -52,7 +52,7 @@ public sealed class IssuerStrengthCommandsTests
     public async Task SetIssuerStrength_SendsPutWithTheModeName()
     {
         var handler = new Recording(HttpStatusCode.OK, "{}");
-        var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
+        using var client = new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
 
         await client.SetIssuerStrengthAsync(IssuerStrengthMode.Enforce, TestContext.Current.CancellationToken);
 

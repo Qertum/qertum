@@ -460,7 +460,7 @@ public sealed class CertificateRequestServiceTests
                 .Options;
 
             var dataProtection = new EphemeralDataProtectionProvider();
-            var dbContext = new CertificateRequestDbContext(options, dataProtection);
+            using var dbContext = new CertificateRequestDbContext(options, dataProtection);
             var service = new CertificateRequestService(dbContext, new NullAuditLogService(), new NullWebhookService(),
                 new Qertum.Services.Policies.IssuancePolicyService(dbContext, new Qertum.Services.Policies.IssuancePolicyEvaluator()));
 
@@ -1275,7 +1275,8 @@ public sealed class CertificateRequestServiceTests
         var auditLog = new RecordingWithTraceIdAuditLogService();
         await using var testScope = await CreateTestScopeAsync(auditLog);
 
-        using var activity = new ActivitySource("test").StartActivity();
+        using var source = new ActivitySource("test");
+        using var activity = source.StartActivity();
 
         await testScope.Service.CreateAsync(new CertificateRequest
         {
@@ -2041,13 +2042,16 @@ public sealed class CertificateRequestServiceTests
     private sealed class TestScope(
         SqliteConnection connection,
         CertificateRequestDbContext dbContext,
-        CertificateRequestService service) : IAsyncDisposable
+        CertificateRequestService service) : IAsyncDisposable, IDisposable
     {
         public SqliteConnection Connection { get; } = connection;
 
         public CertificateRequestDbContext DbContext { get; } = dbContext;
 
         public CertificateRequestService Service { get; } = service;
+
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         public async ValueTask DisposeAsync()
         {

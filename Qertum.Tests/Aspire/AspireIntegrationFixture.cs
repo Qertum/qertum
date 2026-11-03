@@ -146,14 +146,15 @@ public sealed class AspireIntegrationFixture : IAsyncLifetime
     private async Task<HttpClient> BuildAuthedApiClient(
         string clientId, string clientSecret, HttpClient idClient)
     {
-        var resp = await idClient.PostAsync("/connect/token",
-            new FormUrlEncodedContent(new Dictionary<string, string>
+        using var form = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["grant_type"]    = "client_credentials",
                 ["client_id"]     = clientId,
                 ["client_secret"] = clientSecret,
                 ["scope"]         = "qertum-api"
-            }), TestContext.Current.CancellationToken);
+            });
+        var resp = await idClient.PostAsync("/connect/token",
+            form, TestContext.Current.CancellationToken);
         resp.EnsureSuccessStatusCode();
         var doc   = await resp.Content.ReadFromJsonAsync<JsonDocument>(TestContext.Current.CancellationToken);
         var token = doc!.RootElement.GetProperty("access_token").GetString()!;

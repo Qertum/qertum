@@ -28,6 +28,7 @@ and the queue consumer. Browse to `http://<QERTUM_HOST>:8080` and log in as `adm
 | `QERTUM_EST_TLS_CERT`, `QERTUM_EST_TLS_KEY` | yes | Host paths of the EST server certificate chain and key (PEM) |
 | `QERTUM_DATA` | no | Host path or volume for `/data` (default: named volume `qertum-data`) |
 | `QERTUM_SCHEME` | no | `http` (default) or `https` for web, identity and API when a proxy terminates TLS for them. `https` also has those three take the client's scheme and address from the proxy's `X-Forwarded-Proto`/`X-Forwarded-For`, so their ports must be reachable by the proxy only. Never for ACME or EST, which never trust those headers. With `http` the web, identity and API containers log a warning at every start, and the API and web UI log one again on startup: sign-in, tokens and the admin password are then unencrypted. |
+| `QERTUM_TRUSTED_PROXIES` | with `QERTUM_SCHEME=https` | The TLS proxy's IP addresses or CIDR networks, comma-separated (for example the compose network's subnet). Web, identity and API take `X-Forwarded-Proto`/`X-Forwarded-For` from these addresses only; with `QERTUM_SCHEME=https` and no value those three containers exit 64 |
 | `WEB_PORT`, `IDENTITY_PORT`, `API_PORT`, `ACME_PORT`, `EST_PORT` | no | Advertised and published ports (defaults 8080–8084). Containers always listen on 8080–8084 inside |
 | `ACME_SCHEME` | no | `http` (default) or `https`, the scheme ACME advertises. `https` only when the acme container terminates TLS itself (see below) |
 | `SEED_ADMIN_PASSWORD` | no | First-run admin password |

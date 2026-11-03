@@ -13,8 +13,16 @@ namespace Qertum.Tests.Web;
 /// This is a post-quantum-first CA: onboarding proposes an ML-DSA root under stage Enforce, and a
 /// classical root is a deliberate choice that needs the stage to allow it.
 /// </summary>
-public sealed class OnboardingPqcStageTests
+public sealed class OnboardingPqcStageTests : IAsyncDisposable
 {
+    // A test may render more than once; each render gets its own context, and all of them are disposed with the test.
+    private readonly List<BunitContext> contexts = [];
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var context in contexts) await context.DisposeAsync();
+    }
+
     private sealed class Handler : HttpMessageHandler
     {
         public List<(HttpMethod Method, string Path, string? Body)> Requests { get; } = [];
@@ -33,14 +41,15 @@ public sealed class OnboardingPqcStageTests
         }
     }
 
-    private static (BunitContext Context, Handler Api) NewContext(bool admin)
+    private (BunitContext Context, Handler Api) NewContext(bool admin)
     {
-        var handler = new Handler();
         var context = new BunitContext();
+        contexts.Add(context);
+        var handler = new Handler();
         var auth = context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.SettingsEdit);
         if (admin) auth.SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(handler) { BaseAddress = new Uri("http://api.test/") }));
         return (context, handler);
     }

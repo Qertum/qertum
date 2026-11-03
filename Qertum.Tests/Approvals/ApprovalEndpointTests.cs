@@ -268,7 +268,7 @@ public sealed class ApprovalEndpointTests
         var alice = host.Sub("sub-alice");
 
         // A wrong confirmCount is refused by the handler after the claim.
-        var bad = new HttpRequestMessage(HttpMethod.Post, $"/v1/bulk-operations/{revoke}/execute")
+        using var bad = new HttpRequestMessage(HttpMethod.Post, $"/v1/bulk-operations/{revoke}/execute")
         {
             Content = new StringContent("""{"confirmCount":999}""", Encoding.UTF8, "application/json")
         };

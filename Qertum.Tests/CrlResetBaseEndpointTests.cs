@@ -109,7 +109,7 @@ public sealed class CrlResetBaseEndpointTests : IDisposable
     private WebApplicationFactory<ApiServiceProgram> CreateFactory()
     {
         var database = SharedInMemoryDatabase.Create();
-        return new WebApplicationFactory<ApiServiceProgram>().WithWebHostBuilder(builder =>
+        return ConfiguredFactory.Create<ApiServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.ConfigureTestServices(services =>

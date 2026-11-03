@@ -9,8 +9,13 @@ using CertificateRequest = Qertum.Services.CertificateRequest;
 
 namespace Qertum.Tests.Web;
 
-public sealed class CertificateMetadataCardTests
+public sealed class CertificateMetadataCardTests : IAsyncDisposable
 {
+    // One context per test (xUnit makes a new instance for each and disposes it afterwards); the render helpers use it.
+    private readonly BunitContext context = new();
+
+    public ValueTask DisposeAsync() => context.DisposeAsync();
+
     private sealed class Api(Func<HttpResponseMessage> answer) : HttpMessageHandler
     {
         public string? LastBody { get; private set; }
@@ -34,10 +39,9 @@ public sealed class CertificateMetadataCardTests
         return response;
     }
 
-    private static IRenderedComponent<CertificateMetadataCard> Render(Api api, CertificateMetadata? metadata = null)
+    private IRenderedComponent<CertificateMetadataCard> Render(Api api, CertificateMetadata? metadata = null)
     {
-        var context = new BunitContext();
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         var request = new CertificateRequest
         {

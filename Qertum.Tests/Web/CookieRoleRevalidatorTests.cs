@@ -252,25 +252,28 @@ public sealed class CookieRoleRevalidatorTests
         public HttpClient CreateClient(string name) =>
             new(this, disposeHandler: false) { BaseAddress = new Uri("https://api.test/") };
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri!.AbsoluteUri == TokenEndpoint)
             {
                 TokenCalls++;
-                return Task.FromResult(new HttpResponseMessage(TokenStatus)
+                return new HttpResponseMessage(TokenStatus)
                 {
                     Content = new StringContent("""{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}""")
-                });
+                };
             }
 
             if (request.RequestUri.AbsolutePath == "/v1/me/access")
             {
-                return Task.FromResult(new HttpResponseMessage(MeAccessStatus) { Content = new StringContent(MeAccessJson) });
+                return new HttpResponseMessage(MeAccessStatus) { Content = new StringContent(MeAccessJson) };
             }
 
             LastUserInfoAuthorization = request.Headers.Authorization?.ToString();
-            return Task.FromResult(new HttpResponseMessage(UserInfoStatus) { Content = new StringContent(UserInfoJson) });
+            return new HttpResponseMessage(UserInfoStatus) { Content = new StringContent(UserInfoJson) };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private sealed class RecordingAuthenticationService : IAuthenticationService

@@ -25,18 +25,15 @@ public sealed class LocalFileKeySecretProtector : ISecretProtector
         Directory.CreateDirectory(secretStorageDir);
         var keyPath = Path.Combine(secretStorageDir, "local.key");
 
-        if (File.Exists(keyPath))
+        KeyFileCreation.EnsureExists(keyPath, temporary =>
         {
-            _key = File.ReadAllBytes(keyPath);
-            if (_key.Length != KeySizeBytes)
-                throw new InvalidOperationException($"Secret storage key at '{keyPath}' is corrupt (expected {KeySizeBytes} bytes, found {_key.Length}).");
-        }
-        else
-        {
-            _key = RandomNumberGenerator.GetBytes(KeySizeBytes);
-            File.WriteAllBytes(keyPath, _key);
-            TrySetOwnerOnlyPermissions(keyPath);
-        }
+            File.WriteAllBytes(temporary, RandomNumberGenerator.GetBytes(KeySizeBytes));
+            TrySetOwnerOnlyPermissions(temporary);
+        });
+
+        _key = File.ReadAllBytes(keyPath);
+        if (_key.Length != KeySizeBytes)
+            throw new InvalidOperationException($"Secret storage key at '{keyPath}' is corrupt (expected {KeySizeBytes} bytes, found {_key.Length}).");
     }
 
     public byte[] Protect(byte[] plaintext)

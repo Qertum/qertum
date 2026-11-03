@@ -66,7 +66,7 @@ public sealed class OnboardingCompositeRootTests
         // The page gates its offline-root card on the admin role.
         context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.SettingsEdit).SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new NotFoundHandler()) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
@@ -84,7 +84,10 @@ public sealed class OnboardingCompositeRootTests
     // The CA status call fails, which onboarding treats as "not configured yet".
     private sealed class NotFoundHandler : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            new HttpResponseMessage(HttpStatusCode.NotFound);
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

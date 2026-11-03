@@ -1,3 +1,4 @@
+using Qertum.ServiceDefaults;
 using Qertum.Services.Notices;
 using Qertum.Services;
 using System.Reflection;
@@ -60,6 +61,10 @@ public sealed class OptionsValidationTests
         { "Notices:ExpiryDays", "seven", typeof(NoticesOptions), s => s.AddQueueConsumerOptions() },
         { "AuditLog:Checkpoint:IntervalMinutes", "0", typeof(AuditLogOptions), s => s.AddQueueConsumerOptions() },
         { "AuditLog:Checkpoint:IntervalMinutes", "1441", typeof(AuditLogOptions), s => s.AddQueueConsumerOptions() },
+        { "ForwardedHeaders:TrustedProxies", "proxy.example", typeof(ForwardedHeadersTrustOptions), s => s.AddQertumForwardedHeadersTrust() },
+        { "ForwardedHeaders:TrustedProxies", "10.0.0.0/33", typeof(ForwardedHeadersTrustOptions), s => s.AddQertumForwardedHeadersTrust() },
+        // ASPNETCORE_FORWARDEDHEADERS_ENABLED without a trusted proxy would trust every client.
+        { "FORWARDEDHEADERS_ENABLED", "true", typeof(ForwardedHeadersTrustOptions), s => s.AddQertumForwardedHeadersTrust() },
     };
 
     [Theory]
@@ -125,6 +130,9 @@ public sealed class ShippedConfigurationTests
         { "Qertum.QueueConsumer", Qertum.Services.Approvals.ApprovalOptions.SectionName, typeof(Qertum.Services.Approvals.ApprovalOptions) },
 
         { "Qertum.Web", OidcMetadataOptions.SectionName, typeof(OidcMetadataOptions) },
+        { "Qertum.Web", ForwardedHeadersTrustOptions.SectionName, typeof(ForwardedHeadersTrustOptions) },
+        { "Qertum.IdentityService", ForwardedHeadersTrustOptions.SectionName, typeof(ForwardedHeadersTrustOptions) },
+        { "Qertum.ApiService", ForwardedHeadersTrustOptions.SectionName, typeof(ForwardedHeadersTrustOptions) },
         { "Qertum.IdentityService", "IdentityService", typeof(Qertum.IdentityService.Configuration.IdentityServiceOptions) },
     };
 

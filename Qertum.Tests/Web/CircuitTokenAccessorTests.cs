@@ -178,15 +178,17 @@ public sealed class CircuitTokenAccessorTests
 
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
-            CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref tokenCalls);
-            return Task.FromResult(new HttpResponseMessage(TokenStatus)
+            return new HttpResponseMessage(TokenStatus)
             {
                 Content = new StringContent("""{"access_token":"new-a","refresh_token":"new-refresh-a","expires_in":3600}""")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private sealed class StaticOptionsMonitor<T>(T value) : IOptionsMonitor<T>

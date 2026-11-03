@@ -9,8 +9,16 @@ using BulkPage = Qertum.Web.Components.Pages.BulkOperations;
 
 namespace Qertum.Tests.Web;
 
-public sealed class BulkOperationsPageTests
+public sealed class BulkOperationsPageTests : IAsyncDisposable
 {
+    // A test may render more than once; each render gets its own context, and all of them are disposed with the test.
+    private readonly List<BunitContext> contexts = [];
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var context in contexts) await context.DisposeAsync();
+    }
+
     private static readonly Guid OperationGuid = Guid.Parse("44444444-4444-4444-4444-444444444444");
 
     private static string Operation(string status, int items = 3, int done = 0, int failed = 0, string kind = "Revoke") =>
@@ -47,16 +55,17 @@ public sealed class BulkOperationsPageTests
         }
     }
 
-    private static (BunitContext Context, BulkApiStub Api) NewContext(params string[] permissions)
+    private (BunitContext Context, BulkApiStub Api) NewContext(params string[] permissions)
     {
-        var api = new BulkApiStub();
         var context = new BunitContext();
+        contexts.Add(context);
+        var api = new BulkApiStub();
         context.Services.AddSingleton(TimeProvider.System);
         context.Services.AddAutomationSnippets();
         var auth = context.AddAuthorization().SetAuthorized("alice");
         auth.SetPolicies(permissions);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return (context, api);
     }
 

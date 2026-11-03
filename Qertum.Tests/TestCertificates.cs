@@ -47,7 +47,8 @@ internal static class TestCertificates
         var cert = certGen.Generate(new Asn1SignatureFactory("Ed25519", keyPair.Private, random));
 
         using var sw = new StringWriter();
-        new Org.BouncyCastle.OpenSsl.PemWriter(sw).WriteObject(cert);
+        using (var pemWriter = new Org.BouncyCastle.OpenSsl.PemWriter(sw))
+            pemWriter.WriteObject(cert);
         return sw.ToString();
     }
 }

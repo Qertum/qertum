@@ -80,7 +80,7 @@ public sealed class KeyStepPairTests
         context.AddAuthorization().SetAuthorized("alice").SetPolicies(AppPermissions.SettingsEdit);
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddAutomationSnippets();
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new NotFoundHandler()) { BaseAddress = new Uri("http://api.test/") }));
         var cut = context.Render<Onboarding>();
         cut.FindAll("button.option-card").Single(b => b.TextContent.Contains("Generate new CA", StringComparison.Ordinal)).Click();
@@ -105,7 +105,10 @@ public sealed class KeyStepPairTests
     // The CA status call fails, which onboarding treats as "not configured yet".
     private sealed class NotFoundHandler : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            new HttpResponseMessage(HttpStatusCode.NotFound);
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

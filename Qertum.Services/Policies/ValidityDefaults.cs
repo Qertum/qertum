@@ -16,9 +16,9 @@ public static class ValidityDefaults
         request.ValidityDays > 0 ? request.ValidityDays!.Value : EffectiveValidityDays(template, settings);
 
     public static int EffectiveValidityDays(CertificateTemplate? template, CaSettings? settings) =>
-        template?.ValidityDays > 0
-            ? template.ValidityDays.Value
-            : settings?.CertificateValidityDays > 0
-                ? settings.CertificateValidityDays
+        template is { ValidityDays: > 0 and var templateDays }
+            ? templateDays
+            : settings is { CertificateValidityDays: > 0 and var settingsDays }
+                ? settingsDays
                 : 365;
 }

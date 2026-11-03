@@ -64,13 +64,13 @@ internal static class OidcLogin
 
         var discovery = await DiscoverAsync(session.IdentityUrl, ct);
 
-        var form = new FormUrlEncodedContent([
+        using var form = new FormUrlEncodedContent([
             new KeyValuePair<string, string?>("grant_type", "refresh_token"),
             new KeyValuePair<string, string?>("client_id", CliClientId),
             new KeyValuePair<string, string?>("refresh_token", session.RefreshToken)
         ]);
 
-        var response = await Http.PostAsync(discovery.TokenEndpoint, form, ct);
+        using var response = await Http.PostAsync(discovery.TokenEndpoint, form, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         if (!response.IsSuccessStatusCode)
@@ -99,13 +99,13 @@ internal static class OidcLogin
             var discovery = await DiscoverAsync(session.IdentityUrl, ct);
             if (string.IsNullOrEmpty(discovery.RevocationEndpoint)) return;
 
-            var form = new FormUrlEncodedContent([
+            using var form = new FormUrlEncodedContent([
                 new KeyValuePair<string, string?>("token", session.RefreshToken),
                 new KeyValuePair<string, string?>("token_type_hint", "refresh_token"),
                 new KeyValuePair<string, string?>("client_id", CliClientId)
             ]);
 
-            await Http.PostAsync(discovery.RevocationEndpoint, form, ct);
+            using var revoked = await Http.PostAsync(discovery.RevocationEndpoint, form, ct);
         }
         catch
         {
@@ -147,9 +147,9 @@ internal static class OidcLogin
         int? maxAgeSeconds,
         CancellationToken ct)
     {
-        var form = new FormUrlEncodedContent(DeviceRequestFields(acrValues, maxAgeSeconds));
+        using var form = new FormUrlEncodedContent(DeviceRequestFields(acrValues, maxAgeSeconds));
 
-        var response = await Http.PostAsync(deviceAuthEndpoint, form, ct);
+        using var response = await Http.PostAsync(deviceAuthEndpoint, form, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
 
         if (!response.IsSuccessStatusCode)
@@ -172,13 +172,13 @@ internal static class OidcLogin
             await Task.Delay(interval, ct);
             Console.Write(".");
 
-            var form = new FormUrlEncodedContent([
+            using var form = new FormUrlEncodedContent([
                 new KeyValuePair<string, string?>("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 new KeyValuePair<string, string?>("device_code", deviceResponse.DeviceCode),
                 new KeyValuePair<string, string?>("client_id", CliClientId)
             ]);
 
-            var response = await Http.PostAsync(tokenEndpoint, form, ct);
+            using var response = await Http.PostAsync(tokenEndpoint, form, ct);
             var body = await response.Content.ReadAsStringAsync(ct);
 
             if (response.IsSuccessStatusCode)

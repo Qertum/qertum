@@ -268,7 +268,7 @@ public sealed class WebhookDeliveryServiceTests
     // instead of two DbContexts racing to use a single native connection handle
     // (which throws "database is locked" under the polling in RunOnePollAsync below).
     // The anchor connection just keeps the shared in-memory DB alive for the test.
-    private sealed class WebhookTestScope(SqliteConnection anchorConnection, IServiceScopeFactory scopeFactory) : IAsyncDisposable
+    private sealed class WebhookTestScope(SqliteConnection anchorConnection, IServiceScopeFactory scopeFactory) : IAsyncDisposable, IDisposable
     {
         public static async Task<WebhookTestScope> CreateAsync()
         {
@@ -410,6 +410,9 @@ public sealed class WebhookDeliveryServiceTests
                 await service.StopAsync(ct);
             }
         }
+
+        // Also IDisposable, so `using` works and the scope is seen as the owner of what it disposes.
+        public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         public async ValueTask DisposeAsync() => await anchorConnection.DisposeAsync();
     }

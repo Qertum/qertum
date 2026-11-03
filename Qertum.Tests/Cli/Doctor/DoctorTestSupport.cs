@@ -17,23 +17,13 @@ internal sealed class FakeHttp : HttpMessageHandler
 
     public FakeHttp Route(string url, HttpStatusCode status, string body = "", string contentType = "application/json", string? location = null)
     {
-        _routes[url] = _ =>
-        {
-            var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, contentType) };
-            if (location is not null) response.Headers.Location = new Uri(location, UriKind.RelativeOrAbsolute);
-            return Task.FromResult(response);
-        };
+        _routes[url] = _ => Task.FromResult(TextResponse(status, body, contentType, location));
         return this;
     }
 
     public FakeHttp RouteBytes(string url, HttpStatusCode status, byte[] body, string contentType = "application/octet-stream")
     {
-        _routes[url] = _ =>
-        {
-            var content = new ByteArrayContent(body);
-            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
-            return Task.FromResult(new HttpResponseMessage(status) { Content = content });
-        };
+        _routes[url] = _ => Task.FromResult(BytesResponse(status, body, contentType));
         return this;
     }
 
@@ -41,6 +31,21 @@ internal sealed class FakeHttp : HttpMessageHandler
     {
         _routes[url] = _ => throw exception;
         return this;
+    }
+
+    // The response is made and returned here and handed to the client, which disposes it once read.
+    private static HttpResponseMessage TextResponse(HttpStatusCode status, string body, string contentType, string? location)
+    {
+        var response = new HttpResponseMessage(status) { Content = new StringContent(body, Encoding.UTF8, contentType) };
+        if (location is not null) response.Headers.Location = new Uri(location, UriKind.RelativeOrAbsolute);
+        return response;
+    }
+
+    private static HttpResponseMessage BytesResponse(HttpStatusCode status, byte[] body, string contentType)
+    {
+        var response = new HttpResponseMessage(status) { Content = new ByteArrayContent(body) };
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        return response;
     }
 
     /// <summary>Never answers; only the caller's cancellation (the probe timeout) ends it.</summary>

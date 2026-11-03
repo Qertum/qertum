@@ -21,7 +21,7 @@ public sealed class PendingRequestsBadgeTests : IDisposable
 
     public PendingRequestsBadgeTests()
     {
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
     }
 
@@ -85,23 +85,26 @@ public sealed class PendingRequestsBadgeTests : IDisposable
 
         public bool Fail { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             lock (Requests)
                 Requests.Add(request.RequestUri!);
 
             if (Fail)
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
 
             var counts = new CertificateRequestStatusCounts
             {
                 Total = Pending + 7,
                 ByStatus = new Dictionary<string, int> { ["Pending"] = Pending, ["Issued"] = 7 }
             };
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(JsonSerializer.Serialize(counts), Encoding.UTF8, "application/json")
-            });
+            };
         }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(Send(request, cancellationToken));
     }
 }

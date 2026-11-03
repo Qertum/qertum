@@ -10,7 +10,7 @@ internal static class IdpApiHost
     public static async Task<WebApplicationFactory<ApiServiceProgram>> CreateAsync(string authority, int maxAgeSeconds, CancellationToken ct)
     {
         var database = SharedInMemoryDatabase.Create();
-        var factory = new WebApplicationFactory<ApiServiceProgram>().WithWebHostBuilder(builder =>
+        var factory = ConfiguredFactory.Create<ApiServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.UseSetting("Identity:Authority", authority);

@@ -29,10 +29,10 @@ public sealed class PqcCommandsTests
         }
     }
 
-    private static (CertificateRequestsApiClient Client, Recording Handler) Client(HttpStatusCode status = HttpStatusCode.OK, string body = "{}")
+    private static CertificateRequestsApiClient Client(out Recording handler, HttpStatusCode status = HttpStatusCode.OK, string body = "{}")
     {
-        var handler = new Recording(status, body);
-        return (new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }), handler);
+        handler = new Recording(status, body);
+        return new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") });
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed class PqcCommandsTests
     [Fact]
     public async Task SetPqcStage_PutsTheStageName()
     {
-        var (client, handler) = Client(body: """{"id":1,"pqcStage":"Warn"}""");
+        using var client = Client(out var handler, body: """{"id":1,"pqcStage":"Warn"}""");
 
         var settings = await client.SetPqcStageAsync(PqcStage.Warn, TestContext.Current.CancellationToken);
 
@@ -133,7 +133,7 @@ public sealed class PqcCommandsTests
     [Fact]
     public async Task SetTemplatePqcStage_Clear_SendsNull()
     {
-        var (client, handler) = Client(body: "{}");
+        using var client = Client(out var handler, body: "{}");
         var id = new CertificateTemplateId(Guid.NewGuid());
 
         await client.SetTemplatePqcStageAsync(id, null, TestContext.Current.CancellationToken);
@@ -145,7 +145,7 @@ public sealed class PqcCommandsTests
     [Fact]
     public async Task ListExceptions_SendsIncludeInactive()
     {
-        var (client, handler) = Client(body: "[]");
+        using var client = Client(out var handler, body: "[]");
 
         await client.GetPqcExceptionsAsync(includeInactive: true, TestContext.Current.CancellationToken);
 
@@ -155,7 +155,7 @@ public sealed class PqcCommandsTests
     [Fact]
     public async Task RevokeException_PostsToTheRevokeRoute()
     {
-        var (client, handler) = Client(body: "{}");
+        using var client = Client(out var handler, body: "{}");
         var id = new PqcExceptionId(Guid.NewGuid());
 
         await client.RevokePqcExceptionAsync(id, TestContext.Current.CancellationToken);
@@ -167,7 +167,7 @@ public sealed class PqcCommandsTests
     [Fact]
     public async Task ForbiddenCall_ThrowsAProblemThatCarriesTheStatus()
     {
-        var (client, _) = Client(HttpStatusCode.Forbidden, """{"title":"Forbidden","status":403}""");
+        using var client = Client(out var _, HttpStatusCode.Forbidden, """{"title":"Forbidden","status":403}""");
 
         var ex = await Assert.ThrowsAsync<ApiProblemException>(() =>
             client.SetPqcStageAsync(PqcStage.Off, TestContext.Current.CancellationToken));

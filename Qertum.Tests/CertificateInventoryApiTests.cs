@@ -29,7 +29,7 @@ public sealed class CertificateInventoryApiTests
         }
 
         using var http = Admin(factory);
-        var client = new CertificateRequestsApiClient(http);
+        using var client = new CertificateRequestsApiClient(http);
         var page = await client.GetCertificateInventoryAsync(1, 1, ct);
         var response = await http.GetAsync("/v1/certificate-inventory?page=2&pageSize=1", ct);
         var json = await response.Content.ReadAsStringAsync(ct);

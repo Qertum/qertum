@@ -32,7 +32,7 @@ public sealed class OnboardingIssuerCeremonyTests
         var auth = context.AddAuthorization().SetAuthorized("admin").SetPolicies(AppPermissions.SettingsEdit);
         if (admin) auth.SetRoles("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        context.Services.AddSingleton(new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(new HttpClient(api) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }
 

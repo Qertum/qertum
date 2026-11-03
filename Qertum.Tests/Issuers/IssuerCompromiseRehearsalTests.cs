@@ -75,7 +75,8 @@ public sealed class IssuerCompromiseRehearsalTests
             // 3. The offline root revokes the compromised intermediate on a CRL, and the CRL is uploaded.
             var crlPath = root.Crl([(compromised.SerialNumber!, "keyCompromise")], 30, "pw");
             Mark("3a sign the root CRL offline");
-            (await host.Admin().PostAsync($"/v1/issuers/{rootIssuer.Id}/crl", new ByteArrayContent(File.ReadAllBytes(crlPath)), Ct)).EnsureSuccessStatusCode();
+            using (var rootCrlUpload = new ByteArrayContent(File.ReadAllBytes(crlPath)))
+                (await host.Admin().PostAsync($"/v1/issuers/{rootIssuer.Id}/crl", rootCrlUpload, Ct)).EnsureSuccessStatusCode();
             Mark("3b upload the root CRL");
 
             // --- What an operator and a relying party now see. ---

@@ -3,9 +3,23 @@ using System.Net.Http.Json;
 
 namespace Qertum.Services;
 
-public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProvider? timeProvider = null)
+/// <summary>
+/// The typed client of the Qertum REST API. By default it owns the <see cref="HttpClient"/> it is given and disposes
+/// it with itself: the web registers it per scope over a pooled handler the client does not own
+/// (<c>disposeHandler: false</c>), the CLI makes one per command, tests hand it a stub. Pass
+/// <c>disposeHttpClient: false</c> for an <see cref="HttpClient"/> that outlives it (the same convention as
+/// <see cref="HttpClient(HttpMessageHandler, bool)"/>).
+/// </summary>
+public sealed class CertificateRequestsApiClient(HttpClient httpClient, TimeProvider? timeProvider = null, bool disposeHttpClient = true)
+    : IDisposable
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+
+    /// <summary>Disposes the <see cref="HttpClient"/> when this client owns it.</summary>
+    public void Dispose()
+    {
+        if (disposeHttpClient) httpClient.Dispose();
+    }
 
     /// <summary>One page of certificates Qertum issued, with both legs of paired requests counted.</summary>
     public async Task<PagedResult<CertificateInventoryItem>> GetCertificateInventoryAsync(

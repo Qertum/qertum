@@ -170,8 +170,8 @@ public sealed class CertificateInventoryService(
 
     private RootEvidence? TryGetVerifiedCurrentRoot()
     {
-        if (generator?.IsInitialized != true) return null;
-        try { return RootEvidenceFrom(generator.GetCaCertificatePem()); }
+        if (generator is not { IsInitialized: true } initialized) return null;
+        try { return RootEvidenceFrom(initialized.GetCaCertificatePem()); }
         catch (Exception ex) when (ex is not OutOfMemoryException) { return null; }
     }
 

@@ -10,15 +10,18 @@ public sealed class MyAccessPageTests
 {
     private sealed class Stub(Func<HttpResponseMessage> respond) : HttpMessageHandler
     {
+        protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            request.RequestUri!.AbsolutePath == "/v1/me/access" ? respond() : new HttpResponseMessage(HttpStatusCode.NotFound);
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(request.RequestUri!.AbsolutePath == "/v1/me/access" ? respond() : new HttpResponseMessage(HttpStatusCode.NotFound));
+            Task.FromResult(Send(request, cancellationToken));
     }
 
     private static BunitContext Host(Func<HttpResponseMessage> respond)
     {
         var context = new BunitContext();
         context.AddAuthorization().SetAuthorized("alice");
-        context.Services.AddSingleton(new CertificateRequestsApiClient(
+        context.Services.AddSingleton(_ => new CertificateRequestsApiClient(
             new HttpClient(new Stub(respond)) { BaseAddress = new Uri("http://api.test/") }));
         return context;
     }

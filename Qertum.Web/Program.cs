@@ -1,3 +1,4 @@
+using Qertum.ServiceDefaults;
 using Qertum.Web;
 using Qertum.Services;
 using Qertum.Web.Auth;
@@ -12,6 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults & Aspire client integrations.
 builder.AddServiceDefaults();
+// Forwarded headers (https behind a TLS proxy) are honoured from the trusted proxies only.
+builder.Services.AddQertumForwardedHeadersTrust();
 
 // Add services to the container.
 builder.Services.AddRazorComponents()

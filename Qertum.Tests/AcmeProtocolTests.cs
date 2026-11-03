@@ -83,7 +83,8 @@ public sealed class AcmeProtocolTests
         var ct = TestContext.Current.CancellationToken;
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
-        var nonceResponse = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce"), ct);
+        using var request = new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce");
+        var nonceResponse = await client.SendAsync(request, ct);
         var nonce = nonceResponse.Headers.GetValues("Replay-Nonce").Single();
         var jwk = part == "jwk" ? new { kty = "EC", crv = "P-256", x = new string('A', 17_000), y = "AA" } : null;
         var header = JsonSerializer.Serialize(new { alg = "ES256", nonce, url = "http://localhost/acme/new-account", jwk });
@@ -95,8 +96,9 @@ public sealed class AcmeProtocolTests
             ? new string(' ', EnrollmentPayloadLimits.AcmeBodyBytes + 1)
             : JsonSerializer.Serialize(new { @protected = protectedB64, payload = payloadB64, signature = "AA" });
 
+        using var content = new StringContent(body, Encoding.UTF8, "application/jose+json");
         var response = await client.PostAsync("/acme/new-account",
-            new StringContent(body, Encoding.UTF8, "application/jose+json"), ct);
+            content, ct);
 
         Assert.Equal(System.Net.HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
     }
@@ -111,7 +113,7 @@ public sealed class AcmeProtocolTests
         // delay challenge processing past PollOrderAsync's 10-second window.
         var database = SharedInMemoryDatabase.Create(createSchema: true);
 
-        var factory = new WebApplicationFactory<AcmeServiceProgram>().WithWebHostBuilder(builder =>
+        var factory = ConfiguredFactory.Create<AcmeServiceProgram>(builder =>
         {
             builder.UseSetting("ASPNETCORE_ENVIRONMENT", "Test");
             builder.UseSetting("Acme:BaseUrl", "http://localhost");
@@ -218,7 +220,8 @@ public sealed class AcmeProtocolTests
         await using var factory = CreateFactory();
         await using var logged = factory.WithWebHostBuilder(b => b.ConfigureTestServices(s => s.AddSingleton<ILoggerProvider>(logs)));
         using var client = logged.CreateClient();
-        var nonceResponse = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce"), ct);
+        using var request = new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce");
+        var nonceResponse = await client.SendAsync(request, ct);
         var nonce = nonceResponse.Headers.GetValues("Replay-Nonce").Single();
 
         static string B64(string text) => JwkConverter.Base64UrlEncode(Encoding.UTF8.GetBytes(text));
@@ -245,8 +248,9 @@ public sealed class AcmeProtocolTests
             _ => throw new ArgumentOutOfRangeException(nameof(variant))
         };
 
+        using var content = new StringContent(body, Encoding.UTF8, "application/jose+json");
         var response = await client.PostAsync("/acme/new-account",
-            new StringContent(body, Encoding.UTF8, "application/jose+json"), ct);
+            content, ct);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
@@ -1789,8 +1793,9 @@ public sealed class AcmeProtocolTests
 
         // Polling is what a correctly-behaving client does most of, so it must not be starved by the
         // creation budget being spent.
+        using var request = new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce");
         var nonce = await factory.CreateClient().SendAsync(
-            new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce"), ct);
+            request, ct);
         Assert.Equal(HttpStatusCode.OK, nonce.StatusCode);
 
         var account = await client.PostAsGetAsync(client.AccountUrl, ct);
@@ -2411,7 +2416,8 @@ public sealed class AcmeProtocolTests
 
         public async Task<HttpResponseMessage> PostRevocationAsync(string url, object payload, ECDsa keyToSignWith, string? kidToUse, CancellationToken ct)
         {
-            var resp = await _http.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce"), ct);
+            using var request3 = new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce");
+            var resp = await _http.SendAsync(request3, ct);
             var nonce = resp.Headers.GetValues("Replay-Nonce").First();
 
             var absUrl = url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? url : $"http://localhost{url}";
@@ -2433,18 +2439,20 @@ public sealed class AcmeProtocolTests
             var sig = keyToSignWith.SignData(sigInput, HashAlgorithmName.SHA256);
             var body = J(new { @protected = protB64, payload = payloadB64, signature = B64U(sig) });
 
+            using var content = new StringContent(body, Encoding.UTF8, "application/jose+json");
             return await _http.PostAsync(url,
-                new StringContent(body, Encoding.UTF8, "application/jose+json"), ct);
+                content, ct);
         }
 
         private async Task<HttpResponseMessage> SendJwsAsync(string url, string payloadB64, CancellationToken ct)
         {
-            var resp = await _http.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce"), ct);
+            using var request2 = new HttpRequestMessage(HttpMethod.Head, "/acme/new-nonce");
+            var resp = await _http.SendAsync(request2, ct);
             var nonce = resp.Headers.GetValues("Replay-Nonce").First();
             return await SendJwsInternalAsync(url, payloadB64, nonce, ct);
         }
 
-        private Task<HttpResponseMessage> SendJwsInternalAsync(string url, string payloadB64, string nonce, CancellationToken ct)
+        private async Task<HttpResponseMessage> SendJwsInternalAsync(string url, string payloadB64, string nonce, CancellationToken ct)
         {
             var absUrl = url.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? url : $"http://localhost{url}";
             object header;
@@ -2458,8 +2466,8 @@ public sealed class AcmeProtocolTests
             var sig = _key.SignData(sigInput, HashAlgorithmName.SHA256);
             var body = J(new { @protected = protB64, payload = payloadB64, signature = B64U(sig) });
 
-            return _http.PostAsync(url,
-                new StringContent(body, Encoding.UTF8, "application/jose+json"), ct);
+            using var content = new StringContent(body, Encoding.UTF8, "application/jose+json");
+            return await _http.PostAsync(url, content, ct);
         }
 
         private object PublicJwkObj() => JwkObj(_key);

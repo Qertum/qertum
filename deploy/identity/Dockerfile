@@ -48,11 +48,11 @@ EXPOSE 8080
 # OpenIddict builds every advertised endpoint URL (authorization, token, jwks_uri,
 # the device verification_uri, the /login challenge redirect) from the *incoming
 # request's* scheme and host — only "iss" comes from IdentityService:Authority.
-# Behind a TLS-terminating proxy the request arrives over http, so without this the
-# discovery document advertises http:// URLs under an https:// issuer. This switch
-# makes ASP.NET Core honour X-Forwarded-For and X-Forwarded-Proto; the original host
-# comes from the Host header, which the proxy must preserve.
-ENV ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+# Behind a TLS-terminating proxy the request arrives over http, so without
+# X-Forwarded-Proto the discovery document advertises http:// URLs under an https://
+# issuer. entrypoint.sh honours X-Forwarded-For/-Proto only when QERTUM_TRUSTED_PROXIES
+# names the proxy (trusting them from everyone would let any client claim https); the
+# original host comes from the Host header, which the proxy must preserve.
 
 # Probing the discovery document also proves OpenIddict initialized.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=5 \

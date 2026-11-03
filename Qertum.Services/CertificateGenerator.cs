@@ -338,7 +338,7 @@ public sealed class CertificateGenerator(
         EnsureCaInitialized();
 
         var thisUpdate = thisUpdateUtc ?? _clock.GetUtcNow().UtcDateTime;
-        var crlValidityHours = caSettings?.CrlValidityHours > 0 ? caSettings.CrlValidityHours : 24;
+        var crlValidityHours = caSettings is { CrlValidityHours: > 0 and var configuredHours } ? configuredHours : 24;
         var crlGen = new X509V2CrlGenerator();
         crlGen.SetIssuerDN(_caCertificate!.SubjectDN);
         crlGen.SetThisUpdate(thisUpdate);
@@ -356,7 +356,7 @@ public sealed class CertificateGenerator(
         // every refresh. Only added when delta publishing is actually configured — an absent
         // extension is the correct signal that no delta exists.
         var deltaUrl = urls is null
-            ? (caSettings?.DeltaCrlEnabled == true ? caSettings.CrlDeltaDistributionPoint : null)
+            ? (caSettings is { DeltaCrlEnabled: true } ? caSettings.CrlDeltaDistributionPoint : null)
             : urls.DeltaCrlDistributionPoint;
         if (!string.IsNullOrWhiteSpace(deltaUrl))
         {
@@ -383,7 +383,7 @@ public sealed class CertificateGenerator(
         var thisUpdate = thisUpdateUtc ?? _clock.GetUtcNow().UtcDateTime;
         // A delta is meant to be refreshed often and cheaply, so its own validity window comes from
         // DeltaCrlValidityHours rather than the (typically much longer) full-CRL window.
-        var validityHours = caSettings?.DeltaCrlValidityHours > 0 ? caSettings.DeltaCrlValidityHours : 6;
+        var validityHours = caSettings is { DeltaCrlValidityHours: > 0 and var deltaHours } ? deltaHours : 6;
         var crlGen = new X509V2CrlGenerator();
         crlGen.SetIssuerDN(_caCertificate!.SubjectDN);
         crlGen.SetThisUpdate(thisUpdate);
@@ -455,7 +455,7 @@ public sealed class CertificateGenerator(
         var now = _clock.GetUtcNow().UtcDateTime;
         // A response is only as fresh as the revocation data behind it, and that data is the same
         // set the CRL publishes, so the two agree on how long an answer may be cached.
-        var validityHours = caSettings?.CrlValidityHours > 0 ? caSettings.CrlValidityHours : 24;
+        var validityHours = caSettings is { CrlValidityHours: > 0 and var crlHours } ? crlHours : 24;
         var nextUpdate = now.AddHours(validityHours);
 
         foreach (var singleRequest in request.GetRequestList())

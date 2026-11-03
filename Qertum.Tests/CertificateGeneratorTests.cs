@@ -83,8 +83,8 @@ public sealed class CertificateGeneratorTests : IDisposable
         Assert.NotNull(certData.PrivateKeyPem);
 
         using var sr = new StringReader(certData.CertificatePem);
-        var bcCert = (Org.BouncyCastle.X509.X509Certificate)
-            new Org.BouncyCastle.OpenSsl.PemReader(sr).ReadObject();
+        using var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(sr);
+        var bcCert = (Org.BouncyCastle.X509.X509Certificate)pemReader.ReadObject();
 
         Assert.Contains($"ecdsa-{keyAlgorithm.ToCanonicalString().ToLowerInvariant()}.contoso.local", bcCert.SubjectDN.ToString());
 
@@ -209,7 +209,8 @@ public sealed class CertificateGeneratorTests : IDisposable
     private static Org.BouncyCastle.X509.X509Certificate ReadCertificate(string pem)
     {
         using var reader = new StringReader(pem);
-        return (Org.BouncyCastle.X509.X509Certificate)new Org.BouncyCastle.OpenSsl.PemReader(reader).ReadObject();
+        using var pemReader = new Org.BouncyCastle.OpenSsl.PemReader(reader);
+        return (Org.BouncyCastle.X509.X509Certificate)pemReader.ReadObject();
     }
 
     [Fact]

@@ -136,7 +136,7 @@ public sealed class BulkApiClientTests
     {
         var clock = new FakeTimeProvider();
         var script = new Script(Ok("Running", 0, retryAfter), Ok("Completed", 3));
-        var task = Client(script, clock).WaitForBulkOperationAsync(Id, TimeSpan.FromMinutes(5), cancellationToken: TestContext.Current.CancellationToken);
+        using var task = Client(script, clock).WaitForBulkOperationAsync(Id, TimeSpan.FromMinutes(5), cancellationToken: TestContext.Current.CancellationToken);
 
         for (var i = 0; i < 400 && script.Calls < 1; i++) await Task.Delay(5, TestContext.Current.CancellationToken);
         clock.Advance(TimeSpan.FromSeconds(expectedSeconds) - TimeSpan.FromMilliseconds(100));

@@ -27,9 +27,8 @@ public sealed class TpmSecretProtector : ISecretProtector
         Directory.CreateDirectory(secretStorageDir);
         var sealedBlobPath = Path.Combine(secretStorageDir, "tpm-sealed.blob");
 
-        _unsealedKey = File.Exists(sealedBlobPath)
-            ? Unseal(sealedBlobPath)
-            : SealNewKey(sealedBlobPath);
+        KeyFileCreation.EnsureExists(sealedBlobPath, SealNewKey);
+        _unsealedKey = Unseal(sealedBlobPath);
     }
 
     public byte[] Protect(byte[] plaintext)
@@ -76,19 +75,20 @@ public sealed class TpmSecretProtector : ISecretProtector
         return RunTpm2Tool("tpm2_getcap", "properties-fixed") is { ExitCode: 0 };
     }
 
-    private static byte[] SealNewKey(string sealedBlobPath)
+    /// <summary>
+    /// Seals a new key into <paramref name="blobPath"/> (a temporary path; <see cref="KeyFileCreation"/> renames it into
+    /// place). Every intermediate file is named after it, so two processes never share one.
+    /// </summary>
+    private static void SealNewKey(string blobPath)
     {
-        var key = RandomNumberGenerator.GetBytes(KeySizeBytes);
-        var keyFile = Path.GetTempFileName();
+        var keyFile = blobPath + ".key";
+        var primaryCtx = blobPath + ".primary.ctx";
+        var pub = blobPath + ".pub";
+        var priv = blobPath + ".priv";
         try
         {
-            File.WriteAllBytes(keyFile, key);
-
-            var primaryCtx = sealedBlobPath + ".primary.ctx";
+            File.WriteAllBytes(keyFile, RandomNumberGenerator.GetBytes(KeySizeBytes));
             Run("tpm2_createprimary", "-C", "o", "-c", primaryCtx);
-
-            var pub = sealedBlobPath + ".pub";
-            var priv = sealedBlobPath + ".priv";
             Run("tpm2_create", "-C", primaryCtx, "-i", keyFile, "-u", pub, "-r", priv);
 
             // The sealed blob on disk is (pub, priv) — neither is the plaintext key. Concatenate
@@ -103,17 +103,12 @@ public sealed class TpmSecretProtector : ISecretProtector
                 writer.Write(privBytes.Length);
                 writer.Write(privBytes);
             }
-            File.WriteAllBytes(sealedBlobPath, ms.ToArray());
-
-            File.Delete(primaryCtx);
-            File.Delete(pub);
-            File.Delete(priv);
-
-            return key;
+            File.WriteAllBytes(blobPath, ms.ToArray());
         }
         finally
         {
-            File.Delete(keyFile);
+            foreach (var file in new[] { keyFile, primaryCtx, pub, priv })
+                File.Delete(file);
         }
     }
 

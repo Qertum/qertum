@@ -67,7 +67,7 @@ public sealed class IssuerRegistry(
     public async Task<IssuerHandle> ForIssuanceAsync(CertificateTemplate? template, CancellationToken ct = default)
     {
         IssuerHandle? handle;
-        if (template?.IssuerId is { } pinned)
+        if (template is { IssuerId: { } pinned })
         {
             handle = await GetAsync(pinned, ct)
                      ?? throw new CaNotInitializedException($"Template '{template.TypeKey}' is pinned to an issuer that does not exist.");

@@ -207,10 +207,16 @@ export OpenIdConnect__RequireHttpsMetadata="${OpenIdConnect__RequireHttpsMetadat
 # Behind the TLS proxy that QERTUM_PUBLIC_SCHEME=https stands for, web, identity and API see the proxy's
 # plain-http hop and must take the client's scheme and address from X-Forwarded-Proto/-For: without it the
 # identity service refuses every request ("This server only accepts HTTPS requests") and builds http URLs.
-# This trusts the headers from whoever connects, which is the proxy alone only while 8080-8082 are not
-# published (README). ACME never sits behind a proxy, so its service unsets it (service/acmeservice/run).
+# The headers are honoured only from QERTUM_TRUSTED_PROXIES (required here): anyone else reaching 8080-8082
+# could otherwise claim https or any client address. ACME never sits behind a proxy, so its service unsets the
+# switch (service/acmeservice/run).
 if [ "${QERTUM_PUBLIC_SCHEME}" = "https" ]; then
+  if [ -z "${QERTUM_TRUSTED_PROXIES:-}" ]; then
+    echo "error: QERTUM_PUBLIC_SCHEME=https needs QERTUM_TRUSTED_PROXIES: the IP address or network of the TLS proxy (for example 172.18.0.0/16 for its Docker network), the only source whose X-Forwarded-Proto and X-Forwarded-For headers web, identity and API accept." >&2
+    exit 64
+  fi
   export ASPNETCORE_FORWARDEDHEADERS_ENABLED="${ASPNETCORE_FORWARDEDHEADERS_ENABLED:-true}"
+  export ForwardedHeaders__TrustedProxies="${QERTUM_TRUSTED_PROXIES}"
 fi
 
 echo "Qertum single-container starting:"

@@ -27,19 +27,20 @@ public sealed class CertNoteCommandTests
         }
     }
 
-    private static (CertificateRequestsApiClient Client, Api Handler) Client(HttpStatusCode status, string body = "")
+    private static CertificateRequestsApiClient Client(out Api handler, HttpStatusCode status, string body = "")
     {
-        var handler = new Api(status, body);
-        return (new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }, new FakeTimeProvider()), handler);
+        handler = new Api(status, body);
+        return new CertificateRequestsApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://api.test/") }, new FakeTimeProvider());
     }
 
     [Fact]
     public async Task Add_PostsTheText_AndPrintsTheNoteId()
     {
-        var (client, handler) = Client(HttpStatusCode.Created, StoredNote);
-        var output = new StringWriter();
+        using var client = Client(out var handler, HttpStatusCode.Created, StoredNote);
+        using var output = new StringWriter();
 
-        var exit = await CertNoteCommands.RunAddAsync(client, RequestId, "hello", output, new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await CertNoteCommands.RunAddAsync(client, RequestId, "hello", output, writer, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exit);
         Assert.Equal([$"POST /v1/certificate-requests/{RequestId}/notes"], handler.Calls);
@@ -50,9 +51,11 @@ public sealed class CertNoteCommandTests
     [Fact]
     public async Task Edit_PutsTheText()
     {
-        var (client, handler) = Client(HttpStatusCode.OK, StoredNote);
+        using var client = Client(out var handler, HttpStatusCode.OK, StoredNote);
 
-        var exit = await CertNoteCommands.RunEditAsync(client, RequestId, NoteId, "changed", new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        using var ignored = new StringWriter();
+        var exit = await CertNoteCommands.RunEditAsync(client, RequestId, NoteId, "changed", ignored, writer, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exit);
         Assert.Equal([$"PUT /v1/certificate-requests/{RequestId}/notes/{NoteId}"], handler.Calls);
@@ -62,10 +65,11 @@ public sealed class CertNoteCommandTests
     [Fact]
     public async Task Edit_OfAnUnknownNote_ExitsOne()
     {
-        var (client, _) = Client(HttpStatusCode.NotFound, "{}");
-        var error = new StringWriter();
+        using var client = Client(out var _, HttpStatusCode.NotFound, "{}");
+        using var error = new StringWriter();
 
-        var exit = await CertNoteCommands.RunEditAsync(client, RequestId, NoteId, "x", new StringWriter(), error, TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await CertNoteCommands.RunEditAsync(client, RequestId, NoteId, "x", writer, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exit);
         Assert.Contains("no such note", error.ToString());
@@ -74,10 +78,11 @@ public sealed class CertNoteCommandTests
     [Fact]
     public async Task Delete_SendsDelete_AndSaysSo()
     {
-        var (client, handler) = Client(HttpStatusCode.NoContent);
-        var output = new StringWriter();
+        using var client = Client(out var handler, HttpStatusCode.NoContent);
+        using var output = new StringWriter();
 
-        var exit = await CertNoteCommands.RunDeleteAsync(client, RequestId, NoteId, output, new StringWriter(), TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await CertNoteCommands.RunDeleteAsync(client, RequestId, NoteId, output, writer, TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exit);
         Assert.Equal([$"DELETE /v1/certificate-requests/{RequestId}/notes/{NoteId}"], handler.Calls);
@@ -87,10 +92,11 @@ public sealed class CertNoteCommandTests
     [Fact]
     public async Task Delete_OfAnUnknownNote_ExitsOne()
     {
-        var (client, _) = Client(HttpStatusCode.NotFound, "{}");
-        var error = new StringWriter();
+        using var client = Client(out var _, HttpStatusCode.NotFound, "{}");
+        using var error = new StringWriter();
 
-        var exit = await CertNoteCommands.RunDeleteAsync(client, RequestId, NoteId, new StringWriter(), error, TestContext.Current.CancellationToken);
+        using var writer = new StringWriter();
+        var exit = await CertNoteCommands.RunDeleteAsync(client, RequestId, NoteId, writer, error, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, exit);
         Assert.Contains("no such note", error.ToString());
@@ -99,10 +105,11 @@ public sealed class CertNoteCommandTests
     [Fact]
     public async Task NotTheAuthor_ThrowsTheProblem_WhoseForbiddenHintSaysOnlyTheAuthorMayChangeIt()
     {
-        var (client, _) = Client(HttpStatusCode.Forbidden);
+        using var client = Client(out var _, HttpStatusCode.Forbidden);
 
+        using var ignored = new StringWriter();
         var problem = await Assert.ThrowsAsync<ApiProblemException>(() => CertNoteCommands.RunDeleteAsync(
-            client, RequestId, NoteId, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken));
+            client, RequestId, NoteId, ignored, ignored, TestContext.Current.CancellationToken));
 
         var lines = Qertum.Cli.Api.CliApi.FormatProblem(problem, CertNoteCommands.ForbiddenHint);
         Assert.Contains("author", lines[0]);

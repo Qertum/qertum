@@ -973,8 +973,8 @@ else
 
     private bool IsRevoked => certificate?.Status == CertificateRequestStatus.Revoked;
     private bool IsPendingRevocation => certificate?.Status == CertificateRequestStatus.PendingRevocation;
-    private bool IsExpired => !IsRevoked && !IsPendingRevocation && certificate?.ValidTo.HasValue == true && certificate.ValidTo.Value <= Now;
-    private bool IsExpiring => !IsRevoked && !IsPendingRevocation && !IsExpired && certificate?.ValidTo.HasValue == true && certificate.ValidTo.Value <= Now.AddDays(30);
+    private bool IsExpired => !IsRevoked && !IsPendingRevocation && certificate is { ValidTo: { } validTo } && validTo <= Now;
+    private bool IsExpiring => !IsRevoked && !IsPendingRevocation && !IsExpired && certificate is { ValidTo: { } validTo } && validTo <= Now.AddDays(30);
 
     private string GetBadgeClass() => IsRevoked ? "revoked-badge" : IsPendingRevocation ? "pending-badge" : IsExpired ? "expired" : IsExpiring ? "expiring-soon" : "valid";
     private string GetBadgeIcon() => IsRevoked ? "bi-shield-fill-minus" : IsPendingRevocation ? "bi-hourglass-split" : IsExpired ? "bi-shield-fill-x" : IsExpiring ? "bi-exclamation-triangle-fill" : "bi-shield-fill-check";
@@ -988,17 +988,17 @@ else
 
     private string GetDuration()
     {
-        if (certificate?.ValidFrom == null || certificate.ValidTo == null) return "—";
-        var span = certificate.ValidTo.Value - certificate.ValidFrom.Value;
+        if (certificate is not { ValidFrom: { } validFrom, ValidTo: { } validTo }) return "—";
+        var span = validTo - validFrom;
         if (span.TotalDays >= 365) return $"{(int)(span.TotalDays / 365)} year{((int)(span.TotalDays / 365) != 1 ? "s" : "")}";
         return $"{(int)span.TotalDays} days";
     }
 
     private string GetProgressPct()
     {
-        if (certificate?.ValidFrom == null || certificate.ValidTo == null) return "0";
-        var total = (certificate.ValidTo.Value - certificate.ValidFrom.Value).TotalSeconds;
-        var elapsed = (Now - certificate.ValidFrom.Value).TotalSeconds;
+        if (certificate is not { ValidFrom: { } validFrom, ValidTo: { } validTo }) return "0";
+        var total = (validTo - validFrom).TotalSeconds;
+        var elapsed = (Now - validFrom).TotalSeconds;
         return Math.Clamp(elapsed / total * 100, 0, 100).ToString("F1", CultureInfo.InvariantCulture);
     }
 }
