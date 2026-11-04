@@ -18,7 +18,7 @@ MIN_UPTIME=5
 status="$(sv status "${SVC_DIR}"/* 2>&1)" || true
 echo "${status}"
 
-# Line shape: `run: /tmp/qertum-svc/redis: (pid 12) 34s`, or `down: ...` / `run: ...: (pid 12) 0s` after a restart.
+# Line shape: `run: /tmp/qertum-svc/valkey: (pid 12) 34s`, or `down: ...` / `run: ...: (pid 12) 0s` after a restart.
 if [ -z "${status}" ] || echo "${status}" | awk -v min="${MIN_UPTIME}" '
       { up = $5; sub(/s;?$/, "", up) }
       !($1 == "run:" && up + 0 >= min) { bad = 1 }

@@ -1390,7 +1390,7 @@ public static class ApiEndpointMappings
             if (derRequest is null)
                 return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
             return await BuildOcspResponseAsync(derRequest, service, issuers, cancellationToken);
-        });
+        }).RequireRateLimiting("api");
 
         group.MapGet($"{path}/{{encodedRequest}}", async (
             string encodedRequest,
@@ -1409,7 +1409,7 @@ public static class ApiEndpointMappings
             }
 
             return await BuildOcspResponseAsync(derRequest, service, issuers, cancellationToken);
-        });
+        }).RequireRateLimiting("api");
     }
 
     private static async Task<IResult> BuildOcspResponseAsync(

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using Qertum.Cli.Doctor;
 using Qertum.Cli.Doctor.Checks;
@@ -12,7 +13,7 @@ public sealed class IssuersCheckTests
     private static string Issuer(string name, string status = "Active", bool isDefault = false, string kind = "Root", DateTime? validTo = null) =>
         $$"""
         {"id":"{{Guid.NewGuid()}}","name":"{{name}}","kind":"{{kind}}","parentIssuerId":null,"keyCustody":"Online","status":"{{status}}","isDefault":{{(isDefault ? "true" : "false")}},
-         "subjectDn":"CN={{name}}","serialNumber":"01","keyAlgorithm":"ECDSA-P384","validFrom":"2026-01-01T00:00:00Z","validTo":"{{(validTo ?? DoctorTestSupport.Now.UtcDateTime.AddYears(5)):yyyy-MM-ddTHH:mm:ssZ}}",
+         "subjectDn":"CN={{name}}","serialNumber":"01","keyAlgorithm":"ECDSA-P384","validFrom":"2026-01-01T00:00:00Z","validTo":"{{(validTo ?? DoctorTestSupport.Now.UtcDateTime.AddYears(5)).ToString("O", CultureInfo.InvariantCulture)}}",
          "pathLengthConstraint":null,"permittedDnsSuffixes":[],"excludedDnsSuffixes":[],"permittedIpRanges":[],"excludedIpRanges":[],"uploadedCrlNumber":null,"uploadedCrlNextUpdateUtc":null,
          "createdAtUtc":"2026-01-01T00:00:00Z","activatedAtUtc":null,"retiredAtUtc":null,"archivedAtUtc":null,"destroyedAtUtc":null}
         """;

@@ -4,7 +4,7 @@ Restore the /data volume of the multi-container deployment from an archive made 
 .DESCRIPTION
 Stops every Qertum container except qertum-apiservice (which supplies the volume), runs the
 single-container restore.ps1 against it, and restarts the others in a finally block, also when the
-operator declines the confirmation. Redis keeps running. Requires PowerShell 7 (pwsh).
+operator declines the confirmation. Valkey keeps running. Requires PowerShell 7 (pwsh).
 #>
 #Requires -Version 7.0
 param (

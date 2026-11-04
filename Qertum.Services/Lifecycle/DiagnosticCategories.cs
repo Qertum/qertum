@@ -63,6 +63,7 @@ public static class DiagnosticCategories
     public const string WrongSecret = "WrongPassword"; // the stored category name; the value must not change
     public const string Revoked = "Revoked";
     public const string IdentityMismatch = "IdentityMismatch";
+    public const string EnrollmentCertificateRequired = "EnrollmentCertificateRequired";
     public const string CompositeReenrollUnsupported = "CompositeReenrollUnsupported";
 
     public const string PqcStage = "PqcStage";
@@ -73,6 +74,7 @@ public static class DiagnosticHints
 {
     private static readonly Dictionary<string, string> Hints = new(StringComparer.Ordinal)
     {
+        [DiagnosticCategories.EnrollmentCertificateRequired] = "Enroll with EST credentials using a client-authentication template before using certificate-based re-enrollment.",
         [DiagnosticCategories.AllowlistDenied] = "Add the address's network to Settings → ACME → challenge networks.",
         [DiagnosticCategories.ConnectionFailed] = "Check that the domain's HTTP server is reachable from the CA on port 80.",
         [DiagnosticCategories.Timeout] = "Check that the domain's HTTP server answers from the CA's network; a firewall may be dropping the connection.",

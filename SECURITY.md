@@ -25,4 +25,4 @@ In scope: flaws in the services, images and command-line client in this reposito
 
 Documented behaviour is not a vulnerability by itself. In particular, an administrator can export the CA key (it is audited, can require a second administrator and step-up, and the interface says it is not a safe way to manage a CA key), and revoked access tokens stay valid until they expire, which is why token lifetimes should be short.
 
-Reports that need an already-compromised host or administrator account, denial of service by sending unreasonable volumes of traffic, and findings in third-party software we only deploy (the base image, Redis, your identity provider) belong with their maintainers, though we want to hear about a configuration of ours that makes them exploitable.
+Reports that need an already-compromised host or administrator account, denial of service by sending unreasonable volumes of traffic, and findings in third-party software we only deploy (the base image, Valkey, your identity provider) belong with their maintainers, though we want to hear about a configuration of ours that makes them exploitable.

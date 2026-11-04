@@ -4,7 +4,7 @@
 #
 # Stops every Qertum container except the one that supplies the volume (qertum-apiservice), then runs
 # the single-container restore.sh against that one. That script asks for confirmation first; declining
-# (or any failure) restarts the others again. Redis keeps running. # qertum-cache keeps running
+# (or any failure) restarts the others again. Valkey keeps running. # qertum-cache keeps running
 #
 # Usage: ./restore.sh <archive.tar.gz>
 set -euo pipefail

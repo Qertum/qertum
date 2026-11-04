@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <!-- Paper mark on ink tile (app-tile lockup) -->
+  <rect width="120" height="120" rx="26" fill="#0C100F"/>
+  <g fill="none" stroke="#F5F7F5" transform="translate(8 8) scale(0.8667)">
+    <circle cx="60" cy="60" r="41" stroke-width="6" pathLength="120" stroke-dasharray="5 5"/>
+    <circle cx="60" cy="60" r="29" stroke-width="6" pathLength="120" stroke-dasharray="5 5" stroke-dashoffset="5"/>
+    <line x1="81.2" y1="81.2" x2="98.9" y2="98.9" stroke-width="6"/>
+  </g>
+</svg>

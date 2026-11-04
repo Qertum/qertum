@@ -1,0 +1,13 @@
+# Existing bind-mounted /data: add this file after docker-compose.yml. No files move or get deleted.
+# Requires Docker Compose >= 2.24.4 for !override; QERTUM_DATA must be the existing absolute host path.
+services:
+  data-init:
+    volumes: !override
+      - ${QERTUM_DATA:?set QERTUM_DATA to the existing absolute data directory}:/data
+      - ./init-data.sh:/init-data.sh:ro
+  identityservice:
+    volumes: !override
+      - ${QERTUM_DATA:?set QERTUM_DATA to the existing absolute data directory}/identity:/data/identity
+  webfrontend:
+    volumes: !override
+      - ${QERTUM_DATA:?set QERTUM_DATA to the existing absolute data directory}/web:/home/app/.aspnet/DataProtection-Keys

@@ -35,6 +35,8 @@ public class JsonClientStore
         _directory = directory ?? AppContext.BaseDirectory;
         Directory.CreateDirectory(_directory);
         _filePath = Path.Combine(_directory, "clients.json");
+        PrivateStoreFile.RestrictAccess(_filePath);
+        PrivateStoreFile.RestrictAccess(Path.Combine(_directory, "api-client-secret.txt"));
         SeedIfMissing();
 
         // Delete the one-time secret file once the app is fully started.
@@ -82,7 +84,7 @@ public class JsonClientStore
             // The API no longer introspects, so this secret is only used for the client
             // record itself. It is still written out once so an operator can recover it.
             var secretFilePath = Path.Combine(_directory, "api-client-secret.txt");
-            File.WriteAllText(secretFilePath, apiClientSecret);
+            PrivateStoreFile.Write(secretFilePath, stream => stream.Write(System.Text.Encoding.UTF8.GetBytes(apiClientSecret)));
 
             _logger.LogWarning(
                 "Generated API client secret at {SecretFilePath}. " +
@@ -142,10 +144,7 @@ public class JsonClientStore
             seed.Add(BuildViewerTestClient());
         }
 
-        using (var fs = File.Create(_filePath))
-        {
-            JsonSerializer.Serialize(fs, seed, SerializerOptions);
-        }
+        PrivateStoreFile.Write(_filePath, stream => JsonSerializer.Serialize(stream, seed, SerializerOptions));
 
         _logger.LogInformation("Seeded default clients.json at {Path}", _filePath);
     }
@@ -221,8 +220,7 @@ public class JsonClientStore
         changed |= RemoveTestClientsIfNotWanted(existing);
 
         if (!changed) return;
-        using var fs = File.Create(_filePath);
-        JsonSerializer.Serialize(fs, existing, SerializerOptions);
+        PrivateStoreFile.Write(_filePath, stream => JsonSerializer.Serialize(stream, existing, SerializerOptions));
     }
 
     /// <summary>

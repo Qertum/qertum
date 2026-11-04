@@ -81,6 +81,9 @@ builder.Services.AddHostedService<ClientSeedHostedService>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
+        // Its own name: browsers do not separate cookies by port, so with the web UI on the same host under the
+        // default name each sign-in overwrote the other app's session.
+        options.Cookie.Name = ".Qertum.Identity";
         options.LoginPath = "/login";
         options.LogoutPath = "/connect/logout";
         options.SlidingExpiration = true;
@@ -259,15 +262,17 @@ static string DeviceAuthorizedHtml() =>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Device Authorized · Qertum IDM</title>
         <link rel="stylesheet" href="/identity.css" />
+        <link rel="icon" href="/_content/Qertum.DesignSystem/brand/favicon.ico" sizes="32x32" />
+        <link rel="icon" type="image/svg+xml" href="/_content/Qertum.DesignSystem/brand/favicon.svg" />
     </head>
     <body class="centered">
         <main class="shell-main">
             <div class="card">
                 <a class="card-brand" href="/">
                     <span class="brand-mark" aria-hidden="true"></span>
-                    <span class="brand-text">
-                        <span class="brand-name">Custom<em>CA</em></span>
-                        <span class="brand-sub">Identity</span>
+                    <span class="brand-lockup">
+                        <span class="brand-name">Qertum</span>
+                        <span class="brand-tagline">Post-Quantum Security</span>
                     </span>
                 </a>
                 <div class="signout-ok">
@@ -292,15 +297,17 @@ static string DeviceDeniedHtml() =>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Access Denied · Qertum IDM</title>
         <link rel="stylesheet" href="/identity.css" />
+        <link rel="icon" href="/_content/Qertum.DesignSystem/brand/favicon.ico" sizes="32x32" />
+        <link rel="icon" type="image/svg+xml" href="/_content/Qertum.DesignSystem/brand/favicon.svg" />
     </head>
     <body class="centered">
         <main class="shell-main">
             <div class="card">
                 <a class="card-brand" href="/">
                     <span class="brand-mark" aria-hidden="true"></span>
-                    <span class="brand-text">
-                        <span class="brand-name">Custom<em>CA</em></span>
-                        <span class="brand-sub">Identity</span>
+                    <span class="brand-lockup">
+                        <span class="brand-name">Qertum</span>
+                        <span class="brand-tagline">Post-Quantum Security</span>
                     </span>
                 </a>
                 <div class="signout-ok">

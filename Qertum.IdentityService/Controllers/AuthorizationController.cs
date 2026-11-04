@@ -337,15 +337,17 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <title>Sign Out · Qertum IDM</title>
             <link rel="stylesheet" href="/identity.css" />
+            <link rel="icon" href="/_content/Qertum.DesignSystem/brand/favicon.ico" sizes="32x32" />
+            <link rel="icon" type="image/svg+xml" href="/_content/Qertum.DesignSystem/brand/favicon.svg" />
         </head>
         <body class="centered">
             <main class="shell-main">
                 <div class="card">
                     <a class="card-brand" href="/">
                         <span class="brand-mark" aria-hidden="true"></span>
-                        <span class="brand-text">
-                            <span class="brand-name">Qer<em>tum</em></span>
-                            <span class="brand-sub">Identity</span>
+                        <span class="brand-lockup">
+                            <span class="brand-name">Qertum</span>
+                            <span class="brand-tagline">Post-Quantum Security</span>
                         </span>
                     </a>
                     <h1>Sign <em>out</em>?</h1>
@@ -379,15 +381,17 @@ public sealed class AuthorizationController(JsonUserStore userStore, JsonClientS
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <title>Authorize Device · Qertum IDM</title>
             <link rel="stylesheet" href="/identity.css" />
+            <link rel="icon" href="/_content/Qertum.DesignSystem/brand/favicon.ico" sizes="32x32" />
+            <link rel="icon" type="image/svg+xml" href="/_content/Qertum.DesignSystem/brand/favicon.svg" />
         </head>
         <body class="centered">
             <main class="shell-main">
                 <div class="card">
                     <a class="card-brand" href="/">
                         <span class="brand-mark" aria-hidden="true"></span>
-                        <span class="brand-text">
-                            <span class="brand-name">Qer<em>tum</em></span>
-                            <span class="brand-sub">Identity</span>
+                        <span class="brand-lockup">
+                            <span class="brand-name">Qertum</span>
+                            <span class="brand-tagline">Post-Quantum Security</span>
                         </span>
                     </a>
                     <h1>Authorize <em>Device</em></h1>

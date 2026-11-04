@@ -7,7 +7,7 @@
 #      wiring every service over localhost / the host's public URLs.
 #   2. Keep all mutable state on the /data volume so redeploys never lose the CA,
 #      the database, the Data Protection keyring or the identity provider's users.
-#   3. Launch Redis and the five services under runit (runsvdir), and shut them down cleanly on
+#   3. Launch Valkey and the five services under runit (runsvdir), and shut them down cleanly on
 #      SIGTERM.
 #
 set -euo pipefail
@@ -20,7 +20,7 @@ IDENTITY_APP_DIR="/app/identityservice"
 # Privilege drop. The container starts as root only so it can make /data writable for
 # the unprivileged `app` user (UID 1654, from the base image): a volume written by an
 # older, root-running image is re-owned once. Then this script re-executes itself as
-# `app`, so Redis, runit and every .NET process run without root. Started with
+# `app`, so Valkey, runit and every .NET process run without root. Started with
 # `--user` (already non-root) it skips all of this and expects a writable /data.
 # ---------------------------------------------------------------------------
 adopt_identity_item() {
@@ -143,7 +143,7 @@ export ASPNETCORE_ENVIRONMENT="${ASPNETCORE_ENVIRONMENT:-Production}"
 # directory, so they all land on the volume automatically.
 export ConnectionStrings__CertificateRequests="Data Source=${DATA_DIR}/certificate-requests.db"
 
-# Shared Redis (run by runit in this container, loopback only). Without it each process
+# Shared Valkey cache (Redis-compatible; run by runit in this container, loopback only). Without it each process
 # keeps its own in-memory cache, so a CRL published or evicted by queueconsumer would
 # never reach apiservice, which serves /crl.
 export ConnectionStrings__cache="127.0.0.1:6379"

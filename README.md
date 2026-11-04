@@ -6,7 +6,7 @@ SQLite: no external database, message broker or cloud service is needed.
 
 ![The Qertum dashboard: the request pipeline, certificate validity and the latest certificates](docs/images/dashboard.png)
 
-> **Release candidate (1.0.0-rc4.3).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
+> **Release candidate (1.0.0-rc5).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
 
 ## Quick start
 
@@ -14,10 +14,10 @@ SQLite: no external database, message broker or cloud service is needed.
 docker run -d --name qertum \
   -e QERTUM_HOST=localhost \
   -e IdentityService__SeedAdminPassword='choose-a-strong-password' \
-  -p 8080:8080 -p 8081:8081 -p 8082:8082 -p 8083:8083 \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 -p 127.0.0.1:8082:8082 -p 8083:8083 \
   -v qertum-data:/data \
   --restart unless-stopped \
-  qertum/qertum:1.0.0-rc4.3
+  qertum/qertum:1.0.0-rc5
 ```
 
 Open `http://localhost:8080` on the same machine, sign in as `admin` and follow the onboarding to create or
@@ -27,13 +27,12 @@ with no NAT, DNS alias or other name in between. `localhost`, `127.0.0.1` and th
 different values, and a browser address that differs from it fails sign-in with
 `The specified 'redirect_uri' is not valid for this client application` (ID2043).
 
-**Plain http works only on `localhost`.** Browsers do not send the web app's sign-in cookies back over `http://`
-to any other name or IP, so with `QERTUM_HOST` set to a host name or LAN IP, sign-in loops after the password
-step. To reach Qertum from other machines, put a TLS reverse proxy in front of the web, identity and API ports,
-set `QERTUM_HOST` to the proxy's host name, set `QERTUM_PUBLIC_SCHEME=https` and set `QERTUM_TRUSTED_PROXIES` to the
-proxy's address or network; see
-[TLS and Reverse Proxy](https://github.com/Qertum/qertum/wiki/TLS-and-Reverse-Proxy). ACME clients on other
-machines can use `http://<host>:8083` directly. ACME must not sit behind a TLS proxy.
+Browser and API ports bind to loopback, so this HTTP trial is local to the Docker host. For remote access,
+put a TLS reverse proxy in front of the web, identity and API ports, set `QERTUM_HOST` to the proxy's host name,
+set `QERTUM_PUBLIC_SCHEME=https` and set `QERTUM_TRUSTED_PROXIES` to the proxy's address or network; see
+[TLS and Reverse Proxy](https://github.com/Qertum/qertum/wiki/TLS-and-Reverse-Proxy). Keep the backend HTTP ports
+private to the proxy. ACME clients on other machines can use `http://<host>:8083` directly. ACME must not sit
+behind a TLS proxy.
 
 The single container has no EST endpoint. For EST, or to expose only ACME and EST, use the multi-container
 layout in [`deploy/multi-container/`](deploy/multi-container/README.md).
@@ -105,4 +104,5 @@ To run the whole stack locally, see [Local Development](https://github.com/Qertu
 
 - Report vulnerabilities privately: [SECURITY.md](SECURITY.md).
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md), [Code of Conduct](CODE_OF_CONDUCT.md).
-- MIT, see [LICENSE](LICENSE).
+- MIT, see [LICENSE](LICENSE). Third-party components in the images and `qca`, with their licences:
+  [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).

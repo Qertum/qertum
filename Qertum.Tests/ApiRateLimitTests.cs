@@ -5,6 +5,30 @@ namespace Qertum.Tests;
 
 public sealed class ApiRateLimitTests
 {
+    [Theory]
+    [InlineData("/ocsp", "/v1/ocsp/AQ%3D%3D")]
+    [InlineData("/v1/ocsp", "/ocsp/AQ%3D%3D")]
+    public async Task AnonymousOcspRequests_ShareALimitAcrossGetPostAndBothAliases(string postPath, string getPath)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var parent = ApiServiceTests.CreateFactory();
+        await using var factory = parent.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("RateLimiting:PermitLimit", "2");
+            builder.UseSetting("RateLimiting:QueueLimit", "0");
+        });
+        await ApiServiceTests.EnsureDbAsync(factory, ct);
+        using var client = factory.CreateClient();
+        using var body = new ByteArrayContent([1]);
+        using var first = await client.PostAsync(postPath, body, ct);
+        using var second = await client.GetAsync(getPath, ct);
+        using var refused = await client.GetAsync(getPath, ct);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+    }
+
     [Fact]
     public async Task OneCallerAtTheLimit_DoesNotLockOutAnother()
     {

@@ -10,7 +10,8 @@ var certificateRequestsConnectionString =
 // Shared cache. The CRL and ACME nonces live here, and both are wrong when cached per process:
 // two API instances would publish independently-generated CRLs, and a nonce minted by one ACME
 // instance would be unknown to the next. Runs as a container, so local runs need Docker.
-var cache = builder.AddRedis("cache");
+// Valkey (BSD-3-Clause, Redis-compatible), the same server and minor version as the deploy images.
+var cache = builder.AddValkey("cache").WithImageTag("9.1");
 
 // Deterministic secret for the IdentityService's own client seeding. The API service no
 // longer needs it: bearer tokens are validated locally against JWKS, not by introspection.

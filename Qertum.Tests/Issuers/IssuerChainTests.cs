@@ -109,10 +109,18 @@ public sealed class IssuerChainTests
         a.GenerateCa(new GenerateCaRequest { CommonName = "A", ValidityDays = 30 });
         var b = kit.NewGenerator(new CaDataOptions { Directory = Path.Combine(kit.CaDataDirectory, "b") });
         b.GenerateCa(new GenerateCaRequest { CommonName = "B", ValidityDays = 30 });
-        using var leaf = X509Certificate2.CreateFromPem(a.GenerateCertificate(new CertificateRequest { CommonName = "d.example" }, new CaSettings { PqcStage = PqcStage.Off }).CertificatePem);
+        using var leaf = X509Certificate2.CreateFromPem(a.GenerateCertificate(new CertificateRequest { CommonName = "d.example" },
+            new CaSettings { PqcStage = PqcStage.Off }, new CertificateTemplate
+            {
+                Name = "Client", TypeKey = "Client", KeyUsagesJson = "[\"DigitalSignature\"]",
+                ExtendedKeyUsagesJson = "[\"1.3.6.1.5.5.7.3.2\"]"
+            }).CertificatePem);
         using var rootA = X509Certificate2.CreateFromPem(a.GetCaCertificatePem());
         using var rootB = X509Certificate2.CreateFromPem(b.GetCaCertificatePem());
-        var none = new FakeRevocationStatusService(new Dictionary<string, OcspCertificateStatus>());
+        var none = new FakeRevocationStatusService(new Dictionary<string, OcspCertificateStatus>
+        {
+            [EstEndpointMappings.NormalizeSerial(leaf.SerialNumber)] = OcspCertificateStatus.Good
+        });
 
         Assert.True(await EstEndpointMappings.VerifyReenrollCertificateAsync(leaf, [rootB, rootA], [], none, Ct));
         Assert.False(await EstEndpointMappings.VerifyReenrollCertificateAsync(leaf, [rootB], [], none, Ct));

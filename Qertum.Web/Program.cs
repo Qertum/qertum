@@ -54,6 +54,9 @@ builder.Services.AddAuthentication(options =>
     })
     .AddCookie(options =>
     {
+        // Its own name: browsers do not separate cookies by port, so with the identity service on the same host
+        // under the default name each sign-in overwrote the other app's session.
+        options.Cookie.Name = ".Qertum.Web";
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
         options.Events.OnSigningIn = ctx =>
@@ -87,8 +90,12 @@ builder.Services.AddAuthentication(options =>
         options.Events.OnRedirectToIdentityProvider = context =>
         {
             StepUpRedirect.Apply(context);
+            PlainHttpSignIn.Apply(context);
             return Task.CompletedTask;
         };
+        // Over plain http the correlation and nonce cookies must not be Secure, or the browser drops them and every
+        // sign-in fails with "Correlation failed".
+        PlainHttpSignIn.Configure(options);
 
         // Allow OIDC metadata over plain HTTP in Development or when explicitly opted in
         // (single-container deployments where the identity authority is reached over HTTP).

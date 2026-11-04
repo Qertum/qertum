@@ -1,0 +1,48 @@
+/* ===================================================================
+   Qertum — Brand lockup
+   The header lockup of qertum.com, so the product and the site look the
+   same: the mark, a 1px divider, the name in spaced capitals and the
+   tagline in mono. Markup, in Qertum.Web and Qertum.IdentityService:
+     <span class="brand-mark" aria-hidden="true"></span>
+     <span class="brand-lockup">
+       <span class="brand-name">Qertum</span>
+       <span class="brand-tagline">Post-Quantum Security</span>
+     </span>
+   The element around them sets the layout (flex, gap 1rem).
+   =================================================================== */
+
+.brand-mark {
+    display: block;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    background: url('brand/qertum-mark.svg') center / contain no-repeat;
+}
+
+.brand-lockup {
+    display: flex;
+    flex-direction: column;
+    padding-left: 1rem;
+    border-left: 1px solid var(--bg-glass-border-strong);
+}
+
+.brand-name {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.1rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: var(--text-heading);
+}
+
+.brand-tagline {
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    line-height: 1;
+    color: var(--text-muted);
+    margin-top: 4px;
+}

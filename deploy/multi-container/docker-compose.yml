@@ -1,4 +1,4 @@
-# Multi-container Qertum on one host: one container per service, sharing one /data volume.
+# Multi-container Qertum on one host. CA hosts share /data; identity and web mount only their own subdirectories.
 # Same data layout as deploy/single-container, so a single-container volume can be mounted here
 # unchanged. NOT scale-out: api, acme, est and queueconsumer share one SQLite file and
 # in-process channels, so run exactly one of each.
@@ -6,17 +6,16 @@
 #   cp .env.example .env   # fill in
 #   docker compose -f deploy/multi-container/docker-compose.yml --env-file deploy/multi-container/.env up -d
 #
-# See README.md for TLS (EST terminates it itself, ACME behind a proxy) and backup.
+# See README.md for TLS (web/identity/API proxy; ACME never behind it; EST terminates TLS) and backup.
 
 x-qertum-service: &qertum-service
   image: ${QERTUM_IMAGE:?set QERTUM_IMAGE, e.g. registry.example.lan:5000/qertum-services:latest}
   restart: unless-stopped
-  volumes:
-    - ${QERTUM_DATA:-qertum-data}:/data
   environment: &qertum-env
     QERTUM_HOST: ${QERTUM_HOST:?set QERTUM_HOST to the host name or IP clients use}
     QERTUM_SCHEME: ${QERTUM_SCHEME:-http}
     QERTUM_TRUSTED_PROXIES: ${QERTUM_TRUSTED_PROXIES:-}
+    QERTUM_ALLOW_INSECURE_HTTP: ${QERTUM_ALLOW_INSECURE_HTTP:-false}
     WEB_PORT: ${WEB_PORT:-8080}
     IDENTITY_PORT: ${IDENTITY_PORT:-8081}
     API_PORT: ${API_PORT:-8082}
@@ -28,15 +27,24 @@ x-qertum-service: &qertum-service
   networks: [qertum]
 
 services:
+  data-init:
+    image: ${QERTUM_IMAGE:?set QERTUM_IMAGE}
+    restart: "no"
+    entrypoint: ["/bin/sh", "/init-data.sh"]
+    volumes:
+      - ${QERTUM_DATA:-qertum-data}:/data
+      - ./init-data.sh:/init-data.sh:ro
+    networks: [qertum]
+
   cache:
-    image: redis:8.6@sha256:372207266325710e75866163a505d18ac0362372c8bf02ad5a0cf0b3c8bbc23e
+    image: valkey/valkey:9.1@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a2cd469b815f0b7
     container_name: qertum-cache
     restart: unless-stopped
     # Regenerable cache (CRL, ACME nonces): no persistence, internal network only, never published.
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--protected-mode", "no"]
+    command: ["valkey-server", "--save", "", "--appendonly", "no", "--protected-mode", "no"]
     networks: [qertum]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -44,24 +52,35 @@ services:
   identityservice:
     <<: *qertum-service
     container_name: qertum-identityservice
+    volumes:
+      - type: volume
+        source: ${QERTUM_DATA:-qertum-data}
+        target: /data/identity
+        volume:
+          subpath: identity
+          nocopy: true
     environment:
       <<: *qertum-env
       SERVICE: identityservice
       IdentityService__SeedAdminPassword: ${SEED_ADMIN_PASSWORD:-}
     ports:
-      - "${IDENTITY_PORT:-8081}:8081"
+      - "${QERTUM_BIND_ADDRESS:-127.0.0.1}:${IDENTITY_PORT:-8081}:8081"
     depends_on:
+      data-init:
+        condition: service_completed_successfully
       cache:
         condition: service_healthy
 
   apiservice:
     <<: *qertum-service
     container_name: qertum-apiservice
+    volumes:
+      - ${QERTUM_DATA:-qertum-data}:/data
     environment:
       <<: *qertum-env
       SERVICE: apiservice
     ports:
-      - "${API_PORT:-8082}:8082"
+      - "${QERTUM_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8082}:8082"
     depends_on:
       cache:
         condition: service_healthy
@@ -71,18 +90,29 @@ services:
   webfrontend:
     <<: *qertum-service
     container_name: qertum-webfrontend
+    volumes:
+      - type: volume
+        source: ${QERTUM_DATA:-qertum-data}
+        target: /home/app/.aspnet/DataProtection-Keys
+        volume:
+          subpath: web
+          nocopy: true
     environment:
       <<: *qertum-env
       SERVICE: webfrontend
     ports:
-      - "${WEB_PORT:-8080}:8080"
+      - "${QERTUM_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:8080"
     depends_on:
+      data-init:
+        condition: service_completed_successfully
       apiservice:
         condition: service_healthy
 
   acmeservice:
     <<: *qertum-service
     container_name: qertum-acmeservice
+    volumes:
+      - ${QERTUM_DATA:-qertum-data}:/data
     environment:
       <<: *qertum-env
       SERVICE: acmeservice
@@ -115,6 +145,8 @@ services:
   queueconsumer:
     <<: *qertum-service
     container_name: qertum-queueconsumer
+    volumes:
+      - ${QERTUM_DATA:-qertum-data}:/data
     environment:
       <<: *qertum-env
       SERVICE: queueconsumer

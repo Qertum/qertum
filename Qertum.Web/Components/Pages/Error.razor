@@ -1,5 +1,7 @@
 ﻿@page "/Error"
 @using System.Diagnostics
+@* Open to everyone: a sign-in that fails lands here, and a page that asked for sign-in again looped through the identity provider. *@
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
 
 <PageTitle>Error</PageTitle>
 

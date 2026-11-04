@@ -33,6 +33,7 @@ RUN apt-get update \
     && rm -f /usr/bin/pebble
 
 COPY --from=build /app .
+COPY LICENSE THIRD-PARTY-NOTICES.txt /usr/share/doc/qertum/
 COPY deploy/identity/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

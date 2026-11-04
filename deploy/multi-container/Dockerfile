@@ -20,7 +20,7 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:76383bc2150de411212238b0fb3cd83239ce4060f5a64d07be88624d8441d1e8 AS runtime
 
-# tpm2-tools: LocalTpm key custody. Redis is its own container, not part of this image.
+# tpm2-tools: LocalTpm key custody. Valkey (the cache) is its own container, not part of this image.
 # The resolute base ships /usr/bin/pebble (a Go service manager) that nothing here runs; it only adds
 # Go stdlib findings, so remove it.
 RUN apt-get update \
@@ -29,12 +29,13 @@ RUN apt-get update \
     && rm -f /usr/bin/pebble
 
 COPY --from=build /app /app
+COPY LICENSE THIRD-PARTY-NOTICES.txt /usr/share/doc/qertum/
 COPY deploy/multi-container/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY deploy/multi-container/healthcheck.sh /usr/local/bin/healthcheck.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh && mkdir -p /data /run/est
 
-# Shared state for every container: database, Data Protection key ring, issuer key files, audit logs
-# and the identity store (/data/identity). Same layout as the single-container image.
+# CA state lives on /data. Compose mounts only identity/ into identity and web/ into the web key directory.
+# The shared volume layout stays compatible with the single-container image and backup tools.
 VOLUME ["/data"]
 
 # web 8080 | identity 8081 | api 8082 | acme 8083 | est 8084 (queueconsumer has no endpoint)

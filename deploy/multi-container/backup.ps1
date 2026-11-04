@@ -4,7 +4,7 @@ Back up the /data volume of the multi-container deployment.
 .DESCRIPTION
 Stops every Qertum container except qertum-apiservice (which supplies the volume), runs the
 single-container backup.ps1 against it, and restarts the others in a finally block.
-Redis keeps running. Requires PowerShell 7 (pwsh).
+Valkey keeps running. Requires PowerShell 7 (pwsh).
 #>
 #Requires -Version 7.0
 param (

@@ -155,6 +155,14 @@ public sealed class EstReenrollVerificationTests : IDisposable
             new CertificateRequest { CommonName = commonName, Type = "WebServer" },
             new CaSettings { PqcStage = PqcStage.Off, OrganizationName = "Test Org" });
 
+    private GeneratedCertificate IssueClient(string commonName) =>
+        _generator.GenerateCertificate(new CertificateRequest { CommonName = commonName },
+            new CaSettings { PqcStage = PqcStage.Off }, new CertificateTemplate
+            {
+                Name = "Client", TypeKey = "Client", KeyUsagesJson = "[\"DigitalSignature\"]",
+                ExtendedKeyUsagesJson = "[\"1.3.6.1.5.5.7.3.2\"]"
+            });
+
     private GeneratedCertificate IssueLeaf(string commonName, params string[] dnsNames) =>
         _generator.GenerateCertificate(
             new CertificateRequest
@@ -203,7 +211,7 @@ public sealed class EstReenrollVerificationTests : IDisposable
     public async Task VerifyReenrollCertificateAsync_accepts_a_still_issued_certificate()
     {
         var ct = TestContext.Current.CancellationToken;
-        var issued = IssueLeaf("reenroll-good.example.com");
+        var issued = IssueClient("reenroll-good.example.com");
         using var leaf = X509Certificate2.CreateFromPem(issued.CertificatePem);
 
         var normalizedSerial = EstEndpointMappings.NormalizeSerial(leaf.SerialNumber);
@@ -222,7 +230,7 @@ public sealed class EstReenrollVerificationTests : IDisposable
     public async Task VerifyReenrollCertificateAsync_rejects_a_revoked_certificate()
     {
         var ct = TestContext.Current.CancellationToken;
-        var issued = IssueLeaf("reenroll-revoked.example.com");
+        var issued = IssueClient("reenroll-revoked.example.com");
         using var leaf = X509Certificate2.CreateFromPem(issued.CertificatePem);
 
         var normalizedSerial = EstEndpointMappings.NormalizeSerial(leaf.SerialNumber);

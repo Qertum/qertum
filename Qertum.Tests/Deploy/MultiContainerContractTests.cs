@@ -167,6 +167,18 @@ public sealed class MultiContainerContractTests
         Assert.Equal(expected, result);
     }
 
+    [Theory]
+    [InlineData("", 64)]
+    [InlineData("true", 0)]
+    public void MultiContainerHttp_RequiresExplicitInsecureOptIn(string optIn, int expectedExit)
+    {
+        var entrypoint = Read("entrypoint.sh");
+        var start = entrypoint.IndexOf("# Plain HTTP exposure requires", StringComparison.Ordinal);
+        Assert.True(start >= 0, "the explicit insecure HTTP guard is missing");
+        var end = entrypoint.IndexOf("# Every spelling", start, StringComparison.Ordinal);
+        RunSh($"SERVICE=webfrontend\nQERTUM_SCHEME=http\nQERTUM_ALLOW_INSECURE_HTTP={optIn}\n" + entrypoint[start..end], expectedExit);
+    }
+
     private static string ForwardedHeadersBlock()
     {
         var entrypoint = Read("entrypoint.sh");
@@ -252,25 +264,166 @@ public sealed class MultiContainerContractTests
     }
 
     [Fact]
-    public void Compose_NeverPublishesRedis()
+    public void Compose_NeverPublishesTheCache()
     {
         var cache = ServiceBlock(Read("docker-compose.yml"), "cache");
 
         Assert.DoesNotContain("ports:", cache);
-        Assert.Contains("redis:8.6@sha256:", cache);
+        Assert.Contains("valkey/valkey:9.1@sha256:", cache);
+        Assert.Contains("valkey-server", cache);
     }
 
     [Fact]
-    public void Compose_EveryQertumServiceSharesTheDataVolume_AndOnlyTheIntendedPortsArePublished()
+    public void Compose_RestrictsIdentityAndWebToTheirOwnState_AndPreservesTheBackupVolume()
     {
         var compose = Read("docker-compose.yml");
 
-        Assert.Contains("- ${QERTUM_DATA:-qertum-data}:/data", compose);
-        foreach (var service in Services)
-            Assert.Contains("<<: *qertum-service", ServiceBlock(compose, service));
+        Assert.DoesNotContain("volumes:", compose[..compose.IndexOf("services:", StringComparison.Ordinal)]);
+        var identity = ServiceBlock(compose, "identityservice");
+        Assert.Contains("subpath: identity", identity);
+        Assert.Contains("target: /data/identity", identity);
+        var web = ServiceBlock(compose, "webfrontend");
+        Assert.Contains("subpath: web", web);
+        Assert.Contains("target: /home/app/.aspnet/DataProtection-Keys", web);
+        foreach (var service in new[] { "apiservice", "acmeservice", "estservice", "queueconsumer" })
+            Assert.Contains("${QERTUM_DATA:-qertum-data}:/data", ServiceBlock(compose, service));
+        Assert.Contains("condition: service_completed_successfully", identity);
+        Assert.Contains("condition: service_completed_successfully", web);
         Assert.DoesNotContain("ports:", ServiceBlock(compose, "queueconsumer"));
         Assert.Contains("/run/est/tls.crt:ro", ServiceBlock(compose, "estservice"));
         Assert.Contains("/run/est/tls.key:ro", ServiceBlock(compose, "estservice"));
+    }
+
+    [Fact]
+    public void BrowserAndApiPorts_DefaultToLoopback_InBothLayouts()
+    {
+        var multi = Read("docker-compose.yml");
+        foreach (var service in new[] { "identityservice", "webfrontend", "apiservice" })
+            Assert.Contains("${QERTUM_BIND_ADDRESS:-127.0.0.1}:", ServiceBlock(multi, service));
+        var single = File.ReadAllText(Path.Combine(RepoDeployDir(), "single-container", "docker-compose.yml"));
+        foreach (var port in new[] { "8090:8080", "8081:8081", "8082:8082" })
+            Assert.Contains("${QERTUM_BIND_ADDRESS:-127.0.0.1}:" + port, single);
+    }
+
+    [Fact]
+    public void BindOverride_PreservesExistingLayout_WithoutMountingCaStateIntoIdentityOrWeb()
+    {
+        var bind = Read("docker-compose.bind.yml");
+        Assert.Contains("${QERTUM_DATA:?", bind);
+        Assert.Contains("/identity:/data/identity", ServiceBlock(bind, "identityservice"));
+        Assert.Contains("/web:/home/app/.aspnet/DataProtection-Keys", ServiceBlock(bind, "webfrontend"));
+        Assert.DoesNotContain(":/data\n", ServiceBlock(bind, "identityservice"));
+        Assert.DoesNotContain(":/data\n", ServiceBlock(bind, "webfrontend"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RenderedCompose_RestrictsTheMountGraph_AndBindsBrowserPortsToLoopback(bool bind)
+    {
+        var file = Path.Combine(RepoDeployDir(), "multi-container", "docker-compose.yml");
+        var args = new List<string> { "compose", "-f", file };
+        if (bind) args.AddRange(["-f", Path.Combine(Path.GetDirectoryName(file)!, "docker-compose.bind.yml")]);
+        args.AddRange(["config", "--format", "json"]);
+        var info = new System.Diagnostics.ProcessStartInfo("docker", args)
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false
+        };
+        info.Environment["QERTUM_IMAGE"] = "qertum-services:test";
+        info.Environment["QERTUM_HOST"] = "ca.example.test";
+        info.Environment["QERTUM_EST_TLS_CERT"] = "/example/tls.crt";
+        info.Environment["QERTUM_EST_TLS_KEY"] = "/example/tls.key";
+        info.Environment["QERTUM_BIND_ADDRESS"] = null;
+        info.Environment["QERTUM_DATA"] = bind ? "/existing-qertum-data" : null;
+        System.Diagnostics.Process? process;
+        try { process = System.Diagnostics.Process.Start(info); }
+        catch (System.ComponentModel.Win32Exception) { Assert.Skip("Docker Compose CLI is unavailable."); return; }
+        using (process)
+        {
+            Assert.NotNull(process);
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            if (error.Contains("is not a docker command", StringComparison.Ordinal))
+            { Assert.Skip("Docker Compose CLI is unavailable."); return; }
+            Assert.True(process.ExitCode == 0, error);
+            using var json = System.Text.Json.JsonDocument.Parse(output);
+            var services = json.RootElement.GetProperty("services");
+            foreach (var service in new[] { "identityservice", "webfrontend" })
+            {
+                var mounts = services.GetProperty(service).GetProperty("volumes").EnumerateArray().ToList();
+                var mount = Assert.Single(mounts);
+                var identity = service == "identityservice";
+                Assert.Equal(identity ? "/data/identity" : "/home/app/.aspnet/DataProtection-Keys", mount.GetProperty("target").GetString());
+                if (bind)
+                    Assert.Equal("/existing-qertum-data/" + (identity ? "identity" : "web"), mount.GetProperty("source").GetString());
+                else
+                    Assert.Equal(identity ? "identity" : "web", mount.GetProperty("volume").GetProperty("subpath").GetString());
+            }
+            foreach (var service in new[] { "identityservice", "webfrontend", "apiservice" })
+                foreach (var port in services.GetProperty(service).GetProperty("ports").EnumerateArray())
+                    Assert.Equal("127.0.0.1", port.GetProperty("host_ip").GetString());
+            var apiData = Assert.Single(services.GetProperty("apiservice").GetProperty("volumes").EnumerateArray());
+            Assert.Equal("/data", apiData.GetProperty("target").GetString());
+        }
+    }
+
+    [Fact]
+    public void Initializer_FailedLegacySecretCopy_IsNotPublished_AndRetryPreservesTheOriginal()
+    {
+        if (OperatingSystem.IsWindows()) { Assert.Skip("The initializer is a Unix shell script."); return; }
+        var directory = Directory.CreateTempSubdirectory("qertum-init-secret-").FullName;
+        try
+        {
+            var data = Directory.CreateDirectory(Path.Combine(directory, "data")).FullName;
+            var stubs = Directory.CreateDirectory(Path.Combine(directory, "stubs")).FullName;
+            var original = "complete legacy secret";
+            File.WriteAllText(Path.Combine(data, ".api-introspection-secret"), original);
+            var cat = Path.Combine(stubs, "cat");
+            File.WriteAllText(cat, "#!/bin/sh\nif [ \"${FAIL_CAT:-}\" = true ]; then printf truncated; exit 71; fi\nexec /bin/cat \"$@\"\n");
+            File.SetUnixFileMode(cat, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var chown = Path.Combine(stubs, "chown");
+            File.WriteAllText(chown, "#!/bin/sh\nexit 0\n");
+            File.SetUnixFileMode(chown, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            // Redirect only the fixed mount root into controlled test data; execute the initializer's actual commands.
+            var script = Read("init-data.sh").Replace("/data", data, StringComparison.Ordinal);
+            int Run(bool fail)
+            {
+                using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("sh", ["-c", script])
+                {
+                    UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
+                    Environment = { ["PATH"] = stubs + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"),
+                        ["FAIL_CAT"] = fail ? "true" : "false" }
+                })!;
+                process.StandardOutput.ReadToEnd();
+                process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                return process.ExitCode;
+            }
+            Assert.NotEqual(0, Run(fail: true));
+            var destination = Path.Combine(data, "identity", ".api-introspection-secret");
+            Assert.False(File.Exists(destination), "A failed copy must not publish a truncated seed secret.");
+            Assert.Empty(Directory.GetFiles(data, ".api-introspection-secret.tmp*"));
+            Assert.Equal(original, File.ReadAllText(Path.Combine(data, ".api-introspection-secret")));
+            Assert.Equal(0, Run(fail: false));
+            Assert.Equal(original, File.ReadAllText(destination));
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(destination));
+            Assert.Empty(Directory.GetFiles(data, ".api-introspection-secret.tmp*"));
+            File.WriteAllText(destination, "existing identity secret");
+            Assert.Equal(0, Run(fail: true));
+            Assert.Equal("existing identity secret", File.ReadAllText(destination));
+            File.Delete(destination);
+            var unrelated = Path.Combine(data, "unrelated-secret");
+            File.WriteAllText(unrelated, "never replace this");
+            File.CreateSymbolicLink(destination, unrelated);
+            Assert.NotEqual(0, Run(fail: false));
+            Assert.Equal("never replace this", File.ReadAllText(unrelated));
+            File.Delete(destination);
+            Directory.CreateDirectory(destination);
+            Assert.NotEqual(0, Run(fail: false));
+            Assert.Empty(Directory.GetFileSystemEntries(destination));
+        }
+        finally { Directory.Delete(directory, recursive: true); }
     }
 
     [Fact]

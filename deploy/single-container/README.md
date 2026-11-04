@@ -2,8 +2,8 @@
 
 Bundles five of the six services the Aspire AppHost orchestrates (`identityservice`,
 `apiservice`, `acmeservice`, `webfrontend`, `queueconsumer`) into **one** Docker image,
-supervised by `runit` (Redis and the five services each restart when they exit). Built for homelab / Unraid deployments where running the
-Aspire manifest — six service containers plus Redis — is overkill and the shared SQLite
+supervised by `runit` (Valkey and the five services each restart when they exit). Built for homelab / Unraid deployments where running the
+Aspire manifest — six service containers plus Valkey — is overkill and the shared SQLite
 DB / CA files / Data Protection keyring are easier to keep on a single volume.
 
 Not included:
@@ -24,9 +24,9 @@ Not included:
 | `apiservice` (REST API) | 8082 | optional direct API/CLI access |
 | `acmeservice` (RFC 8555) | 8083 | certbot / cert-manager |
 | `queueconsumer` (worker) | — | none (background only) |
-| `redis` (shared cache) | 6379 (loopback) | none (internal only) |
+| `valkey` (shared cache) | 6379 (loopback) | none (internal only) |
 
-Redis holds the published CRL, the delta CRL and ACME nonces for every process. It binds to
+Valkey (the Redis-compatible open-source server, BSD-3-Clause) holds the published CRL, the delta CRL and ACME nonces for every process. It binds to
 loopback, keeps nothing on disk, and is safe to lose: CRLs are regenerated on the next request
 or scheduled refresh.
 
@@ -62,6 +62,7 @@ The entrypoint derives all cross-service wiring from a few env vars:
 |---|---|---|
 | `QERTUM_HOST` | `localhost` | **Set this** to the public IP/hostname users type in the browser, exactly (no NAT, DNS alias or other name in between). Used for the browser-facing OIDC authority, ACME base URL and the web app's registered sign-in redirect. Browse with exactly this text: `localhost`, `127.0.0.1` and the LAN IP are different values, and a mismatch fails sign-in with ID2043 (`redirect_uri` not valid). |
 | `QERTUM_PUBLIC_SCHEME` | `http` | `http` or `https` (anything else exits 64). Scheme of the advertised web, identity and API addresses and the web sign-in redirect, for a TLS-terminating proxy in front of those three ports. `https` also makes the secure transport flags the defaults and has web, identity and API take the client's scheme and address from the proxy's `X-Forwarded-Proto`/`X-Forwarded-For` (`ASPNETCORE_FORWARDEDHEADERS_ENABLED`), so publish 8080-8082 to the proxy only: whoever reaches those ports directly could set the headers. Never covers ACME, which stays `http`. Every start with `http` (the default included) logs a warning that traffic is unencrypted. |
+| `QERTUM_BIND_ADDRESS` | `127.0.0.1` (compose) | Interface for browser/API published ports. Remote access should go through a TLS proxy on the same Docker network; changing this to `0.0.0.0` exposes plaintext backends. ACME is separate. |
 | `QERTUM_TRUSTED_PROXIES` | unset | Required with `QERTUM_PUBLIC_SCHEME=https` (else exit 64): the TLS proxy's IP addresses or CIDR networks, comma-separated (for example `172.18.0.0/16`, its Docker network). Web, identity and API take `X-Forwarded-Proto`/`X-Forwarded-For` from these addresses only. |
 | `QERTUM_API_INTROSPECTION_SECRET` | auto-generated | `qertum-api` client secret seeded into IdentityService's `clients.json`. Leave unset to auto-generate + persist on `/data`. |
 | `IdentityService__SeedAdminPassword` | `password` | Password for the `admin` user seeded on first run. Read only while `/data`'s `users.json` is absent. Left unset, the account is flagged: the first login can only change the password or sign out, and no token is issued for it, until the password is changed. |
@@ -135,33 +136,37 @@ front the container with a TLS reverse proxy, set `QERTUM_PUBLIC_SCHEME=https` a
 (which makes those three `false`/`true`/`true` by default) and point `QERTUM_HOST`
 at the proxy hostname.
 
-## Run on Unraid (direct port exposure)
+## Local trial (loopback ports)
 
 ```bash
 docker run -d --name qertum \
-  -e QERTUM_HOST=192.168.1.50 \
-  -p 8080:8080 -p 8081:8081 -p 8082:8082 -p 8083:8083 \
+  -e QERTUM_HOST=localhost \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 -p 127.0.0.1:8082:8082 -p 8083:8083 \
   -v /mnt/user/appdata/qertum:/data \
   <REGISTRY>/qertum:latest
 ```
 
-Then browse to `http://192.168.1.50:8080`. On first run log in as `admin` with whatever you
+Then browse to `http://localhost:8080` on the Docker host. On first run log in as `admin` with whatever you
 set `IdentityService__SeedAdminPassword` to, or with `password` if you left it unset — in
 that case the provider immediately requires you to pick a new one, and nothing else in the
 stack works until you do.
 
-Point ACME clients at `http://192.168.1.50:8083/acme/directory` — the enrollment wizard shows
+For this local trial, point ACME clients on the Docker host at `http://localhost:8083/acme/directory` — the enrollment wizard shows
 the same URL with certbot, acme.sh and cert-manager examples. Before an `http-01`
 challenge can validate, add the networks the CA may connect to under Settings — the
 allowlist starts empty, and empty means no `http-01` challenge validates. `dns-01` does not
 use it.
 
-## TLS / exposing beyond the LAN
+The supplied compose file also binds browser/API ports to loopback (web port 8090).
+Use `QERTUM_HOST=localhost` for a local trial. For a remote host, forward the three ports over SSH,
+for example `ssh -N -L 8090:127.0.0.1:8090 -L 8081:127.0.0.1:8081 -L 8082:127.0.0.1:8082 user@docker-host`.
+For normal remote use, configure TLS as below. `QERTUM_BIND_ADDRESS` defaults to `127.0.0.1` in compose;
+changing it to `0.0.0.0` explicitly exposes backend HTTP and is suitable only for a deliberately isolated lab.
 
-By default every service speaks plain HTTP, including the OIDC authority — fine
-on a trusted LAN, not fine if this ever needs to be reachable from the internet
-or an untrusted network (bearer tokens and ACME account keys go over the wire in
-the clear).
+## TLS / remote access
+
+Browser/API backends speak plain HTTP. Keep them on loopback or a private Docker network and expose
+only a TLS proxy for remote use: HTTP sends passwords and bearer tokens in cleartext.
 
 **Why per-port, not per-subdomain:** the entrypoint bakes `QERTUM_HOST` +
 each service's port into the URLs it advertises (`IdentityService__Authority`,
@@ -171,6 +176,15 @@ preserve that same `host:port` shape browsers/ACME clients already expect,
 rather than remapping to subdomains or a single port 443 (that would need
 per-service hostname plumbing the entrypoint doesn't support today). Concretely: proxy `ca.example.com:8080-8082` to the
 container's `8080-8082`, terminating TLS at the proxy.
+
+The supplied Unraid compose file advertises `WEB_PORT=8090`. When using it, change the first rule in
+`Caddyfile.example` to `ca.example.com:8090 { reverse_proxy qertum:8080 }`, publish port 8090 from the
+proxy, and browse to `https://ca.example.com:8090`. Identity/API still use public ports 8081/8082.
+Alternatively set `environment.WEB_PORT: "8080"` in a compose override and use public 8080 consistently.
+Remove all three browser/API mappings from the `qertum` service before the proxy owns those ports:
+`8090:8080`, `8081:8081`, `8082:8082`, including the loopback address prefixes. Leave ACME's
+`8083:8083` mapping. An override can replace the list with `ports: !override ["8083:8083"]`
+(Compose 2.24.4+); ordinary list merging would leave the HTTP mappings in place.
 
 **ACME is not proxied.** ACME must not sit behind a TLS-terminating proxy: clients sign the request URL into
 every request and the service compares it with the scheme and host it sees, so behind a proxy it answers "URL
@@ -194,7 +208,9 @@ To do this:
    `IdentityService__DisableTransportSecurity=false`, `OpenIdConnect__RequireHttpsMetadata=true` and
    `Identity__RequireHttpsMetadata=true` (ApiService's own JWT/metadata validation). An explicit setting of
    any of them still wins. ACME is not affected: its addresses stay `http://`.
-4. Re-deploy.
+4. Set `QERTUM_TRUSTED_PROXIES` to the actual proxy IP/subnet. Remove the three backend browser/API
+   port mappings as above, then re-deploy. The proxy must resolve from inside the container too,
+   because web/API fetch the advertised identity authority.
 
 
 ## IDM key rotation
@@ -213,7 +229,7 @@ that window. With the 90-day default this is not a constraint any normal update 
 
 The container starts as root only long enough to make `/data` writable for the unprivileged
 `app` user (UID 1654, from the .NET base image), then re-executes the entrypoint as that user.
-Redis, runit and all five .NET processes run as `app`. A `/data` volume written by an older
+Valkey, runit and all five .NET processes run as `app`. A `/data` volume written by an older
 image that ran as root is re-owned once, on the first start; the log says so. If your storage
 cannot be re-owned (some NFS exports squash root), the log warns and the services fail to write;
 fix the export, or start the container with `--user 1654:1654` against a volume that user can write.
@@ -357,7 +373,7 @@ Recommendations:
   resulting archives off-box — a backup that lives on the same disk as the
   original doesn't protect against disk failure.
 - **Prove the backup, side by side with the running container.** `backup.sh`/`backup.ps1` write a manifest next to every archive (`qertum-backup-<timestamp>.manifest`: a SHA-256, mode, owner and size for each file of `/data`, taken while the container was stopped). `./restore-test.sh ./backups` (or `.\restore-test.ps1 .\backups`) takes the newest archive that has a manifest, extracts it into a scratch Docker volume, recomputes the manifest and compares. It never stops or changes the running container. It then opens the restored copy offline with the image of the running container (or `--image <ref>` / `-Image`): no network, no services started, it decrypts a stored secret with the restored key ring, signs a probe with each online issuer and builds a CRL that lists every revoked certificate. Exit `0` means the archive is byte-for-byte the data that was on `/data` at backup time **and** the restored copy works, and records a *usable* restore on the dashboard (only *verified* if no image is known); a failure of either step is recorded as *failed* on the dashboard until the next restore record (a passing test, or a plain restore) replaces it; `1` means a file differs, is missing or was added (each path is listed), the archive cannot be extracted, or a check failed (named in the output); `2` means it could not test (no Docker, no manifest, nothing found, a backup from another Qertum version than the image, an image older than the check); nothing is recorded then. Schedule it after `backup.sh`, the same way.
-  **What "verified" and "usable" mean:** *verified* is only that the archive is a faithful copy. *Usable* adds that the restored files work when read by this Qertum version (database, key ring, CA signing, CRL). A check with nothing to test (no encrypted secret stored, no online issuer, a CA never onboarded) is printed as *not exercised* and *usable* says nothing about it. Neither starts the running stack (identity, API, web, queue, Redis), and *usable* cannot test keys held in a TPM or an external vault. Neither is tamper protection: whoever can change both the archive and its manifest can forge a pass. A backup taken before manifests existed has none and cannot be verified. Symlinks and empty directories are not checked. The `.ps1` scripts need PowerShell 7 (`pwsh`; Windows PowerShell 5.1 is not supported) and were run under pwsh 7.6 on macOS; run them once on your Windows machine before relying on them there.
+  **What "verified" and "usable" mean:** *verified* is only that the archive is a faithful copy. *Usable* adds that the restored files work when read by this Qertum version (database, key ring, CA signing, CRL). A check with nothing to test (no encrypted secret stored, no online issuer, a CA never onboarded) is printed as *not exercised* and *usable* says nothing about it. Neither starts the running stack (identity, API, web, queue, Valkey), and *usable* cannot test keys held in a TPM or an external vault. Neither is tamper protection: whoever can change both the archive and its manifest can forge a pass. A backup taken before manifests existed has none and cannot be verified. Symlinks and empty directories are not checked. The `.ps1` scripts need PowerShell 7 (`pwsh`; Windows PowerShell 5.1 is not supported) and were run under pwsh 7.6 on macOS; run them once on your Windows machine before relying on them there.
 - The backup briefly stops the container (SQLite + the CA files aren't safe to
   tar while a process is writing them); plan for a few seconds of downtime per
   backup run.
@@ -428,7 +444,7 @@ Entries written before this feature existed are not chained and are not checked.
   one clients already saw, and clients that require increasing numbers may keep the old one. After the
   restore, publish a fresh CRL (`qca ca crl reset-base`, or `POST /v1/crl/reset-base`; needs `settings.edit`) and check the number against what
   your relying parties last fetched. Certificate serial numbers are random, so they are not reused.
-- **Caches start empty.** Redis is not persisted, so the CRL and ACME nonces are rebuilt on first use.
+- **Caches start empty.** Valkey is not persisted, so the CRL and ACME nonces are rebuilt on first use.
 - **ACME accounts and EST credentials** are in the database, so clients that registered after the
   backup must register again.
 
@@ -447,7 +463,7 @@ the live container on one host, because the advertised ports must match the publ
 - SQLite + one volume avoids the cross-container file-locking pain of a shared
   volume, but still single-writer; the architecture already serializes writes
   through the API + queue consumer.
-- Plain HTTP exposes tokens/credentials on the wire. Keep it on a trusted LAN or
+- Plain HTTP exposes tokens/credentials on the wire. Keep browser/API ports on loopback or
   put TLS in front (web, identity and API only; never ACME).
 
 ## Two-person approval
@@ -457,5 +473,5 @@ Optional and off by default: an administrator switches it on in Settings → Iss
 ## Image tags
 
 `docker-compose.yml` reads the registry from `QERTUM_REGISTRY` and the tag from `QERTUM_IMAGE_TAG`
-(default `latest`). Pin an exact tag, for example `QERTUM_IMAGE_TAG=1.0.0-rc4.3`, so you decide when to
+(default `latest`). Pin an exact tag, for example `QERTUM_IMAGE_TAG=1.0.0-rc5`, so you decide when to
 upgrade and can roll back; for Docker Hub set `QERTUM_REGISTRY=docker.io/qertum`.

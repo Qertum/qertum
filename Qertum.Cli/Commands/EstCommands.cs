@@ -22,10 +22,11 @@ internal static class EstCommands
     private const string CreateHelp =
         "Create an EST enrollment credential (HTTP Basic username and password for /simpleenroll).\n\n" +
         "Creates the credential with the --password you give; the server stores only a hash, so the password cannot be read back, and it is echoed once in this command's output. If it is lost, delete the credential and create another. Writes an audit entry (EstEnrollmentCredentialCreated).\n" +
+        "The password is prompted for without echo, or read as one line from standard input with --password-stdin. Password arguments are refused to keep secrets out of process listings and shell history.\n" +
         "Needs: settings.edit.\n" +
-        "Exit codes: 0 created; 1 not signed in, the server refused the input or a duplicate username (409), or the call failed (403 means you lack settings.edit).\n" +
+        "Exit codes: 0 created; 1 no password was supplied, not signed in, the server refused the input or a duplicate username (409), or the call failed (403 means you lack settings.edit).\n" +
         "Output: --output json prints the credential and the password you set, so treat that output as a secret.\n" +
-        "Example: qca est credentials create --username <username> --password <password> --description \"warehouse scanners\"";
+        "Example: qca est credentials create --username <username> --description \"warehouse scanners\"";
 
     private const string EnableHelp =
         "Enable an EST enrollment credential so it can be used again.\n\n" +
@@ -182,12 +183,10 @@ internal static class EstCommands
         };
         usernameOpt.Aliases.Add("-u");
 
-        var passwordOpt = new Option<string>("--password")
+        var passwordStdinOpt = new Option<bool>("--password-stdin")
         {
-            Description = "Password devices present with the username. Required; the server validates it. Visible in your shell history and process list, so prefer a throwaway value you hand to the device owner",
-            Required = true
+            Description = "Read the password from one line of standard input instead of the hidden terminal prompt. Supply it from a secret manager, not a literal in shell history."
         };
-        passwordOpt.Aliases.Add("-p");
 
         var descriptionOpt = new Option<string?>("--description")
         {
@@ -197,7 +196,7 @@ internal static class EstCommands
 
         var cmd = new Command("create", CreateHelp);
         cmd.Options.Add(usernameOpt);
-        cmd.Options.Add(passwordOpt);
+        cmd.Options.Add(passwordStdinOpt);
         cmd.Options.Add(descriptionOpt);
 
         cmd.SetAction(async (result, ct) =>
@@ -205,11 +204,24 @@ internal static class EstCommands
             var session = await SessionResolver.ResolveAsync(result, tokenOption, apiUrlOption, identityUrlOption, ct);
             if (session is null) return 1;
 
+            if (!result.GetValue(passwordStdinOpt) && Console.IsInputRedirected)
+            {
+                await Console.Error.WriteLineAsync("error: use --password-stdin when no interactive terminal is available.");
+                return 1;
+            }
+            var password = await ReadPasswordAsync(result.GetValue(passwordStdinOpt), Console.In,
+                new Root.ConsolePassphrasePrompt(), ct);
+            if (string.IsNullOrEmpty(password))
+            {
+                await Console.Error.WriteLineAsync("error: an enrollment password is required.");
+                return 1;
+            }
+
             return await CliApi.RunAsync(async () =>
             {
                 var created = await CliApi.CreateClient(session).CreateEstEnrollmentCredentialAsync(
                     new CreateEstEnrollmentCredentialRequest(
-                        result.GetValue(usernameOpt)!, result.GetValue(passwordOpt)!, result.GetValue(descriptionOpt)),
+                        result.GetValue(usernameOpt)!, password, result.GetValue(descriptionOpt)),
                     ct);
 
                 // json output includes the password: this is the only response that carries it, so
@@ -231,6 +243,11 @@ internal static class EstCommands
 
         return cmd;
     }
+
+    internal static async Task<string?> ReadPasswordAsync(bool fromStdin, TextReader input, Root.IPassphrasePrompt prompt,
+        CancellationToken cancellationToken) => fromStdin
+        ? await input.ReadLineAsync(cancellationToken)
+        : prompt.Read("EST enrollment password: ");
 
     private static Command BuildSetEnabled(
         string name,

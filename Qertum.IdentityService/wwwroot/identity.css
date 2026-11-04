@@ -39,67 +39,13 @@ header.shell-header {
     min-height: 3.75rem;
 }
 
+/* The lockup itself (mark, name, tagline) is DesignSystem's brand.css, as on qertum.com. */
 .shell-header .brand {
     display: inline-flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 1rem;
     color: var(--text-heading);
     text-decoration: none;
-}
-
-.shell-header .brand-mark {
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
-    background: rgb(var(--primary));
-    box-shadow:
-        0 0 22px rgba(var(--primary), 0.35),
-        inset 0 1px 0 rgba(var(--paper), 0.28),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
-    flex-shrink: 0;
-    position: relative;
-}
-
-.shell-header .brand-mark::after {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 24px;
-    height: 24px;
-    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'><path d='M5.5 8V6a2.5 2.5 0 0 1 5 0v2h.5a1 1 0 0 1 1 1v3.5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h.5zm1 0h3V6a1.5 1.5 0 0 0-3 0v2z'/></svg>") center/80% no-repeat;
-    opacity: 0.95;
-    pointer-events: none;
-}
-
-.shell-header .brand-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    line-height: 1;
-}
-
-.shell-header .brand-name {
-    font-family: var(--font-display);
-    font-size: 1.15rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--text-heading);
-}
-
-.shell-header .brand-name em {
-    font-style: normal;
-    font-weight: 700;
-    color: rgb(var(--primary));
-}
-
-.shell-header .brand-sub {
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--text-muted);
 }
 
 .shell-header .who {
@@ -447,64 +393,9 @@ body.centered main.shell-main {
 .card-brand {
     display: inline-flex;
     align-items: center;
-    gap: 0.7rem;
+    gap: 1rem;
     text-decoration: none;
     margin-bottom: 1.1rem;
-}
-
-.card-brand .brand-mark {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-lg);
-    background: rgb(var(--primary));
-    box-shadow:
-        0 0 22px rgba(var(--primary), 0.35),
-        inset 0 1px 0 rgba(var(--paper), 0.28),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.15);
-    position: relative;
-    flex-shrink: 0;
-}
-
-.card-brand .brand-mark::after {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 28px;
-    height: 28px;
-    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'><path d='M5.5 8V6a2.5 2.5 0 0 1 5 0v2h.5a1 1 0 0 1 1 1v3.5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h.5zm1 0h3V6a1.5 1.5 0 0 0-3 0v2z'/></svg>") center/80% no-repeat;
-    opacity: 0.95;
-    pointer-events: none;
-}
-
-.card-brand .brand-text {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    line-height: 1;
-}
-
-.card-brand .brand-name {
-    font-family: var(--font-display);
-    font-size: 1.2rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--text-heading);
-}
-
-.card-brand .brand-name em {
-    font-style: normal;
-    font-weight: 700;
-    color: rgb(var(--primary));
-}
-
-.card-brand .brand-sub {
-    font-size: 0.62rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--text-muted);
 }
 
 /* --- Signed-out state --- */

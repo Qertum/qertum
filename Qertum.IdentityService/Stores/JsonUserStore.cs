@@ -396,18 +396,20 @@ public sealed class JsonUserStore
 
     private void WriteUnlocked(List<StoredUser> users)
     {
-        var tmp = _filePath + ".tmp";
-        using (var fs = File.Create(tmp))
-        {
-            JsonSerializer.Serialize(fs, users, SerializerOptions);
-        }
-        File.Move(tmp, _filePath, overwrite: true);
+        // Create privately before writing any hashes. A unique, exclusively created path also avoids following a
+        // stale or attacker-planted users.json.tmp symlink. Rename keeps readers on a complete user store.
+        PrivateStoreFile.Write(_filePath, stream => JsonSerializer.Serialize(stream, users, SerializerOptions));
     }
 
     private void SeedIfMissing()
     {
         if (File.Exists(_filePath))
+        {
+            // Repair stores written by older releases without rewriting hashes or waiting for a user mutation.
+            // Windows uses the data directory's inherited ACLs instead of Unix file modes.
+            PrivateStoreFile.RestrictAccess(_filePath);
             return;
+        }
 
         var admin = new StoredUser
         {

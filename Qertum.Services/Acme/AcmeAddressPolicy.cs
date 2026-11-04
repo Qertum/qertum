@@ -46,6 +46,19 @@ public sealed class AcmeAddressPolicy(ILogger<AcmeAddressPolicy> logger) : IAcme
     private static readonly IPNetwork Ipv4LinkLocal = new(IPAddress.Parse("169.254.0.0"), 16);
     private static readonly IPNetwork Ipv6LinkLocal = new(IPAddress.Parse("fe80::"), 10);
 
+    // A public catch-all must not implicitly grant access to local or special-purpose networks.
+    // Private enrollment remains possible when an operator lists a range wholly inside one of these networks.
+    private static readonly IPNetwork[] ExplicitNetworks =
+    [
+        IPNetwork.Parse("0.0.0.0/8"), IPNetwork.Parse("10.0.0.0/8"), IPNetwork.Parse("100.64.0.0/10"),
+        IPNetwork.Parse("127.0.0.0/8"), IPNetwork.Parse("172.16.0.0/12"), IPNetwork.Parse("192.0.0.0/24"),
+        IPNetwork.Parse("192.0.2.0/24"), IPNetwork.Parse("192.168.0.0/16"), IPNetwork.Parse("198.18.0.0/15"),
+        IPNetwork.Parse("198.51.100.0/24"), IPNetwork.Parse("203.0.113.0/24"),
+        IPNetwork.Parse("::1/128"), IPNetwork.Parse("::/96"), IPNetwork.Parse("64:ff9b::/96"),
+        IPNetwork.Parse("64:ff9b:1::/48"), IPNetwork.Parse("100::/64"), IPNetwork.Parse("2001::/32"),
+        IPNetwork.Parse("2001:db8::/32"), IPNetwork.Parse("2002::/16"), IPNetwork.Parse("fc00::/7"), IPNetwork.Parse("fec0::/10")
+    ];
+
     public AddressDecision Evaluate(IPAddress address, string host, string? allowedNetworksJson)
     {
         ArgumentNullException.ThrowIfNull(address);
@@ -62,14 +75,25 @@ public sealed class AcmeAddressPolicy(ILogger<AcmeAddressPolicy> logger) : IAcme
         if (networks.Count == 0)
             return AddressDecision.Deny(NoNetworksConfigured);
 
+        if (candidate.Equals(IPAddress.Any) || candidate.Equals(IPAddress.IPv6Any)
+            || candidate.IsIPv6Multicast || candidate.GetAddressBytes()[0] >= 224 && candidate.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            return AddressDecision.Deny($"Address {candidate} for host '{host}' is not a unicast challenge target.");
+
+        var explicitNetwork = ExplicitNetworks.Where(network => network.Contains(candidate))
+            .OrderByDescending(network => network.PrefixLength).Select(network => (IPNetwork?)network).FirstOrDefault();
+
         foreach (var network in networks)
         {
             if (network.Contains(candidate))
-                return AddressDecision.Allow();
+            {
+                if (explicitNetwork is null || network.PrefixLength >= explicitNetwork.Value.PrefixLength
+                    && explicitNetwork.Value.Contains(network.BaseAddress))
+                    return AddressDecision.Allow();
+            }
         }
 
         return AddressDecision.Deny(
-            $"Address {candidate} for host '{host}' is not in the configured allowed networks.");
+            $"Address {candidate} for host '{host}' is not in the configured allowed networks, or needs an explicit internal network entry.");
     }
 
     private static bool IsLinkLocal(IPAddress address) =>

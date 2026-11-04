@@ -5,7 +5,7 @@ using Qertum.Services.Auth;
 
 namespace Qertum.ApiService;
 
-/// <summary>The <c>RateLimiting</c> section: the sliding window on <c>/certificate-requests/*</c>.</summary>
+/// <summary>The <c>RateLimiting</c> section: the shared caller window for certificate requests and public OCSP.</summary>
 public sealed class ApiRateLimitOptions
 {
     public const string SectionName = "RateLimiting";

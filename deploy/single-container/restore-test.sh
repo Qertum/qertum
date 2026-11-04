@@ -11,7 +11,7 @@
 # scratch volume with the network off and no service started: it opens the database, decrypts a stored secret
 # with the restored key ring, signs a probe with each online issuer and builds a CRL that lists every revoked
 # certificate. A pass means the restored files work when read by this version of Qertum. It does not start the
-# running stack (identity, API, web, queue, Redis).
+# running stack (identity, API, web, queue, Valkey).
 #
 # The result is written to /data/recovery/last-restore.json of the operating container (the dashboard reads it):
 # "usable" when both steps passed, "verified" when only the manifest step ran (no image known), "failed" when

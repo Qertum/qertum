@@ -1,5 +1,6 @@
 using Qertum.Services.Issuers;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -254,6 +255,32 @@ public static class EstEndpointMappings
                 return response;
             }
 
+            // A certificate issued for another workflow is not an EST enrollment credential. CSR material is
+            // protocol-owned (REST callers cannot set it); the stored identity records initial and repeat enrollment.
+            var original = await db.CertificateRequests.AsNoTracking()
+                .Where(r => r.SerialNumber == presentedSerialForRecord)
+                .Select(r => new { r.Id, r.Status, r.RequestedBySubject, r.CsrPem, r.CertificatePem })
+                .SingleOrDefaultAsync(ct);
+            if (original is null || original.Status != CertificateRequestStatus.Issued
+                || string.IsNullOrWhiteSpace(original.CsrPem)
+                || original.RequestedBySubject is not { } enrollmentIdentity
+                || !(enrollmentIdentity.StartsWith("est:", StringComparison.Ordinal)
+                    || enrollmentIdentity.StartsWith("est-cert:", StringComparison.Ordinal)))
+                return await RefuseAsync(Results.StatusCode(StatusCodes.Status401Unauthorized),
+                    DiagnosticCategories.EnrollmentCertificateRequired, "Re-enrollment requires an active certificate issued through EST.");
+            try
+            {
+                using var recorded = X509Certificate2.CreateFromPem(original.CertificatePem ?? "");
+                if (!recorded.RawData.AsSpan().SequenceEqual(clientCert.RawData))
+                    return await RefuseAsync(Results.StatusCode(StatusCodes.Status401Unauthorized),
+                        DiagnosticCategories.EnrollmentCertificateRequired, "The presented certificate differs from the recorded EST certificate.");
+            }
+            catch (Exception ex) when (ex is CryptographicException or ArgumentException)
+            {
+                return await RefuseAsync(Results.StatusCode(StatusCodes.Status401Unauthorized),
+                    DiagnosticCategories.EnrollmentCertificateRequired, "The recorded EST certificate could not be read.");
+            }
+
             // .NET's X509Chain cannot verify a composite ML-DSA signature, so VerifyReenrollCertificateAsync
             // would report such a certificate as "does not chain". Say what actually happened instead.
             if (anchors.Concat(intermediates).Any(ca => InvolvesCompositeSignature(clientCert, ca)))
@@ -264,7 +291,7 @@ public static class EstEndpointMappings
             var verifyResult = await VerifyReenrollCertificateAsync(clientCert, anchors, intermediates, certRequests, ct);
             if (!verifyResult)
                 return await RefuseAsync(Results.StatusCode(StatusCodes.Status401Unauthorized), DiagnosticCategories.Revoked,
-                    "The certificate presented for re-enrollment is revoked or does not chain to this CA.");
+                    "The certificate presented for re-enrollment is revoked, is not authorized for client authentication, or does not chain to this CA.");
 
             string csrBase64;
             try
@@ -328,18 +355,12 @@ public static class EstEndpointMappings
             // one just presented over mTLS. This is what CreateAsync needs to skip the active-CN
             // check and treat the new row as a genuine renewal rather than a duplicate of the
             // certificate the client is trying to replace.
-            var original = await db.CertificateRequests
-                .AsNoTracking()
-                .Where(r => r.SerialNumber == presentedSerial)
-                .OrderByDescending(r => r.CreatedAtUtc)
-                .FirstOrDefaultAsync(ct);
-
             var certRequest = new CertificateRequest
             {
                 CommonName = commonName,
                 RequestedBy = reenrollIdentity,
                 RequestedBySubject = reenrollIdentity,
-                RenewedFromId = original?.Id,
+                RenewedFromId = original.Id,
                 Type = EstCertificateType(settings),
                 PropertiesJson = System.Text.Json.JsonSerializer.Serialize(new { dnsNames }),
                 Status = settings.EstAutoApprove ? CertificateRequestStatus.Approved : CertificateRequestStatus.Pending,
@@ -424,7 +445,7 @@ public static class EstEndpointMappings
 
     /// <summary>
     /// Verifies an EST reenrollment's mTLS proof: the presented certificate must chain to this
-    /// CA's root and must not be Revoked. Reuses <see cref="ICertificateRequestService.GetRevocationStatusesAsync"/>
+    /// CA's root for TLS client authentication and have Good revocation status. Reuses <see cref="ICertificateRequestService.GetRevocationStatusesAsync"/>
     /// — no new revocation check invented.
     /// </summary>
     internal static Task<bool> VerifyReenrollCertificateAsync(
@@ -441,9 +462,18 @@ public static class EstEndpointMappings
         ICertificateRequestService certRequests,
         CancellationToken ct)
     {
+        const string clientAuthentication = "1.3.6.1.5.5.7.3.2";
+        if (clientCertificate.Extensions.OfType<X509BasicConstraintsExtension>().Any(extension => extension.CertificateAuthority)
+            || !clientCertificate.Extensions.OfType<X509EnhancedKeyUsageExtension>()
+                .Any(extension => extension.EnhancedKeyUsages.Cast<Oid>().Any(oid => oid.Value == clientAuthentication))
+            || clientCertificate.Extensions.OfType<X509KeyUsageExtension>()
+                .Any(extension => (extension.KeyUsages & X509KeyUsageFlags.DigitalSignature) == 0))
+            return false;
+
         using var chain = new X509Chain();
         chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck; // revocation checked via GetRevocationStatusesAsync below
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
+        chain.ChainPolicy.ApplicationPolicy.Add(new Oid(clientAuthentication));
         foreach (var anchor in anchors) chain.ChainPolicy.CustomTrustStore.Add(anchor);
         foreach (var intermediate in intermediates) chain.ChainPolicy.ExtraStore.Add(intermediate);
 
@@ -451,8 +481,7 @@ public static class EstEndpointMappings
 
         var serial = NormalizeSerial(clientCertificate.SerialNumber);
         var statuses = await certRequests.GetRevocationStatusesAsync([serial], ct);
-        if (!statuses.TryGetValue(serial, out var status)) return true; // unknown to us but chains: accept
-        return status.State != OcspCertificateState.Revoked;
+        return statuses.TryGetValue(serial, out var status) && status.State == OcspCertificateState.Good;
     }
 
     /// <summary>

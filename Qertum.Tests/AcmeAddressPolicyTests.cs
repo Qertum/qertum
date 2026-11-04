@@ -109,6 +109,33 @@ public sealed class AcmeAddressPolicyTests
         Assert.True(Evaluate("93.184.216.34", Networks("0.0.0.0/0")).Allowed);
     }
 
+    [Theory]
+    [InlineData("127.0.0.1", "0.0.0.0/0")]
+    [InlineData("10.1.2.3", "0.0.0.0/0")]
+    [InlineData("172.16.1.2", "172.0.0.0/8")]
+    [InlineData("192.168.1.2", "0.0.0.0/0")]
+    [InlineData("100.64.1.2", "0.0.0.0/0")]
+    [InlineData("198.18.1.2", "0.0.0.0/0")]
+    [InlineData("::1", "::/0")]
+    [InlineData("fd00:1234::5", "::/0")]
+    [InlineData("::ffff:10.1.2.3", "0.0.0.0/0")]
+    public void BroadPublicAllowlistDoesNotImplicitlyAllowInternalTargets(string address, string range)
+    {
+        Assert.False(Evaluate(address, Networks(range)).Allowed);
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1", "127.0.0.1")]
+    [InlineData("10.1.2.3", "10.0.0.0/8")]
+    [InlineData("172.16.1.2", "172.16.0.0/12")]
+    [InlineData("192.168.1.2", "192.168.0.0/16")]
+    [InlineData("fd00:1234::5", "fc00::/7")]
+    [InlineData("::1", "::1")]
+    public void ExplicitInternalRangeStillAllowsIntentionalPrivateEnrollment(string address, string range)
+    {
+        Assert.True(Evaluate(address, Networks("0.0.0.0/0", "::/0", range)).Allowed);
+    }
+
     // ── IPv6 ──────────────────────────────────────────────────────────────────
 
     [Fact]

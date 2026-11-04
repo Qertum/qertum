@@ -57,14 +57,15 @@ API_PORT="${API_PORT:-8082}"
 ACME_PORT="${ACME_PORT:-8083}"
 EST_PORT="${EST_PORT:-8084}"
 
-# Browsers and API clients reach web, identity and API over QERTUM_SCHEME. Plain http sends sign-in, access tokens and
-# the administrator password unencrypted; say so on every start of a service that carries them.
+# Plain HTTP exposure requires an explicit operator choice; bind-address changes alone never enable it.
 if [ "${QERTUM_SCHEME}" = "http" ]; then
-  case "${SERVICE:-}" in
+  case "${SERVICE}" in
     webfrontend|identityservice|apiservice)
-      echo "WARNING: QERTUM_SCHEME is http: sign-in, access tokens and the admin password cross the network" >&2
-      echo "         unencrypted. Use it only on a trusted network; otherwise put a TLS-terminating proxy in front" >&2
-      echo "         and set QERTUM_SCHEME=https." >&2
+      if [ "${QERTUM_ALLOW_INSECURE_HTTP:-false}" != "true" ]; then
+        echo "error: configure a TLS proxy reachable by clients and containers, set QERTUM_SCHEME=https and QERTUM_TRUSTED_PROXIES. For an isolated HTTP lab only, explicitly set QERTUM_ALLOW_INSECURE_HTTP=true and QERTUM_BIND_ADDRESS to an interface reachable by containers. See deploy/multi-container/README.md." >&2
+        exit 64
+      fi
+      echo "WARNING: explicitly enabled HTTP sends passwords and tokens unencrypted. Use a TLS proxy for remote access." >&2
       ;;
   esac
 fi
@@ -91,17 +92,16 @@ if [ "${SERVICE:-}" = "webfrontend" ]; then
   echo "      address; localhost, 127.0.0.1 or another name or IP fails with ID2043 (redirect_uri not valid)." >&2
 fi
 
-# Seeds the qertum-api client in the identity service; stable across restarts.
-SECRET_FILE="${DATA_DIR}/.api-introspection-secret"
-if [ -z "${QERTUM_API_INTROSPECTION_SECRET:-}" ]; then
-  if [ -f "${SECRET_FILE}" ]; then
-    QERTUM_API_INTROSPECTION_SECRET="$(cat "${SECRET_FILE}")"
-  elif [ "${SERVICE}" = "identityservice" ]; then
-    # Only the identity service creates it, so containers starting together cannot race to write two.
-    QERTUM_API_INTROSPECTION_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' )"
-    printf '%s' "${QERTUM_API_INTROSPECTION_SECRET}" > "${SECRET_FILE}"
-    chmod 600 "${SECRET_FILE}"
-    echo "Generated a new API introspection secret at ${SECRET_FILE}."
+# Only identity owns the qertum-api seed secret. JWT-validating CA hosts and web do not need it.
+if [ "${SERVICE}" = "identityservice" ]; then
+  SECRET_FILE="${IDENTITY_DATA_DIR}/.api-introspection-secret"
+  if [ -z "${QERTUM_API_INTROSPECTION_SECRET:-}" ]; then
+    if [ -f "${SECRET_FILE}" ]; then
+      QERTUM_API_INTROSPECTION_SECRET="$(cat "${SECRET_FILE}")"
+    else
+      QERTUM_API_INTROSPECTION_SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' )"
+      (umask 077; printf '%s' "${QERTUM_API_INTROSPECTION_SECRET}" > "${SECRET_FILE}")
+    fi
   fi
 fi
 

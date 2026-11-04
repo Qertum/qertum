@@ -5,7 +5,7 @@
 # SQLite and the CA files are not safe to archive while services write, so every Qertum container
 # is stopped for the duration. This wrapper stops all of them except the one that supplies the volume
 # (qertum-apiservice), then runs the single-container backup.sh against that one, which stops it,
-# archives, records the status and restarts it. Redis keeps running: it holds only regenerable cache
+# archives, records the status and restarts it. Valkey keeps running: it holds only regenerable cache
 # entries. # qertum-cache keeps running
 # The other containers are restarted on any exit, including a failure.
 #

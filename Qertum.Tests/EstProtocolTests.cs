@@ -17,13 +17,40 @@ namespace Qertum.Tests;
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
 
-file sealed class EstStubCertGenerator : ICertificateGenerator
+file sealed class EstStubCertGenerator : ICertificateGenerator, IDisposable
 {
-    private readonly string _caCertPem = ExportPem(TestCertificates.CreateSelfSigned("CN=Est Test CA"));
+    private readonly X509Certificate2 _caCertificate;
+
+    public EstStubCertGenerator()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=Est Test CA", key,
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(true, false, 0, true));
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+            System.Security.Cryptography.X509Certificates.X509KeyUsageFlags.KeyCertSign, true));
+        _caCertificate = request.CreateSelfSigned(TimeProvider.System.GetUtcNow().AddDays(-1), TimeProvider.System.GetUtcNow().AddYears(1));
+    }
+
+    public void Dispose() => _caCertificate.Dispose();
+
+    public X509Certificate2 CreateClientCertificate(string commonName)
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=" + commonName, key,
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(false, false, 0, true));
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509KeyUsageExtension(
+            System.Security.Cryptography.X509Certificates.X509KeyUsageFlags.DigitalSignature, true));
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            new System.Security.Cryptography.OidCollection { new("1.3.6.1.5.5.7.3.2") }, false));
+        return request.Create(_caCertificate, TimeProvider.System.GetUtcNow().AddMinutes(-1), TimeProvider.System.GetUtcNow().AddDays(1),
+            System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+    }
 
     public bool IsInitialized => true;
     public CaStatusResponse GetCaStatus() => new() { IsInitialized = true };
-    public string GetCaCertificatePem() => _caCertPem;
+    public string GetCaCertificatePem() => _caCertificate.ExportCertificatePem();
     public byte[] GenerateCrl(IReadOnlyList<CertificateRequest> revokedRequests, CaSettings? caSettings = null, long crlNumber = 0, DateTime? thisUpdateUtc = null) => [];
     public byte[] GenerateDeltaCrl(IReadOnlyList<CertificateRequest> revokedSinceBase, CaSettings? caSettings, long crlNumber, long baseCrlNumber, DateTime? thisUpdateUtc = null) => [];
     public GeneratedCertificate GenerateCa(GenerateCaRequest request) => FakeCert();
@@ -49,8 +76,6 @@ file sealed class EstStubCertGenerator : ICertificateGenerator
         ValidTo = DateTime.UtcNow.AddYears(1)
     };
 
-    private static string ExportPem(System.Security.Cryptography.X509Certificates.X509Certificate2 cert)
-        => cert.ExportCertificatePem();
 }
 
 sealed class TestClientCertificateHolder
@@ -100,7 +125,7 @@ public sealed class EstTestFactory : WebApplicationFactory<EstServiceProgram>
             // in parallel — which makes anything encrypted at rest decrypt only by luck.
             services.AddSingleton<IDataProtectionProvider, EphemeralDataProtectionProvider>();
 
-            services.AddSingleton<ICertificateGenerator>(new EstStubCertGenerator());
+            services.AddSingleton<ICertificateGenerator>(_ => new EstStubCertGenerator());
             services.AddSingleton<Qertum.Services.Lifecycle.IDiagnosticEventLog>(Diagnostics);
             services.AddSingleton<TestClientCertificateHolder>();
             services.AddSingleton<IStartupFilter, TestClientCertificateStartupFilter>();
@@ -157,6 +182,21 @@ public sealed class EstTestFactory : WebApplicationFactory<EstServiceProgram>
         return new ClientCertificateReset(holder);
     }
 
+    public async Task<X509Certificate2> CreateEnrolledClientCertificateAsync(string commonName, CancellationToken ct)
+    {
+        var certificate = ((EstStubCertGenerator)Services.GetRequiredService<ICertificateGenerator>()).CreateClientCertificate(commonName);
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CertificateRequestDbContext>();
+        db.CertificateRequests.Add(new CertificateRequest
+        {
+            CommonName = commonName, RequestedBy = "est:test-credential", RequestedBySubject = "est:test-credential",
+            Status = CertificateRequestStatus.Issued, CsrPem = "original-est-csr", CertificatePem = certificate.ExportCertificatePem(),
+            SerialNumber = Qertum.Services.Est.EstEndpointMappings.NormalizeSerial(certificate.SerialNumber)
+        });
+        await db.SaveChangesAsync(ct);
+        return certificate;
+    }
+
     private sealed class ClientCertificateReset(TestClientCertificateHolder holder) : IDisposable
     {
         public void Dispose() => holder.Certificate = null;
@@ -168,6 +208,10 @@ public sealed class EstTestFactory : WebApplicationFactory<EstServiceProgram>
 public class EstProtocolTests : IClassFixture<EstTestFactory>
 {
     private readonly EstTestFactory _factory;
+
+    // The enrolled device must not share the stub CA's subject (CN=Est Test CA): OpenSSL, which .NET uses on
+    // Linux, reads a leaf whose subject equals its issuer as self-signed and refuses the chain; macOS does not.
+    private const string ReenrollDeviceName = "est-reenroll-device.example.test";
 
     public EstProtocolTests(EstTestFactory factory) => _factory = factory;
 
@@ -544,12 +588,11 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         // mTLS proves control of the presented certificate, not every identity in a new CSR. A
         // matching CN must not let that certificate add an unrelated DNS SAN under autoapproval.
         var ct = TestContext.Current.CancellationToken;
-        await DeleteRequestsForCommonNameAsync("Est Test CA", ct); // the class fixture is shared; a sibling may have left one
+        await DeleteRequestsForCommonNameAsync(ReenrollDeviceName, ct); // the class fixture is shared; a sibling may have left one
         using var client = _factory.CreateClient();
-        using var presentedCertificate = X509Certificate2.CreateFromPem(
-            _factory.Services.GetRequiredService<ICertificateGenerator>().GetCaCertificatePem());
+        using var presentedCertificate = await _factory.CreateEnrolledClientCertificateAsync(ReenrollDeviceName, ct);
         using var presented = _factory.PresentClientCertificate(presentedCertificate);
-        var csr = TestCsrBuilder.BuildBase64Url("Est Test CA", ["attacker.example.test"]);
+        var csr = TestCsrBuilder.BuildBase64Url(ReenrollDeviceName, ["attacker.example.test"]);
 
         using (var scope = _factory.Services.CreateScope())
         {
@@ -568,25 +611,25 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var assertionScope = _factory.Services.CreateScope();
         var db = assertionScope.ServiceProvider.GetRequiredService<CertificateRequestDbContext>();
         Assert.False(await db.CertificateRequests.AnyAsync(
-            request => request.CommonName == "Est Test CA", ct));
+            request => request.CsrPem == csr, ct));
     }
 
     [Fact]
     public async Task Simplereenroll_with_unchanged_identity_accepts_a_new_csr_key()
     {
         var ct = TestContext.Current.CancellationToken;
+        await DeleteRequestsForCommonNameAsync(ReenrollDeviceName, ct);
         using var client = _factory.CreateClient();
-        using var presentedCertificate = X509Certificate2.CreateFromPem(
-            _factory.Services.GetRequiredService<ICertificateGenerator>().GetCaCertificatePem());
+        using var presentedCertificate = await _factory.CreateEnrolledClientCertificateAsync(ReenrollDeviceName, ct);
         using var presented = _factory.PresentClientCertificate(presentedCertificate);
-        var csr = TestCsrBuilder.BuildBase64Url("Est Test CA", []);
+        var csr = TestCsrBuilder.BuildBase64Url(ReenrollDeviceName, []);
 
         using var content = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
         var response = await client.PostAsync("/.well-known/est/simplereenroll",
             content, ct);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        await DeleteRequestsForCommonNameAsync("Est Test CA", ct);
+        await DeleteRequestsForCommonNameAsync(ReenrollDeviceName, ct);
     }
 
     [Fact]
@@ -618,12 +661,11 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
     public async Task Simplereenroll_retry_after_issuance_returns_the_existing_pkcs7_response()
     {
         var ct = TestContext.Current.CancellationToken;
-        await DeleteRequestsForCommonNameAsync("Est Test CA", ct);
+        await DeleteRequestsForCommonNameAsync(ReenrollDeviceName, ct);
         using var client = _factory.CreateClient();
-        using var presentedCertificate = X509Certificate2.CreateFromPem(
-            _factory.Services.GetRequiredService<ICertificateGenerator>().GetCaCertificatePem());
+        using var presentedCertificate = await _factory.CreateEnrolledClientCertificateAsync(ReenrollDeviceName, ct);
         using var presented = _factory.PresentClientCertificate(presentedCertificate);
-        var csr = TestCsrBuilder.BuildBase64Url("Est Test CA", []);
+        var csr = TestCsrBuilder.BuildBase64Url(ReenrollDeviceName, []);
 
         await SetEstAutoApproveAsync(false, ct);
         using var content2 = new StringContent(csr, System.Text.Encoding.ASCII, "application/pkcs10");
@@ -642,7 +684,7 @@ public class EstProtocolTests : IClassFixture<EstTestFactory>
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CertificateRequestDbContext>();
         Assert.Equal(1, await db.CertificateRequests.CountAsync(request => request.CsrPem == csr, ct));
-        await DeleteRequestsForCommonNameAsync("Est Test CA", ct);
+        await DeleteRequestsForCommonNameAsync(ReenrollDeviceName, ct);
     }
 
     [Fact]

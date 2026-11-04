@@ -24,19 +24,19 @@ RUN dotnet publish Qertum.IdentityService/Qertum.IdentityService.csproj -c Relea
     dotnet publish Qertum.RestoreCheck/Qertum.RestoreCheck.csproj     -c Release -o /app/restorecheck
 
 # ---------------------------------------------------------------------------
-# Redis stage: only the server binary is taken from the official image, pinned by digest, so
-# the shared cache runs the same Redis major as the AppHost and the tests (Ubuntu 24.04's
-# redis-server package is 7.0). No third-party apt repository is added to the runtime image.
-# See "Bumping the base image" in the README.
+# Valkey stage: only the server binary is taken from the official image, pinned by digest, so
+# the shared cache runs the same Valkey version as the AppHost and the tests. Valkey (BSD-3-Clause,
+# Redis-compatible) replaced Redis, whose version 8 is offered only under RSALv2, SSPLv1 or AGPLv3.
+# No third-party apt repository is added to the runtime image. See "Bumping the base image" in the README.
 # ---------------------------------------------------------------------------
-FROM redis:8.6@sha256:372207266325710e75866163a505d18ac0362372c8bf02ad5a0cf0b3c8bbc23e AS redis
+FROM valkey/valkey:9.1@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a2cd469b815f0b7 AS valkey
 
 # ---------------------------------------------------------------------------
-# Runtime stage: ASP.NET runtime + runit running Redis and the five processes.
+# Runtime stage: ASP.NET runtime + runit running Valkey and the five processes.
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:76383bc2150de411212238b0fb3cd83239ce4060f5a64d07be88624d8441d1e8 AS runtime
 
-# runit supervises Redis and the five .NET processes (it pulls in no Python, unlike the
+# runit supervises Valkey and the five .NET processes (it pulls in no Python, unlike the
 # supervisord it replaced); tini is PID 1 and reaps orphans; tpm2-tools is for the LocalTpm
 # secret-storage provider.
 # The resolute base ships /usr/bin/pebble (a Go service manager) that nothing here runs; it only adds
@@ -46,10 +46,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/pebble
 
-# The shared cache's server (from the digest-pinned redis stage above).
-COPY --from=redis /usr/local/bin/redis-server /usr/local/bin/redis-server
+# The shared cache's server (from the digest-pinned valkey stage above).
+COPY --from=valkey /usr/local/bin/valkey-server /usr/local/bin/valkey-server
 
 COPY --from=build /app /app
+COPY LICENSE THIRD-PARTY-NOTICES.txt /usr/share/doc/qertum/
 COPY deploy/single-container/service /etc/qertum/service
 COPY deploy/single-container/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY deploy/single-container/healthcheck.sh /usr/local/bin/healthcheck.sh

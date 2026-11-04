@@ -608,6 +608,8 @@ else
                                     An http-01 challenge may only connect to an address inside one of these ranges. The list is
                                     exclusive: public addresses are <strong>not</strong> reachable unless listed. Entries accept
                                     CIDR notation or a single IP address.
+                                    Public catch-all entries do not grant access to private or loopback addresses;
+                                    add an explicit range inside that internal network when internal enrollment is intended.
                                     <br />
                                     Adding a private range (for example <code>10.0.0.0/8</code>) lets the CA reach internal
                                     hosts on your network, which is the point for an internal deployment — but it also means an

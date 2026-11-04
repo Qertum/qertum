@@ -7,6 +7,8 @@
 
 /* Display: Space Grotesk · Body: Inter · Code and labels: JetBrains Mono, self-hosted (fonts.css): no third-party request. */
 @import url('fonts.css');
+/* The qertum.com header lockup (mark, name, tagline), shared by both UIs. */
+@import url('brand.css');
 
 :root {
     /* ── Qertum brand palette (as on qertum.com): ink and paper, mint accent ── */
