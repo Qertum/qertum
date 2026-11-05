@@ -137,8 +137,8 @@ else
                                 <span class="text-muted">published here</span>
                             }
                         </td>
-                        <td class="text-end text-nowrap">
-                            <div class="d-flex gap-2 justify-content-end" data-test="row-actions">
+                        <td class="issuer-actions">
+                            <div class="d-flex flex-wrap gap-2 justify-content-end" data-test="row-actions">
                                 @if (issuer.Status is IssuerStatus.Active or IssuerStatus.Retired)
                                 {
                                     <button type="button" class="btn btn-sm btn-link" data-test="action-certificate" @onclick="() => DownloadCertificateAsync(issuer)">Certificate</button>

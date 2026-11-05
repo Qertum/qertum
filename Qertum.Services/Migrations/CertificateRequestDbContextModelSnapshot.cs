@@ -665,6 +665,9 @@ namespace Qertum.Services.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("ApprovedAsCaCertificate")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("CertificatePem")
                         .HasColumnType("TEXT");
 

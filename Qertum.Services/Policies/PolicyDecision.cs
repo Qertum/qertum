@@ -69,6 +69,12 @@ public sealed record PolicyDecision(
     /// <summary>Notes that do not refuse the request (the issuer-strength rule under <see cref="IssuerStrengthMode.Warn"/>); empty when none.</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
 
+    /// <summary>
+    /// Set by <see cref="IIssuancePolicyService.EvaluateApprovalAsync"/>: the template this decision evaluated was
+    /// CA-capable (or the request renews the root), so the CA rules were applied to it.
+    /// </summary>
+    public bool CaCertificate { get; init; }
+
     /// <summary>The listed requester role the submitting caller matched; null when not checked or admin.</summary>
     public string? MatchedRequesterRole { get; init; }
 

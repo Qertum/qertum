@@ -37,10 +37,15 @@ internal sealed class IssuancePolicyService(
         if (request.Type == WellKnownCertificateTypes.RootCa)
             return RootCaDecision(request, caller);
 
-        var template = await db.CertificateTemplates
-            .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.TypeKey == request.Type, cancellationToken);
+        return await EvaluateTemplateAsync(request, await LoadTemplateAsync(request, cancellationToken), settings, requester, caller, cancellationToken);
+    }
 
+    private Task<CertificateTemplate?> LoadTemplateAsync(CertificateRequest request, CancellationToken cancellationToken) =>
+        db.CertificateTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.TypeKey == request.Type, cancellationToken);
+
+    private async Task<PolicyDecision> EvaluateTemplateAsync(CertificateRequest request, CertificateTemplate? template, CaSettings settings,
+        RequesterRoles? requester, CallerContext? caller, CancellationToken cancellationToken)
+    {
         IssuancePolicy? policy = null;
         IssuancePolicyVersion? published = null;
         if (template?.IssuancePolicyId is { } policyId)
@@ -91,17 +96,26 @@ internal sealed class IssuancePolicyService(
 
     public async Task<PolicyDecision> EvaluateApprovalAsync(CertificateRequest request, CaSettings settings, CallerContext? caller, CancellationToken cancellationToken = default)
     {
-        var decision = await EvaluateAsync(request, settings, requester: null, caller, cancellationToken);
-        if (caller is null) return decision;
-
+        // One template read for the whole decision: the CA rules below and CaCertificate, which the consumer trusts
+        // before signing a CA certificate, must describe the template the CA permission rule was checked against.
         // A root renewal replaces the trust anchor, so it takes the same second person as a CA-capable template.
         // The first root (no RenewedFromId) stays with onboarding, where one administrator may be all there is.
+        PolicyDecision decision;
         bool isCa;
         if (request.Type == WellKnownCertificateTypes.RootCa)
+        {
+            decision = RootCaDecision(request, caller);
             isCa = request.RenewedFromId is not null;
+        }
         else
-            isCa = CaCapableTemplate.IsCaCapable(await db.CertificateTemplates.AsNoTracking()
-                .FirstOrDefaultAsync(t => t.TypeKey == request.Type, cancellationToken));
+        {
+            var template = await LoadTemplateAsync(request, cancellationToken);
+            decision = await EvaluateTemplateAsync(request, template, settings, requester: null, caller, cancellationToken);
+            isCa = CaCapableTemplate.IsCaCapable(template);
+        }
+        decision = decision with { CaCertificate = isCa };
+        if (caller is null) return decision;
+
         if (!isCa || !IndependentApprovalRule.IsSelfApproval(request, caller))
             return decision;
 

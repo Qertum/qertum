@@ -43,11 +43,25 @@ internal sealed class DockerContainer : IAsyncDisposable
         return new DockerContainer(name);
     }
 
+    /// <summary>
+    /// Starts a container from <paramref name="runArguments"/>: everything after <c>docker run -d --rm --name &lt;name&gt;</c>,
+    /// image last (ports, environment and image chosen by the caller).
+    /// </summary>
+    public static async Task<DockerContainer> StartAsync(string namePrefix, IReadOnlyList<string> runArguments)
+    {
+        var name = namePrefix + "-" + Guid.NewGuid().ToString("N")[..12];
+        var result = await RunAsync(TimeSpan.FromMinutes(10), ["run", "-d", "--rm", "--name", name, .. runArguments]);
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"docker run failed: {result.Output}");
+        return new DockerContainer(name);
+    }
+
     public async ValueTask DisposeAsync() => await RunAsync(TimeSpan.FromSeconds(60), "rm", "-f", Name);
 
     public async Task<string> LogsAsync() => (await RunAsync(TimeSpan.FromSeconds(30), "logs", Name)).Output;
 
-    private static async Task<(int ExitCode, string Output)> RunAsync(TimeSpan timeout, params string[] arguments)
+    /// <summary>Runs <c>docker</c> with <paramref name="arguments"/>; exit code -1 when it timed out or is not installed.</summary>
+    internal static async Task<(int ExitCode, string Output)> RunAsync(TimeSpan timeout, params string[] arguments)
     {
         var info = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var argument in arguments)

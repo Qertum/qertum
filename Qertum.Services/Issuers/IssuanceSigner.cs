@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging;
+using Qertum.Services.Policies;
 
 namespace Qertum.Services.Issuers;
 
@@ -30,6 +31,10 @@ public sealed class IssuanceSigner(
             return await CreateRootAsync(request, ct);
 
         var template = await templates.GetByTypeKeyAsync(request.Type ?? "WebServer", ct);
+        // Checked on the template object this method signs with: the consumer's earlier policy check read the
+        // template separately, and it can change in between (CaApprovalBinding).
+        if (CaApprovalBinding.Check(request, template) is { } unapprovedCa)
+            throw new IssuancePolicyViolationException(CaApprovalBinding.Refusal(unapprovedCa), PolicyEnforcementStage.Issuance);
         var handle = await issuers.ForIssuanceAsync(template, ct);
         var urls = IssuerUrls.For(handle.Issuer, settings);
         var generated = request.CsrPem is not null

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using System.Security.Cryptography;
 using Qertum.Services;
 using Qertum.Services.BackgroundJobs;
+using Qertum.Services.Policies;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Qertum.QueueConsumer;
@@ -171,6 +172,14 @@ internal sealed class CertificateRequestQueueConsumer : BackgroundService
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                     {
                         return;
+                    }
+                    catch (IssuancePolicyViolationException ex)
+                    {
+                        // The signer's own check on the template it signs with (CaApprovalBinding): final, never retried.
+                        failureReason = $"Rejected by issuance policy while signing. {ex.Message}";
+                        logger.LogWarning("Rejected certificate request {CertificateRequestId} while signing. {Reason}",
+                            nextRequest.Id, ex.Message);
+                        break;
                     }
                     catch (CryptographicException ex)
                     {

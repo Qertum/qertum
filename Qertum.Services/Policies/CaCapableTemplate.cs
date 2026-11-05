@@ -40,3 +40,27 @@ public static class CaCertificateTypes
             .Append(WellKnownCertificateTypes.RootCa).ToList();
     }
 }
+
+/// <summary>
+/// Binds a CA certificate to its approval. Approval checks the CA permission and the independent-approver rule only
+/// when the template is CA-capable at that moment, and the queue consumer signs with the template as it is when it
+/// signs; between the two, anyone who may edit templates could add <c>KeyCertSign</c> to the template of an approved
+/// leaf request and have a subordinate CA issued that nobody approved as one (CWE-367, AI Scan on the 1.0.0-rc5
+/// snapshot). The consumer therefore signs from a CA-capable template only a request that was approved as a CA
+/// certificate (<see cref="CertificateRequest.ApprovedAsCaCertificate"/>).
+/// </summary>
+public static class CaApprovalBinding
+{
+    /// <summary>The violation when <paramref name="template"/> would issue a CA certificate this request was not approved as; else null.</summary>
+    public static IssuancePolicyViolation? Check(CertificateRequest request, CertificateTemplate? template) =>
+        request.Type != WellKnownCertificateTypes.RootCa && CaCapableTemplate.IsCaCapable(template) && !request.ApprovedAsCaCertificate
+            ? new IssuancePolicyViolation(PolicyRules.CaPermission, template!.TypeKey,
+                $"Template '{template.TypeKey}' now issues CA certificates, but this request was not approved as one " +
+                "(the template was changed after approval, or the request was approved automatically). " +
+                "File it again so that someone with the certificates.ca permission approves it.")
+            : null;
+
+    /// <summary>A refusing decision carrying <paramref name="violation"/>.</summary>
+    public static PolicyDecision Refusal(IssuancePolicyViolation violation) =>
+        new(false, null, null, null, [violation]);
+}

@@ -177,8 +177,10 @@ fi
 export Identity__Authority="${QERTUM_PUBLIC_SCHEME}://${QERTUM_HOST}:${IDENTITY_PORT}"
 export Identity__RequireHttpsMetadata="${Identity__RequireHttpsMetadata:-${secure_default}}"
 
-# Web -> API is server-side only (Blazor Server circuit), so it can stay on localhost.
-export ApiService__BaseUrl="http://localhost:${API_PORT}"
+# Web -> API is server-side only (Blazor Server circuit), so it can stay on localhost, on the port the API
+# listens on inside this container (service/apiservice/run). API_PORT is only the published port: using it here
+# refused every call whenever the API was published on another host port (-p 9082:8082 -e API_PORT=9082).
+export ApiService__BaseUrl="http://localhost:8082"
 
 # ACME directory/resource links advertised to certbot/cert-manager.
 export Acme__BaseUrl="http://${QERTUM_HOST}:${ACME_PORT}"

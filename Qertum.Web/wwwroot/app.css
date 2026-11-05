@@ -2665,6 +2665,16 @@ main {
     padding-left: 3.75rem;
 }
 
+/* Up to six row actions: they wrap inside this width instead of pushing the table past the page (1360 px). */
+.issuer-tree .issuer-actions {
+    min-width: 14rem;
+    max-width: 22rem;
+}
+
+.issuer-tree .issuer-actions .btn {
+    white-space: nowrap;
+}
+
 .issuer-badge {
     display: inline-block;
     padding: 0.15rem 0.55rem;

@@ -23,7 +23,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:76383bc2150de411212238
 # tpm2-tools: LocalTpm key custody. Valkey (the cache) is its own container, not part of this image.
 # The resolute base ships /usr/bin/pebble (a Go service manager) that nothing here runs; it only adds
 # Go stdlib findings, so remove it.
+# apt-get upgrade applies Ubuntu's security updates published since Microsoft last rebuilt the digest-pinned base
+# (1.0.0-rc6: apt 3.2.0 had a fixable HIGH, CVE-2026-109518, that the publish-image Trivy gate refuses).
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends tpm2-tools \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /usr/bin/pebble

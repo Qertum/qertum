@@ -6,7 +6,7 @@ SQLite: no external database, message broker or cloud service is needed.
 
 ![The Qertum dashboard: the request pipeline, certificate validity and the latest certificates](docs/images/dashboard.png)
 
-> **Release candidate (1.0.0-rc5).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
+> **Release candidate (1.0.0-rc6).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
 
 ## Quick start
 
@@ -17,7 +17,7 @@ docker run -d --name qertum \
   -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 -p 127.0.0.1:8082:8082 -p 8083:8083 \
   -v qertum-data:/data \
   --restart unless-stopped \
-  qertum/qertum:1.0.0-rc5
+  qertum/qertum:1.0.0-rc6
 ```
 
 Open `http://localhost:8080` on the same machine, sign in as `admin` and follow the onboarding to create or

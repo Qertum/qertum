@@ -225,6 +225,24 @@ public sealed class IssuersPageTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task RowActions_WrapInsideTheirCell_InsteadOfWideningTheTable()
+    {
+        // An active online root has six actions; on one unwrapped line they ran past the right edge at 1360 px.
+        var (context, api) = NewContext();
+        await using var _ = context;
+        api.Issuers.AddRange([IssuerApiStub.Issuer("Root", isDefault: true), IssuerApiStub.Issuer("Second")]);
+
+        var cut = context.Render<IssuersPage>();
+
+        cut.WaitForAssertion(() => Assert.Single(cut.FindAll("[data-test='action-make-default']")));
+        var actions = cut.Find("[data-test='action-make-default']").ParentElement!;
+        Assert.Contains("flex-wrap", actions.ClassList);
+        var cell = actions.ParentElement!;
+        Assert.Contains("issuer-actions", cell.ClassList);
+        Assert.DoesNotContain("text-nowrap", cell.ClassList);
+    }
+
+    [Fact]
     public async Task Retire_AsksForConfirmation_BeforeCallingTheApi()
     {
         var (context, api) = NewContext();

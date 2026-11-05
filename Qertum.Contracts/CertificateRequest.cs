@@ -98,6 +98,15 @@ public sealed class CertificateRequest
     public string? RenewedBySubject { get; set; }
 
     /// <summary>
+    /// True when a person approved this request while its template could sign certificates (<c>KeyCertSign</c>), so the
+    /// approval checked the CA permission and the independent-approver rule. The queue consumer signs a CA certificate
+    /// only when this is set: a template made CA-capable after approval must not turn an approved leaf into a CA.
+    /// Pipeline-only; false for automatic approvals and for rows approved before 1.0.0-rc6.
+    /// </summary>
+    [JsonIgnore]
+    public bool ApprovedAsCaCertificate { get; set; }
+
+    /// <summary>
     /// Facts recorded about the certificate (owner team, contact, purpose, target system, ticket,
     /// compatibility). Never null; all-null means everything is Unknown. A renewal starts with a copy.
     /// </summary>

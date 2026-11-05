@@ -1,6 +1,6 @@
 # Support and compatibility policy
 
-This page says what a Qertum version number promises, which releases receive security fixes, and where to get help. It takes effect with **1.0.0**. Releases before that (the `alpha-NN` tags and `1.0.0-rcN`) carry no compatibility promise: read the release notes of each one before you upgrade.
+This page says what a Qertum version number promises, which releases we aim to fix, and where to get help. Qertum is free, open-source software provided as is under the MIT licence, without warranty: nothing here is a support contract, and no support plan is sold. It takes effect with **1.0.0**. Releases before that (the `alpha-NN` tags and `1.0.0-rcN`) carry no compatibility promise: read the release notes of each one before you upgrade.
 
 ## Versioning
 
@@ -53,14 +53,16 @@ Two things can force a change that this policy would otherwise forbid, and the r
 
 ## Security fixes
 
-Security fixes go to:
+Security fixes are made on a best-effort basis, with no guaranteed time. When we make one, it goes to:
 
 - the **latest minor release** of the current major version, and
 - the **previous minor release** for 90 days after a new minor release is published.
 
 A fix is published as a new patch release and an image with a new tag. We do not move or replace a tag that was published. To report a vulnerability, follow [SECURITY.md](SECURITY.md).
 
-When a base image or a library we ship has a known vulnerability that affects Qertum, we rebuild and publish a patch release; the release notes name it.
+When a base image or a library we ship has a known vulnerability that affects Qertum, we aim to rebuild and publish a patch release; the release notes name it.
+
+There is no support period in years. How we handle a vulnerability, and why the EU Cyber Resilience Act does not apply to Qertum at present, is in [SECURITY.md](SECURITY.md).
 
 ## Supported platforms
 
@@ -72,4 +74,4 @@ When a base image or a library we ship has a known vulnerability that affects Qe
 
 - **Questions and bugs**: open an issue on the GitHub repository. Include the image tag, the deployment shape (single container, multi container or source), and the output of `qca doctor` if you can.
 - **Vulnerabilities**: email **security@qertum.com**, not a public issue.
-- Help is given on a best-effort basis by the maintainers. There is no service-level agreement and no commercial support.
+- Help is given on a best-effort basis by the maintainers. There is no service-level agreement, no paid support and none planned for now; if that changes, this page will say so.

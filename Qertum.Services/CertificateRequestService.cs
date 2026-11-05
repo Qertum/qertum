@@ -515,6 +515,9 @@ public sealed class CertificateRequestService(
         }
 
         existing.Status = CertificateRequestStatus.Approved;
+        // Only a person's approval of a CA-capable template authorizes a CA certificate (CaApprovalBinding); an
+        // automatic approval never does, whatever the template says now.
+        existing.ApprovedAsCaCertificate = autoApprovalSetting is null && policyDecision.CaCertificate;
         RecordPolicyDecision(existing, policyDecision);
         existing.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -723,6 +726,9 @@ public sealed class CertificateRequestService(
 
         var settings = await GetSettingsAsync(cancellationToken);
         var decision = await issuancePolicy.EvaluateAsync(claimed, settings, cancellationToken);
+        if (decision.Allowed && CaApprovalBinding.Check(claimed, await dbContext.CertificateTemplates.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.TypeKey == claimed.Type, cancellationToken)) is { } unapprovedCa)
+            decision = CaApprovalBinding.Refusal(unapprovedCa);
 
         if (decision.Allowed)
         {
