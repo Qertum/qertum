@@ -130,6 +130,7 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<BackgroundJobs.IBackgroundJobQueue, BackgroundJobs.BackgroundJobQueue>();
         services.TryAddSingleton<BackgroundJobs.IBackgroundJobSignal, BackgroundJobs.BackgroundJobChannel>();
         services.TryAddScoped<CrlPublisher>();
+        services.TryAddSingleton<CrlBuildGate>();
 
 
         return services;

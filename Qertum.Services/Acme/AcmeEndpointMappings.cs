@@ -32,7 +32,7 @@ public static class AcmeEndpointMappings
     /// Upper bound on identifiers in one order. Each identifier produces an authorization whose
     /// challenge causes an outbound HTTP request, so an uncapped list is an amplification primitive.
     /// </summary>
-    private const int MaxIdentifiersPerOrder = 100;
+    private const int MaxIdentifiersPerOrder = CertificateRequestValidator.MaxSubjectAlternativeNames;
 
     /// <summary>
     /// Accepts a plain DNS hostname, optionally with a leftmost wildcard label

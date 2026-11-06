@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------
 # Build stage: restore + publish each runtime service into its own /app folder.
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:212fe4cb74627d5adf9817a4088906ae3edff1bd853bb27565d4b46731efe61e AS build
 WORKDIR /src
 
 # Copy the whole repo. (The projects share many references; a partial copy buys
@@ -34,7 +34,7 @@ FROM valkey/valkey:9.1@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a
 # ---------------------------------------------------------------------------
 # Runtime stage: ASP.NET runtime + runit running Valkey and the five processes.
 # ---------------------------------------------------------------------------
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:76383bc2150de411212238b0fb3cd83239ce4060f5a64d07be88624d8441d1e8 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute@sha256:c159e6c30ed39d4728d3d9f07f26dca10945896f7a072949cb9786ebcfea609d AS runtime
 
 # runit supervises Valkey and the five .NET processes (it pulls in no Python, unlike the
 # supervisord it replaced); tini is PID 1 and reaps orphans; tpm2-tools is for the LocalTpm

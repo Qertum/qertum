@@ -44,7 +44,7 @@ public interface ICertificateRequestService
     Task<IReadOnlyList<CertificateRequest>> GetAllRevokedForCrlAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Every revoked certificate whose <see cref="CertificateRequest.RevokedAtUtc"/> is strictly
+    /// Every revoked certificate whose <see cref="CertificateRequest.RevokedAtUtc"/> is at or
     /// after <paramref name="sinceUtc"/> — the base CRL's <c>thisUpdate</c> timestamp — projected to
     /// the same columns as <see cref="GetAllRevokedForCrlAsync"/>. Unpaged for the same reason.
     /// </summary>

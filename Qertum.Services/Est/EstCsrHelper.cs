@@ -51,6 +51,10 @@ public static class EstCsrHelper
             }
         }
 
+        // Same bound as a REST request or an ACME order: the names are stored, evaluated and encoded one by one.
+        if (dnsNames.Count > CertificateRequestValidator.MaxSubjectAlternativeNames)
+            throw new ArgumentException($"The CSR names more than {CertificateRequestValidator.MaxSubjectAlternativeNames} DNS names.");
+
         return (commonName, dnsNames);
     }
 }

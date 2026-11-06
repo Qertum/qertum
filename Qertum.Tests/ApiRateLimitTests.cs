@@ -29,6 +29,33 @@ public sealed class ApiRateLimitTests
         Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
     }
 
+    [Theory]
+    [InlineData("/crl")]
+    [InlineData("/v1/crl")]
+    [InlineData("/crl/delta")]
+    [InlineData("/v1/crl/delta")]
+    public async Task AnonymousCrlRequests_HaveACallerLimit(string path)
+    {
+        // The CRL routes are anonymous and a miss builds and signs a CRL; they share the per-caller window like OCSP
+        // (AI Scan, 1.0.0-rc6). The status before the limit does not matter here (no CA is set up), only the 429.
+        var ct = TestContext.Current.CancellationToken;
+        await using var parent = ApiServiceTests.CreateFactory();
+        await using var factory = parent.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("RateLimiting:PermitLimit", "2");
+            builder.UseSetting("RateLimiting:QueueLimit", "0");
+        });
+        await ApiServiceTests.EnsureDbAsync(factory, ct);
+        using var client = factory.CreateClient();
+        using var first = await client.GetAsync(path, ct);
+        using var second = await client.GetAsync(path, ct);
+        using var refused = await client.GetAsync(path, ct);
+
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, first.StatusCode);
+        Assert.NotEqual(HttpStatusCode.TooManyRequests, second.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+    }
+
     [Fact]
     public async Task OneCallerAtTheLimit_DoesNotLockOutAnother()
     {

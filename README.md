@@ -6,7 +6,7 @@ SQLite: no external database, message broker or cloud service is needed.
 
 ![The Qertum dashboard: the request pipeline, certificate validity and the latest certificates](docs/images/dashboard.png)
 
-> **Release candidate (1.0.0-rc6).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
+> **Release candidate (1.0.0-rc7).** Open for testing: pin an exact image tag and do not use it in production yet. The [support and compatibility policy](SUPPORT.md) takes effect with 1.0.0.
 
 ## Quick start
 
@@ -17,7 +17,7 @@ docker run -d --name qertum \
   -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 -p 127.0.0.1:8082:8082 -p 8083:8083 \
   -v qertum-data:/data \
   --restart unless-stopped \
-  qertum/qertum:1.0.0-rc6
+  qertum/qertum:1.0.0-rc7
 ```
 
 Open `http://localhost:8080` on the same machine, sign in as `admin` and follow the onboarding to create or
@@ -60,6 +60,13 @@ Two multi-architecture images (linux/amd64 and linux/arm64), identical on three 
 - **Issuer hierarchy**: an offline root with online intermediates, renewal of roots and intermediates with a new key under the same name, rollover and trust-bundle export.
 - **Revocation publishing**: a CRL at `/crl` and an OCSP responder at `/ocsp`.
 - **Webhooks** with HMAC signatures and retries, and metrics through OpenTelemetry.
+
+## Architecture
+
+![Qertum 1.0.0-rc7 architecture: services, integrations and manual CA trust hierarchy](docs/images/architecture.svg)
+
+The diagram shows the complete architecture for this release. See
+[Architecture](https://github.com/Qertum/qertum/wiki/Architecture) for service roles, deployment choices and limits.
 
 ## Keep the CA key safe
 

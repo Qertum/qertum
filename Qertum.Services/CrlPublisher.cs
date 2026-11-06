@@ -53,35 +53,43 @@ public sealed class CrlPublisher(
         if (!issuer.CanSignRevocation)
             throw new InvalidOperationException($"Issuer '{issuer.Issuer.Name}' cannot sign a CRL (status {issuer.Issuer.Status}).");
 
-        var settings = await service.GetSettingsAsync(cancellationToken);
-        // Unpaged on purpose: a revoked certificate left out of the CRL is one every relying
-        // party still treats as valid.
-        var revoked = await service.GetAllRevokedForCrlAsync(issuer.Scope, cancellationToken);
-
-        // Claimed only once the CRL is actually about to be built, so a failed request does not burn
-        // a number.
-        var crlNumber = await crlState.ClaimNextCrlNumberAsync(issuer.Issuer, cancellationToken);
-        var thisUpdate = _clock.GetUtcNow().UtcDateTime;
-        var crlBytes = issuer.Generator!.GenerateCrl(revoked, settings, crlNumber, thisUpdate,
-            Issuers.IssuerUrls.For(issuer.Issuer, settings));
-        var cacheEntry = new DistributedCacheEntryOptions
+        return await crlState.PublishAsync(issuer.Issuer, async crlNumber =>
         {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(EffectiveValidityHours(settings.CrlValidityHours))
-        };
-        if (tolerateCacheFailure)
-            await cache.TrySetAsync(CrlCache.KeyFor(issuer.Issuer), crlBytes, cacheEntry, _logger, cancellationToken);
-        else
-            await cache.SetAsync(CrlCache.KeyFor(issuer.Issuer), crlBytes, cacheEntry, cancellationToken);
+            var settings = await service.GetSettingsAsync(cancellationToken);
+            // Unpaged on purpose: a revoked certificate left out of the CRL is one every relying
+            // party still treats as valid.
+            var revoked = await service.GetAllRevokedForCrlAsync(issuer.Scope, cancellationToken);
 
-        // This full CRL is the new delta base. Record it, and drop any cached delta computed
-        // against the previous base — it is now relative to a base number the server would no
-        // longer vouch for.
-        await crlState.RecordBaseCrlAsync(issuer.Issuer, crlNumber, thisUpdate, cancellationToken);
-        if (tolerateCacheFailure)
-            await cache.TryRemoveAsync(CrlCache.DeltaKeyFor(issuer.Issuer), _logger, cancellationToken);
-        else
-            await cache.RemoveAsync(CrlCache.DeltaKeyFor(issuer.Issuer), cancellationToken);
+            // The write transaction keeps the snapshot and its reserved number in publication order.
+            var thisUpdate = _clock.GetUtcNow().UtcDateTime;
+            var crlBytes = issuer.Generator!.GenerateCrl(revoked, settings, crlNumber, thisUpdate,
+                Issuers.IssuerUrls.For(issuer.Issuer, settings));
+            var cacheEntry = new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(EffectiveValidityHours(settings.CrlValidityHours))
+            };
+            // This full CRL is the new delta base. It is recorded, cached, and any cached delta computed against the
+            // previous base dropped (it is relative to a base number the server would no longer vouch for), all under
+            // the database write lock and only if no publisher with a higher number got there first; otherwise this
+            // CRL is still valid for the caller but must not replace the newer one.
+            var current = await crlState.RecordBaseCrlIfNewerAsync(issuer.Issuer, crlNumber, thisUpdate, async () =>
+            {
+                if (tolerateCacheFailure)
+                {
+                    await cache.TrySetAsync(CrlCache.KeyFor(issuer.Issuer), crlBytes, cacheEntry, _logger, cancellationToken);
+                    await cache.TryRemoveAsync(CrlCache.DeltaKeyFor(issuer.Issuer), _logger, cancellationToken);
+                }
+                else
+                {
+                    await cache.SetAsync(CrlCache.KeyFor(issuer.Issuer), crlBytes, cacheEntry, cancellationToken);
+                    await cache.RemoveAsync(CrlCache.DeltaKeyFor(issuer.Issuer), cancellationToken);
+                }
+            }, cancellationToken);
+            if (!current)
+                _logger.LogInformation("CRL {CrlNumber} of {Issuer} was superseded by a newer one before it was recorded; not cached.",
+                    crlNumber, issuer.Issuer.Name);
 
-        return new PublishedCrl(crlBytes, crlNumber, thisUpdate);
+            return new PublishedCrl(crlBytes, crlNumber, thisUpdate);
+        }, cancellationToken);
     }
 }

@@ -28,4 +28,16 @@ public class EstCsrHelperTests
         Assert.Equal("device2.example.com", commonName);
         Assert.Empty(dnsNames);
     }
+
+    [Fact]
+    public void ExtractIdentity_refuses_more_dns_names_than_a_request_may_carry()
+    {
+        // Same bound as REST and ACME (AI Scan, rc7): every name is stored, evaluated and encoded.
+        var names = Enumerable.Range(0, 101).Select(i => $"d{i}.example.com").ToArray();
+        var refused = TestCsrBuilder.BuildBase64Url(subjectCn: "d0.example.com", sanDnsNames: names);
+        var accepted = TestCsrBuilder.BuildBase64Url(subjectCn: "d0.example.com", sanDnsNames: names[..100]);
+
+        Assert.Contains("more than 100", Assert.Throws<ArgumentException>(() => EstCsrHelper.ExtractIdentity(refused)).Message);
+        Assert.Equal(100, EstCsrHelper.ExtractIdentity(accepted).DnsNames.Count);
+    }
 }

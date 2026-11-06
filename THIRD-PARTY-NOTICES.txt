@@ -255,7 +255,7 @@ Microsoft.Extensions.Http.Diagnostics 10.11.0
   https://dot.net/
   In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
 
-Microsoft.Extensions.Http.Polly 10.0.11
+Microsoft.Extensions.Http.Polly 10.0.14
   Licence: MIT
   © Microsoft Corporation. All rights reserved.
   https://asp.net/
@@ -361,7 +361,13 @@ Microsoft.IdentityModel.Protocols 8.19.2
   Licence: MIT
   © Microsoft Corporation. All rights reserved.
   https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet
-  In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
+  In: AcmeService, ApiService, Cli, EstService, QueueConsumer, RestoreCheck, Web
+
+Microsoft.IdentityModel.Protocols 8.23.0
+  Licence: MIT
+  © Microsoft Corporation. All rights reserved.
+  https://github.com/AzureAD/azure-activedirectory-identitymodel-extensions-for-dotnet
+  In: IdentityService
 
 Microsoft.IdentityModel.Protocols.OpenIdConnect 8.19.2
   Licence: MIT
@@ -381,121 +387,121 @@ Microsoft.OpenApi 2.12.2
   https://github.com/Microsoft/OpenAPI.NET
   In: ApiService
 
-OpenIddict 7.7.2
+OpenIddict 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Abstractions 7.7.2
+OpenIddict.Abstractions 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.AspNetCore 7.7.2
+OpenIddict.AspNetCore 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Client 7.7.2
+OpenIddict.Client 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Client.AspNetCore 7.7.2
+OpenIddict.Client.AspNetCore 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Client.DataProtection 7.7.2
+OpenIddict.Client.DataProtection 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Client.SystemIntegration 7.7.2
+OpenIddict.Client.SystemIntegration 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Client.SystemNetHttp 7.7.2
+OpenIddict.Client.SystemNetHttp 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Client.WebIntegration 7.7.2
+OpenIddict.Client.WebIntegration 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Core 7.7.2
+OpenIddict.Core 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.EntityFrameworkCore 7.7.2
+OpenIddict.EntityFrameworkCore 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.EntityFrameworkCore.Models 7.7.2
+OpenIddict.EntityFrameworkCore.Models 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Server 7.7.2
+OpenIddict.Server 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Server.AspNetCore 7.7.2
+OpenIddict.Server.AspNetCore 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Server.DataProtection 7.7.2
+OpenIddict.Server.DataProtection 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Validation 7.7.2
+OpenIddict.Validation 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Validation.AspNetCore 7.7.2
+OpenIddict.Validation.AspNetCore 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Validation.DataProtection 7.7.2
+OpenIddict.Validation.DataProtection 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Validation.ServerIntegration 7.7.2
+OpenIddict.Validation.ServerIntegration 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
   In: IdentityService
 
-OpenIddict.Validation.SystemNetHttp 7.7.2
+OpenIddict.Validation.SystemNetHttp 7.8.0
   Licence: Apache-2.0
   © Kévin Chalet. All rights reserved.
   https://openiddict.com/
@@ -531,13 +537,13 @@ OpenTelemetry.Extensions.Hosting 1.20.1
   https://opentelemetry.io/
   In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
 
-OpenTelemetry.Instrumentation.AspNetCore 1.20.1
+OpenTelemetry.Instrumentation.AspNetCore 1.20.2
   Licence: Apache-2.0
   Copyright The OpenTelemetry Authors
   https://opentelemetry.io/
   In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
 
-OpenTelemetry.Instrumentation.Http 1.20.1
+OpenTelemetry.Instrumentation.Http 1.20.2
   Licence: Apache-2.0
   Copyright The OpenTelemetry Authors
   https://opentelemetry.io/
@@ -579,13 +585,13 @@ Polly.RateLimiting 8.4.2
   https://github.com/App-vNext/Polly
   In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
 
-RESPite 3.4.20
+RESPite 3.4.31
   Licence: MIT
   2025 - 2026 Marc Gravell
   https://seredis.dev/
   In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
 
-Scalar.AspNetCore 2.18.3
+Scalar.AspNetCore 2.19.0
   Licence: MIT
   Copyright (c) Scalar
   https://scalar.com/
@@ -659,7 +665,7 @@ SQLitePCLRaw.provider.e_sqlite3 3.0.5
   Copyright 2014-2025 SourceGear, LLC
   In: AcmeService, ApiService, Cli, EstService, IdentityService, QueueConsumer, RestoreCheck, Web
 
-StackExchange.Redis 3.4.20
+StackExchange.Redis 3.4.31
   Licence: MIT
   2014 - 2026 Stack Exchange, Inc.
   https://seredis.dev/
@@ -1017,7 +1023,7 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FO
 DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
 OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 
---- Licence file of OpenTelemetry 1.20.1, OpenTelemetry.Api 1.20.1, OpenTelemetry.Api.ProviderBuilderExtensions 1.20.1, OpenTelemetry.Exporter.OpenTelemetryProtocol 1.20.1, OpenTelemetry.Extensions.Hosting 1.20.1, OpenTelemetry.Instrumentation.AspNetCore 1.20.1, OpenTelemetry.Instrumentation.Http 1.20.1, OpenTelemetry.Instrumentation.Runtime 1.20.1
+--- Licence file of OpenTelemetry 1.20.1, OpenTelemetry.Api 1.20.1, OpenTelemetry.Api.ProviderBuilderExtensions 1.20.1, OpenTelemetry.Exporter.OpenTelemetryProtocol 1.20.1, OpenTelemetry.Extensions.Hosting 1.20.1, OpenTelemetry.Instrumentation.AspNetCore 1.20.2, OpenTelemetry.Instrumentation.Http 1.20.2, OpenTelemetry.Instrumentation.Runtime 1.20.1
 
                                  Apache License
                            Version 2.0, January 2004
@@ -3810,7 +3816,7 @@ Copyright (c) Xabaril Contributors
    See the License for the specific language governing permissions and
    limitations under the License.
 
---- Shipped with Microsoft.AspNetCore.Authentication.JwtBearer 10.0.14, Microsoft.AspNetCore.Authentication.OpenIdConnect 10.0.14, Microsoft.AspNetCore.OpenApi 10.0.14, Microsoft.Extensions.Caching.StackExchangeRedis 10.0.12, Microsoft.Extensions.Diagnostics.HealthChecks 10.0.12, Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 10.0.12, Microsoft.Extensions.Features 10.0.13, Microsoft.Extensions.Http.Polly 10.0.11, Microsoft.Extensions.ObjectPool 10.0.13
+--- Shipped with Microsoft.AspNetCore.Authentication.JwtBearer 10.0.14, Microsoft.AspNetCore.Authentication.OpenIdConnect 10.0.14, Microsoft.AspNetCore.OpenApi 10.0.14, Microsoft.Extensions.Caching.StackExchangeRedis 10.0.12, Microsoft.Extensions.Diagnostics.HealthChecks 10.0.12, Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions 10.0.12, Microsoft.Extensions.Features 10.0.13, Microsoft.Extensions.Http.Polly 10.0.14, Microsoft.Extensions.ObjectPool 10.0.13
 
 .NET Core uses third-party libraries or other resources that may be
 distributed under licenses different than the .NET Core software.

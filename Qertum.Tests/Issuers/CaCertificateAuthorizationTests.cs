@@ -126,4 +126,31 @@ public sealed class CaCertificateAuthorizationTests
             new RevokeRequest("keyCompromise"), Ct);
         Assert.Equal(HttpStatusCode.Accepted, allowed.StatusCode);
     }
+
+    [Theory]
+    [InlineData("RootCA", "leaf-op")]
+    [InlineData("SubordinateCA", "leaf-op")]
+    [InlineData("SubordinateCA", "ca-op")]
+    public async Task AnIssuedCaCannotBeRelabeledToBypassRevocationAuthorization(string type, string role)
+    {
+        await using var host = new IssuerApiHost();
+        var (_, rootRequest) = await SetUpAsync(host);
+        await using (var db = host.Kit.Database.CreateContext())
+        {
+            var row = await db.CertificateRequests.SingleAsync(r => r.Id == rootRequest, Ct);
+            row.Type = type;
+            await db.SaveChangesAsync(Ct);
+        }
+
+        using var client = host.Role(role);
+        using var update = await client.PutAsJsonAsync($"/v1/certificate-requests/{(Guid)rootRequest}",
+            new UpdateCertificateRequestRequest { CommonName = "Old Root", Type = "WebServer", PropertiesJson = "{}" }, Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, update.StatusCode);
+        Assert.Equal(type, (await StatusAsync(host, (Guid)rootRequest)).Type);
+        using var leaf = host.Role("leaf-op");
+        using var revoke = await leaf.PostAsJsonAsync($"/v1/certificate-requests/{(Guid)rootRequest}/revoke",
+            new RevokeRequest("keyCompromise"), Ct);
+        Assert.Equal(HttpStatusCode.Forbidden, revoke.StatusCode);
+    }
 }

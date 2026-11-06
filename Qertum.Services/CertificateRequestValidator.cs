@@ -39,15 +39,37 @@ public static partial class CertificateRequestValidator
     public static bool ContainsInvalidDnChars(string? value) =>
         !string.IsNullOrEmpty(value) && value.IndexOfAny(InvalidDnChars) >= 0;
 
+    /// <summary>
+    /// Most subject alternative names one request may carry, all kinds together (the ACME order limit too). Every name
+    /// is validated, stored, evaluated by policy and encoded into the certificate, so an unbounded list let any holder
+    /// of <c>certificates.create</c> spend CPU, memory and storage at will (AI Scan, 1.0.0-rc6).
+    /// </summary>
+    public const int MaxSubjectAlternativeNames = 100;
+
+    /// <summary>Longest <c>PropertiesJson</c> accepted, in characters: room for <see cref="MaxSubjectAlternativeNames"/> long names.</summary>
+    public const int MaxPropertiesJsonLength = 64 * 1024;
+
     /// <summary>Validates the JSON-encoded certificate properties (SANs etc.).</summary>
     public static bool ValidatePropertiesJson(string propertiesJson, out string? errorMessage)
     {
         errorMessage = null;
         if (string.IsNullOrWhiteSpace(propertiesJson)) return true;
+        if (propertiesJson.Length > MaxPropertiesJsonLength)
+        {
+            errorMessage = $"Properties JSON is longer than {MaxPropertiesJsonLength} characters.";
+            return false;
+        }
 
         try
         {
             var props = JsonSerializer.Deserialize<CertificateProperties>(propertiesJson, AppJsonOptions.Default);
+            var names = (props?.DnsNames?.Count ?? 0) + (props?.IpAddresses?.Count ?? 0)
+                        + (props?.EmailAddresses?.Count ?? 0) + (props?.UserPrincipalNames?.Count ?? 0);
+            if (names > MaxSubjectAlternativeNames)
+            {
+                errorMessage = $"A request may carry at most {MaxSubjectAlternativeNames} subject alternative names (got {names}).";
+                return false;
+            }
             var invalidDns = props?.DnsNames?.FirstOrDefault(dns => !IsValidDnsName(dns));
             if (invalidDns != null)
             {

@@ -307,8 +307,15 @@ public static class ApiEndpointMappings
             var performedBy = claimsMapper.GetName(httpContext.User);
             var requester = Policies.RequesterRoles.From(claimsMapper.GetRoles(httpContext.User));
             var caller = await CallerOf(httpContext, claimsMapper, callerResolver, cancellationToken);
-            var certificateRequest = await service.UpdateAsync(new CertificateRequestId(id), request, performedBy, requester, caller, cancellationToken);
-            return certificateRequest is null ? ApiProblem.NotFound() : Results.Ok(certificateRequest);
+            try
+            {
+                var certificateRequest = await service.UpdateAsync(new CertificateRequestId(id), request, performedBy, requester, caller, cancellationToken);
+                return certificateRequest is null ? ApiProblem.NotFound() : Results.Ok(certificateRequest);
+            }
+            catch (CertificateRequestUpdateConflictException ex)
+            {
+                return ApiProblem.Conflict(ex.Message);
+            }
         }).RequireAuthorization(AppPermissions.CertificatesManage);
 
         certificateRequests.MapDelete("/{id:guid}", async (Guid id, CertificateRequestApiService service, HttpContext httpContext, IIdentityClaimsMapper claimsMapper, CancellationToken cancellationToken) =>
@@ -1454,16 +1461,20 @@ public static class ApiEndpointMappings
 
     private static void MapCrlEndpoint(IEndpointRouteBuilder group, string path)
     {
-        group.MapGet(path, async (IIssuerRegistry issuers, CrlPublisher publisher, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
-            await ServeFullCrlAsync(await issuers.ForUnscopedCrlAsync(ct), publisher, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct));
+        // Anonymous like OCSP, so the same per-caller window ("api") applies; CrlBuildGate keeps a burst of cache
+        // misses from building the same CRL more than once.
+        group.MapGet(path, async (IIssuerRegistry issuers, CrlPublisher publisher, CrlBuildGate gate, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
+            await ServeFullCrlAsync(await issuers.ForUnscopedCrlAsync(ct), publisher, gate, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct))
+            .RequireRateLimiting("api");
 
-        group.MapGet($"{path}/{{issuerId:guid}}", async (Guid issuerId, IIssuerRegistry issuers, CrlPublisher publisher, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
-            await ServeFullCrlAsync(await issuers.GetAsync(new IssuerId(issuerId), ct), publisher, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct, notFoundWhenMissing: true));
+        group.MapGet($"{path}/{{issuerId:guid}}", async (Guid issuerId, IIssuerRegistry issuers, CrlPublisher publisher, CrlBuildGate gate, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
+            await ServeFullCrlAsync(await issuers.GetAsync(new IssuerId(issuerId), ct), publisher, gate, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct, notFoundWhenMissing: true))
+            .RequireRateLimiting("api");
     }
 
     private const string CrlLoggerCategory = "Qertum.Services.Crl";
 
-    private static async Task<IResult> ServeFullCrlAsync(IssuerHandle? issuer, CrlPublisher publisher, IDistributedCache cache,
+    private static async Task<IResult> ServeFullCrlAsync(IssuerHandle? issuer, CrlPublisher publisher, CrlBuildGate gate, IDistributedCache cache,
         ILogger logger, CancellationToken ct, bool notFoundWhenMissing = false)
     {
         if (issuer is null)
@@ -1485,24 +1496,29 @@ public static class ApiEndpointMappings
         if (!issuer.CanSignRevocation)
             return Results.Problem("This issuer cannot publish a CRL yet.", statusCode: 503);
 
-        var published = await publisher.PublishFullCrlAsync(issuer, tolerateCacheFailure: true, ct);
-        return Results.Bytes(published.Bytes, "application/pkix-crl", "ca.crl");
+        var key = CrlCache.KeyFor(issuer.Issuer);
+        var bytes = await gate.GetOrBuildAsync(key, () => cache.TryGetAsync(key, logger, ct),
+            async () => (await publisher.PublishFullCrlAsync(issuer, tolerateCacheFailure: true, ct)).Bytes, ct);
+        return Results.Bytes(bytes, "application/pkix-crl", "ca.crl");
     }
 
     private static void MapDeltaCrlEndpoint(IEndpointRouteBuilder group, string path)
     {
         // path is "/crl/delta"; per-issuer forms are "/crl/{id}/delta" and "/crl/delta/{id}".
-        group.MapGet(path, async (IIssuerRegistry issuers, CertificateRequestApiService service, IssuerCrlState crlState, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
-            await ServeDeltaCrlAsync(await issuers.ForUnscopedCrlAsync(ct), service, crlState, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct));
-        group.MapGet($"{path}/{{issuerId:guid}}", async (Guid issuerId, IIssuerRegistry issuers, CertificateRequestApiService service, IssuerCrlState crlState, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
-            await ServeDeltaCrlAsync(await issuers.GetAsync(new IssuerId(issuerId), ct), service, crlState, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct, notFoundWhenMissing: true));
+        group.MapGet(path, async (IIssuerRegistry issuers, CertificateRequestApiService service, IssuerCrlState crlState, CrlBuildGate gate, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
+            await ServeDeltaCrlAsync(await issuers.ForUnscopedCrlAsync(ct), service, crlState, gate, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct))
+            .RequireRateLimiting("api");
+        group.MapGet($"{path}/{{issuerId:guid}}", async (Guid issuerId, IIssuerRegistry issuers, CertificateRequestApiService service, IssuerCrlState crlState, CrlBuildGate gate, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
+            await ServeDeltaCrlAsync(await issuers.GetAsync(new IssuerId(issuerId), ct), service, crlState, gate, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct, notFoundWhenMissing: true))
+            .RequireRateLimiting("api");
         var crlRoot = path[..path.LastIndexOf('/')];
-        group.MapGet($"{crlRoot}/{{issuerId:guid}}/delta", async (Guid issuerId, IIssuerRegistry issuers, CertificateRequestApiService service, IssuerCrlState crlState, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
-            await ServeDeltaCrlAsync(await issuers.GetAsync(new IssuerId(issuerId), ct), service, crlState, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct, notFoundWhenMissing: true));
+        group.MapGet($"{crlRoot}/{{issuerId:guid}}/delta", async (Guid issuerId, IIssuerRegistry issuers, CertificateRequestApiService service, IssuerCrlState crlState, CrlBuildGate gate, IDistributedCache cache, ILoggerFactory loggerFactory, CancellationToken ct) =>
+            await ServeDeltaCrlAsync(await issuers.GetAsync(new IssuerId(issuerId), ct), service, crlState, gate, cache, loggerFactory.CreateLogger(CrlLoggerCategory), ct, notFoundWhenMissing: true))
+            .RequireRateLimiting("api");
     }
 
     private static async Task<IResult> ServeDeltaCrlAsync(IssuerHandle? issuer, CertificateRequestApiService service,
-        IssuerCrlState crlState, IDistributedCache cache, ILogger logger, CancellationToken ct, bool notFoundWhenMissing = false)
+        IssuerCrlState crlState, CrlBuildGate gate, IDistributedCache cache, ILogger logger, CancellationToken ct, bool notFoundWhenMissing = false)
     {
         if (issuer is null)
             return notFoundWhenMissing ? ApiProblem.NotFound() : Results.Problem("CA certificate not configured.", statusCode: 503);
@@ -1526,13 +1542,20 @@ public static class ApiEndpointMappings
         if (baseNumber is not long baseCrlNumber || baseThisUpdate is not DateTime since)
             return Results.Problem("No base CRL has been published yet; fetch the full CRL first.", statusCode: 404);
 
-        var revokedSinceBase = await service.GetRevokedSinceForCrlAsync(since, issuer.Scope, ct);
-        var deltaCrlNumber = await crlState.ClaimNextCrlNumberAsync(issuer.Issuer, ct);
-        deltaBytes = issuer.Generator!.GenerateDeltaCrl(revokedSinceBase, settings, deltaCrlNumber, baseCrlNumber);
-
-        var cacheHours = settings.DeltaCrlValidityHours > 0 ? settings.DeltaCrlValidityHours : 6;
-        await cache.TrySetAsync(deltaKey, deltaBytes,
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(cacheHours) }, logger, ct);
+        deltaBytes = await gate.GetOrBuildAsync(deltaKey, () => cache.TryGetAsync(deltaKey, logger, ct), () => crlState.PublishAsync(issuer.Issuer, async deltaCrlNumber =>
+        {
+            // A full publication may have replaced the base while this request waited. Read it
+            // again under the same cross-host write lock held through this delta's cache write.
+            (baseNumber, baseThisUpdate) = await crlState.GetBaseAsync(issuer.Issuer, ct);
+            baseCrlNumber = baseNumber!.Value;
+            since = baseThisUpdate!.Value;
+            var revokedSinceBase = await service.GetRevokedSinceForCrlAsync(since, issuer.Scope, ct);
+            var built = issuer.Generator!.GenerateDeltaCrl(revokedSinceBase, settings, deltaCrlNumber, baseCrlNumber);
+            var cacheHours = settings.DeltaCrlValidityHours > 0 ? settings.DeltaCrlValidityHours : 6;
+            await cache.TrySetAsync(deltaKey, built,
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(cacheHours) }, logger, ct);
+            return built;
+        }, ct), ct);
         return Results.Bytes(deltaBytes, "application/pkix-crl", "ca-delta.crl");
     }
 

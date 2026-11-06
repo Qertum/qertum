@@ -9,6 +9,9 @@ internal sealed class CertificateRequestDeletionConflictException(CertificateReq
 {
 }
 
+internal sealed class CertificateRequestUpdateConflictException()
+    : InvalidOperationException("The certificate type cannot change after approval. File a new request instead.");
+
 public sealed class CertificateRequestService(
     CertificateRequestDbContext dbContext,
     IAuditLogService auditLog,
@@ -276,7 +279,7 @@ public sealed class CertificateRequestService(
     {
         return await source
             .AsNoTracking()
-            .Where(r => r.Status == CertificateRequestStatus.Revoked && r.RevokedAtUtc != null && r.RevokedAtUtc > sinceUtc)
+            .Where(r => r.Status == CertificateRequestStatus.Revoked && r.RevokedAtUtc != null && r.RevokedAtUtc >= sinceUtc)
             .OrderBy(r => r.RevokedAtUtc)
             .ThenBy(r => r.Id)
             .Select(r => new CertificateRequest
@@ -771,6 +774,10 @@ public sealed class CertificateRequestService(
 
     public async Task<CertificateRequest?> DequeueNextPendingRevocationAsync(CancellationToken cancellationToken = default)
     {
+        // Take the write lock before choosing the revocation time. A publisher must not miss a
+        // waiting revocation whose timestamp would otherwise precede the new base's cutoff.
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         // AsNoTracking for the same reason as DequeueNextApprovedAsync: the claim below is an
         // ExecuteUpdateAsync that the change tracker never sees.
         var next = await dbContext.CertificateRequests
@@ -798,6 +805,7 @@ public sealed class CertificateRequestService(
         // Detached, so this only shapes the returned value.
         next.Status = CertificateRequestStatus.Revoked;
         next.RevokedAtUtc = now;
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         await auditLog.LogAsync("Revoked", "queue-consumer", (Guid)next.Id, next.CommonName,
             string.IsNullOrWhiteSpace(next.RevocationReason) ? null : $"Reason: {next.RevocationReason}",
@@ -814,6 +822,8 @@ public sealed class CertificateRequestService(
 
     public async Task<CertificateRequest?> MarkAsRevokedAsync(CertificateRequestId id, string? reason, string performedBy, CancellationToken cancellationToken = default)
     {
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
         var existing = await dbContext.CertificateRequests
             .SingleOrDefaultAsync(r => r.Id == id, cancellationToken);
 
@@ -826,6 +836,7 @@ public sealed class CertificateRequestService(
         existing.RevocationReason = reason;
         existing.UpdatedAtUtc = now;
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         await auditLog.LogAsync("Revoked", performedBy, (Guid)id, existing.CommonName,
             string.IsNullOrWhiteSpace(reason) ? null : $"Reason: {reason}",
@@ -1001,6 +1012,17 @@ public sealed class CertificateRequestService(
         var policyDecision = await EnforcePolicyAsync(request, settings, PolicyEnforcementStage.Update,
             (Guid)id, performedBy, requester, caller, cancellationToken);
 
+        // Policy resolution can bootstrap the legacy issuer through another context, so finish
+        // it before taking the write lock. Refresh tracked state under that lock: approval may
+        // have completed while policy was being evaluated.
+        await using var transaction = dbContext.Database.CurrentTransaction is null
+            ? await dbContext.Database.BeginTransactionAsync(cancellationToken) : null;
+        await dbContext.Entry(existingRequest).ReloadAsync(cancellationToken);
+        if (dbContext.Entry(existingRequest).State == EntityState.Detached)
+            return null;
+        if (existingRequest.Type != request.Type &&
+            existingRequest.Status is not (CertificateRequestStatus.Pending or CertificateRequestStatus.Rejected))
+            throw new CertificateRequestUpdateConflictException();
 
         existingRequest.CommonName = request.CommonName;
         // RequestedBy and RequestedBySubject are deliberately not updated: an update must not
@@ -1013,6 +1035,7 @@ public sealed class CertificateRequestService(
         existingRequest.UpdatedAtUtc = _clock.GetUtcNow().UtcDateTime;
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (transaction is not null) await transaction.CommitAsync(cancellationToken);
 
         _pqcStage.Record(pqcVerdict, (Guid)id, performedBy);
         AttachWarnings(existingRequest, pqcVerdict, policyDecision);
@@ -1389,19 +1412,22 @@ public sealed class CertificateRequestService(
         // Ensure the singleton row exists before incrementing it.
         await GetSettingsAsync(cancellationToken);
 
-        // ExecuteUpdateAsync issues a single UPDATE ... SET CrlNumber = CrlNumber + 1, so the
-        // increment happens in the database rather than read-modify-write in memory. Two instances
-        // publishing simultaneously therefore claim distinct numbers.
-        await dbContext.Settings
-            .Where(s => s.Id == 1)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CrlNumber, x => x.CrlNumber + 1), cancellationToken);
+        // UPDATE ... SET CrlNumber = CrlNumber + 1 increments in the database, and the read of the claimed value
+        // runs in the same write transaction, so two publishers can neither claim nor read the same number
+        // (IssuerCrlState.ClaimNextCrlNumberAsync).
+        return await Issuers.IssuerCrlState.InWriteTransactionAsync(dbContext, async () =>
+        {
+            await dbContext.Settings
+                .Where(s => s.Id == 1)
+                .ExecuteUpdateAsync(s => s.SetProperty(x => x.CrlNumber, x => x.CrlNumber + 1), cancellationToken);
 
-        // The tracked entity still holds the pre-increment value after ExecuteUpdateAsync.
-        return await dbContext.Settings
-            .Where(s => s.Id == 1)
-            .AsNoTracking()
-            .Select(s => s.CrlNumber)
-            .SingleAsync(cancellationToken);
+            // The tracked entity still holds the pre-increment value after ExecuteUpdateAsync.
+            return await dbContext.Settings
+                .Where(s => s.Id == 1)
+                .AsNoTracking()
+                .Select(s => s.CrlNumber)
+                .SingleAsync(cancellationToken);
+        }, cancellationToken);
     }
 
     /// <inheritdoc />
